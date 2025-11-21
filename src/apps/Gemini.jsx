@@ -63,48 +63,69 @@ const Gemini = () => {
     };
 
     return (
-        <div className="relative h-full overflow-hidden bg-gradient-to-br from-purple-600 via-pink-500 to-blue-500 flex flex-col">
+        <div className="relative h-full overflow-hidden bg-gradient-to-br from-purple-600 via-pink-500 to-blue-500 flex flex-col font-sans">
             {/* Animated gradient overlay */}
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-400/30 via-pink-400/30 to-blue-400/30 animate-pulse"></div>
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-400/30 via-pink-400/30 to-blue-400/30 animate-pulse pointer-events-none"></div>
 
             {/* Content */}
-            <div className="relative z-10 flex-1 flex flex-col items-center justify-between p-8 overflow-hidden">
+            <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
 
                 {/* Messages Area */}
-                <div className="w-full max-w-2xl flex-1 overflow-y-auto mb-6 space-y-4 scrollbar-hide">
+                <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
                     {messages.length === 0 && (
-                        <div className="h-full flex flex-col items-center justify-center text-white/80 text-center">
-                            <div className="w-24 h-24 mb-6 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-2xl">
-                                <span className="text-5xl">✨</span>
+                        <div className="h-full flex flex-col items-center justify-center text-white/90 text-center mt-10">
+                            <div className="w-20 h-20 mb-4 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-lg ring-1 ring-white/40">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-10 h-10 text-white">
+                                    <path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813a3.75 3.75 0 002.576-2.576l.813-2.846A.75.75 0 019 4.5zM9 15a.75.75 0 01.75.75v1.5h1.5a.75.75 0 010 1.5h-1.5v1.5a.75.75 0 01-1.5 0v-1.5h-1.5a.75.75 0 010-1.5h1.5v-1.5A.75.75 0 019 15z" clipRule="evenodd" />
+                                </svg>
                             </div>
-                            <h2 className="text-3xl font-light mb-2">Ask me anything</h2>
-                            <p className="text-sm opacity-70">Powered by Gemini AI</p>
+                            <h2 className="text-2xl font-medium mb-1">Gemini</h2>
+                            <p className="text-sm opacity-80">How can I help you today?</p>
                         </div>
                     )}
 
                     {messages.map((msg, index) => (
                         <div
                             key={index}
-                            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
+                            className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} animate-fadeIn`}
                         >
+                            {/* Avatar */}
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center">
+                                {msg.role === 'user' ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white">
+                                        <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM3.751 20.105a8.25 8.25 0 0116.498 0 .75.75 0 01-.437.695A18.683 18.683 0 0112 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 01-.437-.695z" clipRule="evenodd" />
+                                    </svg>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white">
+                                        <path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813a3.75 3.75 0 002.576-2.576l.813-2.846A.75.75 0 019 4.5z" clipRule="evenodd" />
+                                    </svg>
+                                )}
+                            </div>
+
+                            {/* Bubble */}
                             <div
-                                className={`max-w-[70%] rounded-3xl px-6 py-3 shadow-lg backdrop-blur-xl ${msg.role === 'user'
-                                    ? 'bg-white/90 text-gray-800'
-                                    : 'bg-white/20 text-white border border-white/30'
+                                className={`max-w-[75%] px-4 py-2.5 shadow-sm backdrop-blur-md text-[15px] leading-relaxed ${msg.role === 'user'
+                                    ? 'bg-[#007AFF] text-white rounded-2xl rounded-br-sm'
+                                    : 'bg-white/20 text-white border border-white/20 rounded-2xl rounded-bl-sm'
                                     }`}
                             >
-                                <p className="text-base leading-relaxed whitespace-pre-wrap font-light">{msg.text}</p>
+                                <p className="whitespace-pre-wrap">{msg.text}</p>
                             </div>
                         </div>
                     ))}
 
                     {isLoading && (
-                        <div className="flex justify-start animate-fadeIn">
-                            <div className="bg-white/20 text-white border border-white/30 rounded-3xl px-6 py-3 shadow-lg backdrop-blur-xl">
-                                <div className="flex gap-2 items-center">
-                                    <div className="w-2 h-2 rounded-full bg-white animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                    <div className="w-2 h-2 rounded-full bg-white animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                    <div className="w-2 h-2 rounded-full bg-white animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                        <div className="flex items-end gap-2 flex-row animate-fadeIn">
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white">
+                                    <path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813a3.75 3.75 0 002.576-2.576l.813-2.846A.75.75 0 019 4.5z" clipRule="evenodd" />
+                                </svg>
+                            </div>
+                            <div className="bg-white/20 text-white border border-white/20 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm backdrop-blur-md">
+                                <div className="flex gap-1.5 items-center h-5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '300ms' }}></div>
                                 </div>
                             </div>
                         </div>
@@ -114,21 +135,21 @@ const Gemini = () => {
                 </div>
 
                 {/* Input Area */}
-                <div className="w-full max-w-2xl">
-                    <div className="backdrop-blur-2xl bg-white/20 rounded-full border border-white/40 shadow-2xl px-6 py-4 flex items-center gap-3">
+                <div className="p-4 pt-2">
+                    <div className="backdrop-blur-xl bg-white/10 rounded-[20px] border border-white/20 shadow-lg p-1.5 flex items-center gap-2 transition-all focus-within:bg-white/20 focus-within:border-white/30">
                         <input
                             value={input}
                             onChange={handleInputChange}
                             onKeyDown={handleKeyDown}
                             placeholder="Ask Gemini..."
-                            className="flex-1 bg-transparent border-none focus:outline-none text-white placeholder-white/60 text-base font-light"
+                            className="flex-1 bg-transparent border-none focus:outline-none text-white placeholder-white/50 text-[15px] px-3 py-1.5"
                         />
                         <button
                             onClick={handleSend}
                             disabled={!input.trim() || isLoading}
-                            className="w-10 h-10 rounded-full bg-white/30 hover:bg-white/40 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all duration-200 active:scale-95"
+                            className="w-8 h-8 rounded-full bg-[#007AFF] hover:bg-[#0062cc] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-all duration-200 shadow-md active:scale-95"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-5 h-5">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-4 h-4">
                                 <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
                             </svg>
                         </button>
@@ -138,11 +159,11 @@ const Gemini = () => {
 
             <style>{`
         @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
+          from { opacity: 0; transform: translateY(5px); }
           to { opacity: 1; transform: translateY(0); }
         }
         .animate-fadeIn {
-          animation: fadeIn 0.4s ease-out;
+          animation: fadeIn 0.3s ease-out;
         }
         .scrollbar-hide::-webkit-scrollbar {
           display: none;

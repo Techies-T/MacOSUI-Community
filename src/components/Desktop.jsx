@@ -18,14 +18,23 @@ const Desktop = ({ user }) => {
       }
       // Open new window
       const maxZ = Math.max(...prev.map(w => w.zIndex), 0);
+
+      let width = 600;
+      let height = 400;
+
+      if (type === 'gemini') {
+        width = 400;
+        height = 650;
+      }
+
       return [...prev, {
         id: id || Date.now(),
         type,
         title,
         x: 150 + prev.length * 20,
-        y: 150 + prev.length * 20,
-        width: 600,
-        height: 400,
+        y: 100 + prev.length * 20,
+        width,
+        height,
         zIndex: maxZ + 1
       }];
     });
