@@ -3,7 +3,7 @@ import MenuBar from './MenuBar';
 import Dock from './Dock';
 import WindowManager from './WindowManager';
 
-const Desktop = () => {
+const Desktop = ({ user }) => {
   const [windows, setWindows] = useState([
     { id: 1, type: 'finder', title: 'Finder', x: 100, y: 100, width: 600, height: 400, zIndex: 1 },
   ]);
@@ -59,10 +59,10 @@ const Desktop = () => {
       }}
     >
       <MenuBar />
-      <WindowManager windows={windows} onFocus={bringToFront} onClose={closeWindow} />
+      <WindowManager windows={windows} onFocus={bringToFront} onClose={closeWindow} user={user} />
       <Dock onAppClick={(id) => {
         // Simple mapping for demo purposes
-        const titleMap = { calculator: 'Calculator', notes: 'Notes', finder: 'Finder' };
+        const titleMap = { calculator: 'Calculator', notes: 'Notes', finder: 'Finder', gemini: 'Gemini AI', settings: 'System Settings' };
         // Check if window of this type is already open, if so just focus it (for singleton apps in this demo)
         // Or allow multiple. Let's allow multiple for Finder, single for others? 
         // For simplicity, let's make them singletons based on ID for now.

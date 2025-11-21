@@ -4,8 +4,10 @@ import { motion } from 'framer-motion';
 const Dock = ({ onAppClick }) => {
     const apps = [
         { id: 'finder', name: 'Finder', icon: '😊' }, // Placeholder icons
+        { id: 'settings', name: 'Settings', icon: '⚙️' },
         { id: 'calculator', name: 'Calculator', icon: '🧮' },
         { id: 'notes', name: 'Notes', icon: '📝' },
+        { id: 'gemini', name: 'Gemini', icon: '✨' },
     ];
 
     return (

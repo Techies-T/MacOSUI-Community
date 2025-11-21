@@ -3,13 +3,17 @@ import Window from './Window';
 import Calculator from '../apps/Calculator';
 import Notes from '../apps/Notes';
 import Finder from '../apps/Finder';
+import Gemini from '../apps/Gemini';
+import SystemSettings from '../apps/SystemSettings';
 
-const WindowManager = ({ windows, onFocus, onClose }) => {
+const WindowManager = ({ windows, onFocus, onClose, user }) => {
     const renderApp = (type) => {
         switch (type) {
             case 'calculator': return <Calculator />;
             case 'notes': return <Notes />;
             case 'finder': return <Finder />;
+            case 'gemini': return <Gemini />;
+            case 'settings': return <SystemSettings user={user} />;
             default: return null;
         }
     };
