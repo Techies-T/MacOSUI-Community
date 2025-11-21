@@ -1,16 +1,56 @@
-# React + Vite
+# MacOS Web UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A web-based operating system interface inspired by macOS, built with React, Vite, and Tailwind CSS.
+It features a functional Desktop, Dock, Window Manager, and integrated apps including a Gemini AI Chat widget.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **MacOS-like UI**: Desktop, Dock, Menu Bar, and Window management.
+- **Gemini AI Widget**: A chat interface powered by Google's Gemini API, featuring a Siri-like aesthetic.
+- **System Activation**: Secure setup for API keys.
+- **Google Authentication**: Sign in with your Google account.
 
-## React Compiler
+## Prerequisites
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Node.js (v18 or higher)
+- npm
 
-## Expanding the ESLint configuration
+## Installation
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. Clone the repository.
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+## Running the Application
+
+Start the development server and the backend API concurrently:
+
+```bash
+npm run dev
+```
+
+The application will be available at `http://localhost:5173`.
+
+## System Activation (First Run)
+
+When you run the application for the first time, you will be presented with a **System Activation** screen. This is required to configure the backend with necessary API keys.
+
+1. **Google OAuth Credentials**:
+   - You need a Google Cloud Project with OAuth 2.0 credentials.
+   - Enter your `Client ID` and `Client Secret`.
+   - Ensure your authorized redirect URIs include `http://localhost:5173`.
+
+2. **Gemini API Key**:
+   - Get an API key from [Google AI Studio](https://aistudio.google.com/).
+   - Enter your `Gemini API Key`.
+
+3. Click **Activate System**.
+   - These settings are securely stored in a local SQLite database (`server/database.sqlite`).
+   - You will not need to enter them again unless you reset the database.
+
+## Development
+
+- **Frontend**: React + Vite (located in `src/`)
+- **Backend**: Express + SQLite (located in `server/`)
