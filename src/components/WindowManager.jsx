@@ -5,6 +5,7 @@ import Notes from '../apps/Notes';
 import Finder from '../apps/Finder';
 import Gemini from '../apps/Gemini';
 import SystemSettings from '../apps/SystemSettings';
+import Browser from '../apps/Browser';
 
 const WindowManager = ({ windows, onFocus, onClose, user }) => {
     const renderApp = (type) => {
@@ -14,6 +15,7 @@ const WindowManager = ({ windows, onFocus, onClose, user }) => {
             case 'finder': return <Finder />;
             case 'gemini': return <Gemini />;
             case 'settings': return <SystemSettings user={user} />;
+            case 'browser': return <Browser />;
             default: return null;
         }
     };

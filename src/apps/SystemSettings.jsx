@@ -1,7 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('Appearance');
+    const [models, setModels] = useState([]);
+    const [currentModel, setCurrentModel] = useState('');
+
+    useEffect(() => {
+        if (activeTab === 'System') {
+            // Fetch models
+            fetch('http://localhost:3000/api/gemini/models')
+                .then(res => res.json())
+                .then(data => setModels(data.models || []))
+                .catch(err => console.error("Failed to fetch models", err));
+
+            // Fetch current config
+            fetch('http://localhost:3000/api/config')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.geminiModel) {
+                        setCurrentModel(data.geminiModel);
+                    } else {
+                        // Default fallback if not set
+                        setCurrentModel('models/gemini-2.5-flash-preview-09-2025');
+                    }
+                })
+                .catch(err => console.error("Failed to fetch config", err));
+        }
+    }, [activeTab]);
+
+    const handleModelChange = async (modelName) => {
+        setCurrentModel(modelName);
+        try {
+            await fetch('http://localhost:3000/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ geminiModel: modelName })
+            });
+        } catch (err) {
+            console.error("Failed to save model selection", err);
+        }
+    };
 
     const sidebarItems = [
         { id: 'Appearance', icon: '🎨', label: 'Appearance' },
@@ -9,6 +47,24 @@ const SystemSettings = ({ user }) => {
         { id: 'System', icon: '🔒', label: 'System' },
         { id: 'Users', icon: '👥', label: 'Users & Groups' },
     ];
+
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredModels = models.filter(model =>
+        model.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        model.name.toLowerCase().includes(searchTerm.toLowerCase())
+    ).sort((a, b) => {
+        if (a.name === currentModel) return -1;
+        if (b.name === currentModel) return 1;
+        return 0;
+    });
+
+    const formatLimit = (num) => {
+        if (!num) return '-';
+        if (num >= 1000000) return (num / 1000000) + 'M';
+        if (num >= 1000) return (num / 1000) + 'k';
+        return num;
+    };
 
     return (
         <div className="flex h-full bg-[#f5f5f7] text-black font-sans text-sm">
@@ -86,7 +142,7 @@ const SystemSettings = ({ user }) => {
                         <p className="text-xs text-gray-500 mb-4">
                             These keys are stored securely in the database.
                         </p>
-                        <div className="space-y-3">
+                        <div className="space-y-3 mb-6">
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Google Client ID</label>
                                 <input type="text" disabled value="Configured" className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400" />
@@ -94,6 +150,72 @@ const SystemSettings = ({ user }) => {
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Gemini API Key</label>
                                 <input type="password" disabled value="********************" className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400" />
+                            </div>
+                        </div>
+
+                        {/* Selected Model Details */}
+                        {currentModel && models.find(m => m.name === currentModel) && (
+                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 text-xs mb-6">
+                                <h3 className="font-semibold mb-2 text-gray-700">Selected Model Specs</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <span className="block text-gray-500 mb-1">Description</span>
+                                        <p className="text-gray-800">{models.find(m => m.name === currentModel).description || 'No description available'}</p>
+                                    </div>
+                                    <div>
+                                        <span className="block text-gray-500 mb-1">Context Window</span>
+                                        <p className="text-gray-800">
+                                            Input: <span className="font-medium">{models.find(m => m.name === currentModel).inputTokenLimit?.toLocaleString()}</span> tokens<br />
+                                            Output: <span className="font-medium">{models.find(m => m.name === currentModel).outputTokenLimit?.toLocaleString()}</span> tokens
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center justify-between mb-3">
+                            <h2 className="font-semibold">Gemini Model List</h2>
+                            <input
+                                type="text"
+                                placeholder="Filter models..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="px-2 py-1 text-xs border border-gray-200 rounded bg-gray-50 focus:outline-none focus:border-blue-500 w-40"
+                            />
+                        </div>
+                        <div className="overflow-hidden border border-gray-200 rounded-lg mb-4">
+                            <div className="max-h-[300px] overflow-y-auto">
+                                <table className="w-full text-left text-xs table-fixed">
+                                    <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
+                                        <tr>
+                                            <th className="w-10 px-4 py-2 font-medium text-gray-500"></th>
+                                            <th className="px-4 py-2 font-medium text-gray-500">Name</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {filteredModels.map((model) => (
+                                            <tr key={model.name} className={`hover:bg-gray-50 ${currentModel === model.name ? 'bg-blue-50' : ''} cursor-pointer`} onClick={() => handleModelChange(model.name)}>
+                                                <td className="px-4 py-2 text-center">
+                                                    <input
+                                                        type="radio"
+                                                        name="geminiModel"
+                                                        checked={currentModel === model.name}
+                                                        onChange={() => handleModelChange(model.name)}
+                                                        className="text-blue-600 focus:ring-blue-500 pointer-events-none"
+                                                    />
+                                                </td>
+                                                <td className="px-4 py-2 font-medium break-words" title={model.displayName}>{model.displayName}</td>
+                                            </tr>
+                                        ))}
+                                        {filteredModels.length === 0 && (
+                                            <tr>
+                                                <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
+                                                    {models.length === 0 ? 'Loading models...' : 'No models found'}
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>

@@ -43,10 +43,12 @@ app.get('/api/config', async (req, res) => {
         const geminiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
 
         const isConfigured = !!(clientId && clientSecret && geminiKey);
+        const geminiModel = await db.getSetting('GEMINI_MODEL');
 
         res.json({
             clientId: clientId || '',
-            isConfigured
+            isConfigured,
+            geminiModel
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -56,12 +58,13 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel } = req.body;
 
     try {
-        await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
-        await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
-        await db.setSetting('GEMINI_API_KEY', geminiApiKey);
+        if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
+        if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
+        if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
+        if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
 
         res.json({ success: true });
     } catch (error) {
@@ -150,11 +153,47 @@ app.post('/api/auth/logout', (req, res) => {
 
 // Gemini API endpoint
 // Gemini API endpoint
-// Gemini API endpoint
+app.get('/api/gemini/models', async (req, res) => {
+    try {
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        console.log("Using API Key:", apiKey ? apiKey.substring(0, 5) + "..." : "None");
+
+        if (!apiKey) {
+            return res.status(500).json({ error: "GEMINI_API_KEY is not set on server" });
+        }
+
+        const client = new GoogleGenAI({ apiKey });
+        const response = await client.models.list();
+
+        // The SDK response object is complex, but stringifying it reveals the 'models' array.
+        // Using this as a robust fallback to access the data.
+        const jsonResponse = JSON.parse(JSON.stringify(response));
+        // Check for 'models' or 'pageInternal' (which seems to be where models are stored in some SDK versions)
+        const modelsList = jsonResponse.models || jsonResponse.pageInternal || [];
+
+        // Filter and format models
+        const models = modelsList.filter(m =>
+            m.supportedActions && m.supportedActions.includes('generateContent')
+        ).map(m => ({
+            name: m.name,
+            displayName: m.displayName,
+            description: m.description,
+            inputTokenLimit: m.inputTokenLimit,
+            outputTokenLimit: m.outputTokenLimit
+        }));
+
+        res.json({ models });
+    } catch (error) {
+        console.error("Error listing models:", error);
+        res.status(500).json({ error: "Failed to list models" });
+    }
+});
+
 app.post('/api/gemini', async (req, res) => {
     const { message, history } = req.body;
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const modelName = await db.getSetting('GEMINI_MODEL') || "gemini-2.5-flash-preview-09-2025";
 
         if (!apiKey) {
             return res.status(500).json({ error: "GEMINI_API_KEY is not set on server" });
@@ -165,7 +204,7 @@ app.post('/api/gemini', async (req, res) => {
 
         // Create chat session
         const chat = client.chats.create({
-            model: "gemini-2.5-flash-preview-09-2025",
+            model: modelName,
             history: history || [],
             config: {
                 maxOutputTokens: 1000,
@@ -173,7 +212,7 @@ app.post('/api/gemini', async (req, res) => {
         });
 
         // Send message with retry logic for Overload (503) and Rate Limit (429)
-        let retries = 5;
+        let retries = 3;
         let result;
         let delay = 1000; // Start with 1s
 
@@ -198,6 +237,10 @@ app.post('/api/gemini', async (req, res) => {
         // Get response text (new SDK uses .text property)
         const text = result.text;
 
+        if (!text) {
+            throw new Error("Empty response from Gemini");
+        }
+
         res.json({ reply: text });
     } catch (error) {
         console.error("Error calling Gemini API:", error);
@@ -207,6 +250,21 @@ app.post('/api/gemini', async (req, res) => {
             error: "Failed to fetch response from Gemini",
             details: errorMessage
         });
+    }
+});
+
+// File System: Read file content
+app.get('/api/fs/read', async (req, res) => {
+    const { path: filePath } = req.query;
+    if (!filePath) return res.status(400).json({ error: 'Path is required' });
+
+    try {
+        const fs = require('fs').promises;
+        const content = await fs.readFile(filePath, 'utf-8');
+        res.json({ content });
+    } catch (error) {
+        console.error("File Read Error:", error);
+        res.status(500).json({ error: 'Failed to read file' });
     }
 });
 

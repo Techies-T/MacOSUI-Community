@@ -25,6 +25,9 @@ const Desktop = ({ user }) => {
       if (type === 'gemini') {
         width = 400;
         height = 650;
+      } else if (type === 'browser') {
+        width = 800;
+        height = 600;
       }
 
       return [...prev, {
@@ -71,7 +74,7 @@ const Desktop = ({ user }) => {
       <WindowManager windows={windows} onFocus={bringToFront} onClose={closeWindow} user={user} />
       <Dock onAppClick={(id) => {
         // Simple mapping for demo purposes
-        const titleMap = { calculator: 'Calculator', notes: 'Notes', finder: 'Finder', gemini: 'Gemini AI', settings: 'System Settings' };
+        const titleMap = { calculator: 'Calculator', notes: 'Notes', finder: 'Finder', gemini: 'Gemini AI', settings: 'System Settings', browser: 'Safari' };
         // Check if window of this type is already open, if so just focus it (for singleton apps in this demo)
         // Or allow multiple. Let's allow multiple for Finder, single for others? 
         // For simplicity, let's make them singletons based on ID for now.

@@ -26,6 +26,9 @@ const Gemini = () => {
         setInput('');
         setIsLoading(true);
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
         try {
             const history = messages.map(m => ({
                 role: m.role,
@@ -39,8 +42,10 @@ const Gemini = () => {
                     message: userMessage.text,
                     history: history
                 }),
+                signal: controller.signal
             });
 
+            clearTimeout(timeoutId);
             const data = await response.json();
 
             if (response.ok) {
@@ -49,7 +54,11 @@ const Gemini = () => {
                 setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error: " + data.error }]);
             }
         } catch (error) {
-            setMessages(prev => [...prev, { role: 'model', text: "Sorry, I couldn't reach the server." }]);
+            if (error.name === 'AbortError') {
+                setMessages(prev => [...prev, { role: 'model', text: "Request timed out. Please try again." }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'model', text: "Sorry, I couldn't reach the server." }]);
+            }
         } finally {
             setIsLoading(false);
         }
