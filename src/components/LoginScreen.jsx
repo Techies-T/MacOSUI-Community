@@ -37,6 +37,7 @@ const LoginScreen = ({ onLogin }) => {
             }
         },
         flow: 'auth-code',
+        scope: 'https://www.googleapis.com/auth/drive.readonly'
     });
 
     return (

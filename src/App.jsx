@@ -62,6 +62,15 @@ const App = () => {
         setUser(userData);
     };
 
+    const handleLogout = async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            setUser(null);
+        } catch (error) {
+            console.error("Logout failed", error);
+        }
+    };
+
     if (loadingConfig || loadingSession) {
         return <div className="w-full h-screen bg-black text-white flex items-center justify-center">Loading System...</div>;
     }
@@ -73,7 +82,7 @@ const App = () => {
     return (
         <GoogleOAuthProvider clientId={config.clientId}>
             {user ? (
-                <Desktop user={user} />
+                <Desktop user={user} onLogout={handleLogout} />
             ) : (
                 <LoginScreen onLogin={handleLogin} />
             )}

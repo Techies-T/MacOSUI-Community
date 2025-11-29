@@ -12,7 +12,7 @@ const WindowManager = ({ windows, onFocus, onClose, user }) => {
         switch (type) {
             case 'calculator': return <Calculator />;
             case 'notes': return <Notes />;
-            case 'finder': return <Finder />;
+            case 'finder': return <Finder user={user} />;
             case 'gemini': return <Gemini />;
             case 'settings': return <SystemSettings user={user} />;
             case 'browser': return <Browser />;

@@ -4,6 +4,8 @@ const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('Appearance');
     const [models, setModels] = useState([]);
     const [currentModel, setCurrentModel] = useState('');
+    const [driveRootId, setDriveRootId] = useState('');
+    const [geminiApiKey, setGeminiApiKey] = useState('');
 
     useEffect(() => {
         if (activeTab === 'System') {
@@ -23,6 +25,9 @@ const SystemSettings = ({ user }) => {
                         // Default fallback if not set
                         setCurrentModel('models/gemini-2.5-flash-preview-09-2025');
                     }
+                    if (data.googleDriveRootId) {
+                        setDriveRootId(data.googleDriveRootId);
+                    }
                 })
                 .catch(err => console.error("Failed to fetch config", err));
         }
@@ -38,6 +43,35 @@ const SystemSettings = ({ user }) => {
             });
         } catch (err) {
             console.error("Failed to save model selection", err);
+        }
+    };
+
+    const handleSaveDriveRoot = async () => {
+        try {
+            await fetch('http://localhost:3000/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ googleDriveRootId: driveRootId })
+            });
+            alert('Drive Root ID saved!');
+        } catch (err) {
+            console.error("Failed to save drive root", err);
+            alert('Failed to save.');
+        }
+    };
+
+    const handleSaveGeminiKey = async () => {
+        try {
+            await fetch('http://localhost:3000/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ geminiApiKey })
+            });
+            alert('Gemini API Key saved!');
+            setGeminiApiKey('');
+        } catch (err) {
+            console.error("Failed to save Gemini API Key", err);
+            alert('Failed to save.');
         }
     };
 
@@ -149,7 +183,40 @@ const SystemSettings = ({ user }) => {
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Gemini API Key</label>
-                                <input type="password" disabled value="********************" className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400" />
+                                <div className="flex gap-2">
+                                    <input
+                                        type="password"
+                                        value={geminiApiKey}
+                                        onChange={(e) => setGeminiApiKey(e.target.value)}
+                                        placeholder="Enter new API Key to update"
+                                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                                    />
+                                    <button
+                                        onClick={handleSaveGeminiKey}
+                                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                    >
+                                        Save
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Google Drive Root Folder ID (Optional)</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={driveRootId}
+                                        onChange={(e) => setDriveRootId(e.target.value)}
+                                        placeholder="Folder ID (leave empty for root)"
+                                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                                    />
+                                    <button
+                                        onClick={handleSaveDriveRoot}
+                                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                    >
+                                        Save
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">Only files within this folder will be shown in Finder.</p>
                             </div>
                         </div>
 

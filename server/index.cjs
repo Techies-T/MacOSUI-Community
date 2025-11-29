@@ -37,18 +37,21 @@ app.get('/api/health', (req, res) => {
 
 // Config: Get public config and status
 app.get('/api/config', async (req, res) => {
+    console.log("Config endpoint hit");
     try {
         const clientId = await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID;
         const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET') || process.env.GOOGLE_CLIENT_SECRET;
         const geminiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const googleDriveRootId = await db.getSetting('GOOGLE_DRIVE_ROOT_ID');
 
-        const isConfigured = !!(clientId && clientSecret && geminiKey);
+        const isConfigured = !!(clientId && clientSecret);
         const geminiModel = await db.getSetting('GEMINI_MODEL');
 
         res.json({
             clientId: clientId || '',
             isConfigured,
-            geminiModel
+            geminiModel,
+            googleDriveRootId: googleDriveRootId || ''
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -58,13 +61,14 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId } = req.body;
 
     try {
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
         if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
         if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
         if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
+        if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
 
         res.json({ success: true });
     } catch (error) {
@@ -72,6 +76,16 @@ app.post('/api/config', async (req, res) => {
         res.status(500).json({ error: 'Failed to save settings' });
     }
 });
+
+// ... (Auth endpoints skipped for brevity in replacement, but need to ensure context matches) ...
+
+// ... (Gemini endpoints skipped) ...
+
+// ... (FS endpoints skipped) ...
+
+// Google Drive API endpoints are defined later in the file
+const { google } = require('googleapis');
+
 
 // Auth: Exchange code for token
 app.post('/api/auth/google', async (req, res) => {
@@ -98,22 +112,26 @@ app.post('/api/auth/google', async (req, res) => {
         const email = payload.email;
         const name = payload.name;
         const avatarUrl = payload.picture;
+        const accessToken = tokens.access_token;
+        const refreshToken = tokens.refresh_token;
 
         // Upsert user
-        db.run(`INSERT INTO users (google_id, email, name, avatar_url) 
-            VALUES (?, ?, ?, ?) 
+        console.log(`Login: Upserting user ${googleId}. Has Refresh Token: ${!!refreshToken}`);
+
+        db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token) 
+            VALUES (?, ?, ?, ?, ?, ?) 
             ON CONFLICT(google_id) DO UPDATE SET 
-            email=excluded.email, name=excluded.name, avatar_url=excluded.avatar_url`,
-            [googleId, email, name, avatarUrl],
+            email=excluded.email, name=excluded.name, avatar_url=excluded.avatar_url, access_token=excluded.access_token` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
+            [googleId, email, name, avatarUrl, accessToken, refreshToken || null],
             function (err) {
                 if (err) {
-                    console.error(err);
+                    console.error("DB Upsert Error:", err);
                     return res.status(500).json({ error: 'Database error' });
                 }
 
                 // Create Session JWT
                 const token = jwt.sign(
-                    { id: this.lastID || 0, googleId, email, name, avatarUrl }, // simplified, ideally query back the ID
+                    { id: this.lastID || 0, googleId, email, name, avatarUrl }, // simplified
                     process.env.JWT_SECRET || 'secret',
                     { expiresIn: '7d' }
                 );
@@ -265,6 +283,163 @@ app.get('/api/fs/read', async (req, res) => {
     } catch (error) {
         console.error("File Read Error:", error);
         res.status(500).json({ error: 'Failed to read file' });
+    }
+});
+
+// Google Drive API endpoints
+// Google Drive API endpoints
+
+// Helper to get Drive Client
+async function getDriveClient(req, res) {
+    const token = req.cookies.token;
+    if (!token) {
+        res.status(401).json({ error: 'Not authenticated' });
+        return null;
+    }
+
+    return new Promise((resolve) => {
+        jwt.verify(token, process.env.JWT_SECRET || 'secret', async (err, decoded) => {
+            if (err) {
+                res.status(403).json({ error: 'Invalid token' });
+                resolve(null);
+                return;
+            }
+
+            // Get user tokens from DB
+            db.get("SELECT access_token, refresh_token FROM users WHERE google_id = ?", [decoded.googleId], async (err, row) => {
+                if (err) {
+                    console.error("DB Error in getDriveClient:", err);
+                    res.status(500).json({ error: 'Database error' });
+                    resolve(null);
+                    return;
+                }
+                if (!row || !row.access_token) {
+                    console.error("No access token found for user:", decoded.googleId);
+                    res.status(401).json({ error: 'No access token found. Please login again.' });
+                    resolve(null);
+                    return;
+                }
+
+                console.log(`Drive Client: Using token for user ${decoded.googleId}. Has Refresh Token: ${!!row.refresh_token}`);
+
+                const oAuth2Client = await getOAuthClient();
+                oAuth2Client.setCredentials({
+                    access_token: row.access_token,
+                    refresh_token: row.refresh_token
+                });
+
+                // Listen for new tokens and update DB
+                oAuth2Client.on('tokens', (tokens) => {
+                    console.log("OAuth Client: Received new tokens");
+                    if (tokens.access_token) {
+                        const updateSql = `UPDATE users SET access_token = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
+                        const params = [tokens.access_token];
+                        if (tokens.refresh_token) params.push(tokens.refresh_token);
+                        params.push(decoded.googleId);
+
+                        db.run(updateSql, params, (err) => {
+                            if (err) console.error("Failed to update refreshed tokens in DB:", err);
+                            else console.log("Updated refreshed tokens in DB");
+                        });
+                    }
+                });
+
+                // Force token refresh check
+                try {
+                    // This will refresh the token if it's expired
+                    await oAuth2Client.getAccessToken();
+                } catch (tokenErr) {
+                    console.error("Failed to refresh access token:", tokenErr);
+                    // If refresh fails (e.g. revoked), we might want to fail here
+                    // But let's try to proceed or return null
+                }
+
+                console.log("Drive Client: Resolving with client");
+                resolve(google.drive({ version: 'v3', auth: oAuth2Client }));
+            });
+        });
+    });
+}
+
+
+
+app.get('/api/drive/list', async (req, res) => {
+    try {
+        res.set('Cache-Control', 'no-store');
+        const drive = await getDriveClient(req, res);
+        if (!drive) return; // Response already sent
+
+        let folderId = req.query.folderId;
+
+        // If folderId is 'root' or not provided, check for configured root ID
+        if (!folderId || folderId === 'root') {
+            const configuredRoot = await db.getSetting('GOOGLE_DRIVE_ROOT_ID');
+            folderId = configuredRoot || 'root';
+        }
+
+        // Extract ID if it's a URL
+        if (folderId && folderId.includes('drive.google.com')) {
+            const match = folderId.match(/[-\w]{25,}/);
+            if (match) {
+                folderId = match[0];
+            }
+        }
+
+        const response = await drive.files.list({
+            q: `'${folderId}' in parents and trashed = false`,
+            fields: 'nextPageToken, files(id, name, mimeType, iconLink, webViewLink, thumbnailLink)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true
+        });
+        res.json({ files: response.data.files });
+    } catch (error) {
+        console.error("Drive List Fatal Error:", error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Internal Server Error', details: error.message });
+        }
+    }
+});
+
+app.get('/api/drive/read', async (req, res) => {
+    const drive = await getDriveClient(req, res);
+    if (!drive) return;
+
+    const fileId = req.query.fileId;
+    if (!fileId) return res.status(400).json({ error: 'File ID required' });
+
+    try {
+        // Check mimeType first
+        const fileMeta = await drive.files.get({
+            fileId,
+            fields: 'mimeType, name, webViewLink',
+            supportsAllDrives: true
+        });
+        const mimeType = fileMeta.data.mimeType;
+
+        if (mimeType === 'application/vnd.google-apps.document') {
+            // Export Google Docs to HTML
+            const response = await drive.files.export({
+                fileId,
+                mimeType: 'text/html',
+            });
+            res.json({ content: response.data, type: 'html', name: fileMeta.data.name });
+        } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+            // Export Sheets to PDF (or CSV) - let's do PDF for now or CSV? Browser can't read CSV easily without parsing.
+            // Let's try HTML? Sheets export to HTML is zip.
+            // For now, let's just return metadata for non-text files.
+            res.json({ content: null, type: 'binary', name: fileMeta.data.name, webViewLink: fileMeta.data.webViewLink });
+        } else {
+            // Try to read as text/binary
+            const response = await drive.files.get({
+                fileId,
+                alt: 'media',
+            }, { responseType: 'text' }); // Assume text for now
+            res.json({ content: response.data, type: 'text', name: fileMeta.data.name });
+        }
+    } catch (error) {
+        console.error("Drive Read Error:", error);
+        res.status(500).json({ error: 'Failed to read file', details: error.message });
     }
 });
 

@@ -19,8 +19,18 @@ function initDb() {
     email TEXT,
     name TEXT,
     avatar_url TEXT,
+    access_token TEXT,
+    refresh_token TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+
+    // Migration for existing table
+    db.run("ALTER TABLE users ADD COLUMN access_token TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN refresh_token TEXT", (err) => {
+        // Ignore error if column exists
+    });
 
     db.run(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,

@@ -3,8 +3,7 @@ import React, { useState } from 'react';
 const SetupScreen = ({ onActivate }) => {
     const [formData, setFormData] = useState({
         googleClientId: '',
-        googleClientSecret: '',
-        geminiApiKey: ''
+        googleClientSecret: ''
     });
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -90,18 +89,7 @@ const SetupScreen = ({ onActivate }) => {
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Gemini API Key</label>
-                            <input
-                                type="password"
-                                name="geminiApiKey"
-                                value={formData.geminiApiKey}
-                                onChange={handleChange}
-                                placeholder="AIza..."
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                                required
-                            />
-                        </div>
+
 
                         {error && <p className="text-red-500 text-xs text-center">{error}</p>}
 

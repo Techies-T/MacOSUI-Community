@@ -3,10 +3,8 @@ import MenuBar from './MenuBar';
 import Dock from './Dock';
 import WindowManager from './WindowManager';
 
-const Desktop = ({ user }) => {
-  const [windows, setWindows] = useState([
-    { id: 1, type: 'finder', title: 'Finder', x: 100, y: 100, width: 600, height: 400, zIndex: 1 },
-  ]);
+const Desktop = ({ user, onLogout }) => {
+  const [windows, setWindows] = useState([]);
 
   const openWindow = (id, type, title) => {
     setWindows(prev => {
@@ -70,7 +68,7 @@ const Desktop = ({ user }) => {
         justifyContent: 'space-between'
       }}
     >
-      <MenuBar />
+      <MenuBar onLogout={onLogout} />
       <WindowManager windows={windows} onFocus={bringToFront} onClose={closeWindow} user={user} />
       <Dock onAppClick={(id) => {
         // Simple mapping for demo purposes
