@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const Finder = ({ user }) => {
+const Finder = ({ user, onOpen }) => {
     const [currentPath, setCurrentPath] = useState([{ id: 'root', name: 'Google Drive' }]);
     const [files, setFiles] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -16,17 +16,21 @@ const Finder = ({ user }) => {
     const fetchFiles = async (folderId) => {
         setLoading(true);
         try {
-            // If root, we might want to support other providers later, but for now default to Drive root
+            let res;
+            // Google Drive
             const driveFolderId = folderId === 'root' ? 'root' : folderId;
-            const res = await fetch(`/api/drive/list?folderId=${driveFolderId}`);
-            if (res.ok) {
+            res = await fetch(`/api/drive/list?folderId=${driveFolderId}`);
+
+            if (res && res.ok) {
                 const data = await res.json();
                 setFiles(data.files || []);
             } else {
                 console.error("Failed to fetch files");
+                setFiles([]);
             }
         } catch (error) {
             console.error("Error fetching files:", error);
+            setFiles([]);
         } finally {
             setLoading(false);
         }
@@ -55,9 +59,12 @@ const Finder = ({ user }) => {
             handleNavigate({ id: file.id, name: file.name });
         } else {
             // Open file
-            // For now, just log or alert. Ideally open in Browser or Preview.
-            // We can use window.open for webViewLink if available
-            if (file.webViewLink) {
+            if (file.mimeType === 'text/html' || file.name.endsWith('.html')) {
+                // Open in Browser
+                if (onOpen) {
+                    onOpen('browser-' + Date.now(), 'browser', 'Safari', { driveFileId: file.id });
+                }
+            } else if (file.webViewLink) {
                 window.open(file.webViewLink, '_blank');
             } else {
                 alert(`Cannot open ${file.name}`);
@@ -70,7 +77,7 @@ const Finder = ({ user }) => {
             {/* Sidebar */}
             <div className="w-48 flex-shrink-0 bg-[#f5f5f7]/80 backdrop-blur-xl border-r border-gray-200 pt-4 px-2 flex flex-col gap-1">
                 <div className="px-2 mb-2 text-xs font-semibold text-gray-500">Favorites</div>
-                <SidebarItem icon="🏠" label="Home" />
+                <div className="px-2 mb-2 text-xs font-semibold text-gray-500">Favorites</div>
                 <SidebarItem icon="🖥️" label="Desktop" />
                 <SidebarItem icon="⬇️" label="Downloads" />
                 <SidebarItem icon="📄" label="Documents" />
@@ -142,8 +149,8 @@ const Finder = ({ user }) => {
     );
 };
 
-const SidebarItem = ({ icon, label, active }) => (
-    <div className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer ${active ? 'bg-gray-300/50' : 'hover:bg-gray-200/50'}`}>
+const SidebarItem = ({ icon, label, active, onClick }) => (
+    <div onClick={onClick} className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer ${active ? 'bg-gray-300/50' : 'hover:bg-gray-200/50'}`}>
         <span className="text-lg">{icon}</span>
         <span className="truncate">{label}</span>
     </div>

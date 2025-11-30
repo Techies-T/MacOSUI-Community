@@ -1,11 +1,55 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
-const Browser = () => {
-    const [url, setUrl] = useState('https://www.google.com/webhp?igu=1'); // Google often allows embedding with igu=1
-    const [src, setSrc] = useState('https://www.google.com/webhp?igu=1');
-    const [srcDoc, setSrcDoc] = useState(null);
+const Browser = ({ initialUrl, driveFileId }) => {
+    const [url, setUrl] = useState('');
+    const [src, setSrc] = useState(null);
+    const [srcDoc, setSrcDoc] = useState(`
+        <div style="font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #333;">
+            <h1 style="font-size: 24px; margin-bottom: 16px;">Start Page</h1>
+            <p style="color: #666;">Enter a URL or file path above to browse.</p>
+        </div>
+    `);
     const [loading, setLoading] = useState(false);
     const iframeRef = useRef(null);
+
+    useEffect(() => {
+        if (driveFileId) {
+            setLoading(true);
+            fetch(`/api/drive/read?fileId=${driveFileId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.content) {
+                        setSrcDoc(data.content);
+                        setSrc(null);
+                        setUrl(data.name || 'Google Drive File');
+                    } else {
+                        setSrcDoc(`<h1>Error reading file</h1><p>${data.error || 'Unknown error'}</p>`);
+                    }
+                })
+                .catch(err => {
+                    setSrcDoc(`<h1>Error</h1><p>${err.message}</p>`);
+                })
+                .finally(() => setLoading(false));
+        } else if (initialUrl) {
+            setUrl(initialUrl);
+            // Directly set src/srcDoc based on logic
+            if (initialUrl.startsWith('/') || initialUrl.match(/^[a-zA-Z]:\\/)) {
+                // Local file logic (kept for backward compatibility if needed, but Finder won't use it)
+                fetch(`/api/fs/read?path=${encodeURIComponent(initialUrl)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.content) {
+                            setSrcDoc(data.content);
+                            setSrc(null);
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                setSrc(initialUrl.startsWith('http') ? initialUrl : 'https://' + initialUrl);
+                setSrcDoc(null);
+            }
+        }
+    }, [initialUrl, driveFileId]);
 
     const handleNavigate = async (e) => {
         e?.preventDefault();
@@ -81,13 +125,21 @@ const Browser = () => {
                     border: 'none',
                     cursor: 'pointer',
                     fontSize: '16px'
-                }}>
+                }} title="Reload">
                     🔄
+                </button>
+                <button onClick={() => window.open(url.startsWith('http') ? url : 'https://' + url, '_blank')} style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '16px'
+                }} title="Open in New Tab">
+                    ↗️
                 </button>
             </div>
 
             {/* Content */}
-            <div style={{ flex: 1, position: 'relative', backgroundColor: 'white' }}>
+            <div style={{ flex: 1, position: 'relative', backgroundColor: 'white', overflow: 'hidden' }}>
                 {loading && (
                     <div style={{
                         position: 'absolute',
@@ -95,7 +147,8 @@ const Browser = () => {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: 'rgba(255,255,255,0.8)'
+                        backgroundColor: 'rgba(255,255,255,0.8)',
+                        zIndex: 10
                     }}>
                         Loading...
                     </div>
@@ -104,9 +157,10 @@ const Browser = () => {
                     ref={iframeRef}
                     src={src}
                     srcDoc={srcDoc}
-                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
                     title="Browser"
-                    sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-presentation"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 />
             </div>
         </div>
@@ -122,4 +176,36 @@ const navBtnStyle = {
     padding: '0 4px'
 };
 
-export default Browser;
+class ErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error, errorInfo) {
+        console.error("Browser Error:", error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div style={{ padding: 20, color: 'red' }}>
+                    <h3>Something went wrong in the Browser widget.</h3>
+                    <pre>{this.state.error?.toString()}</pre>
+                </div>
+            );
+        }
+
+        return this.props.children;
+    }
+}
+
+export default (props) => (
+    <ErrorBoundary>
+        <Browser {...props} />
+    </ErrorBoundary>
+);

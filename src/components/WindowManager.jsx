@@ -7,15 +7,17 @@ import Gemini from '../apps/Gemini';
 import SystemSettings from '../apps/SystemSettings';
 import Browser from '../apps/Browser';
 
-const WindowManager = ({ windows, onFocus, onClose, user }) => {
-    const renderApp = (type) => {
+const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, user }) => {
+    const renderApp = (win) => {
+        const type = win.type;
+        console.log("WindowManager: renderApp", type);
         switch (type) {
             case 'calculator': return <Calculator />;
             case 'notes': return <Notes />;
-            case 'finder': return <Finder user={user} />;
+            case 'finder': return <Finder user={user} onOpen={onOpen} />;
             case 'gemini': return <Gemini />;
             case 'settings': return <SystemSettings user={user} />;
-            case 'browser': return <Browser />;
+            case 'browser': return <Browser {...win.props} />;
             default: return null;
         }
     };
@@ -34,8 +36,10 @@ const WindowManager = ({ windows, onFocus, onClose, user }) => {
                     zIndex={win.zIndex}
                     onFocus={() => onFocus(win.id)}
                     onClose={() => onClose(win.id)}
+                    onMinimize={() => onMinimize(win.id)}
+                    minimized={win.minimized}
                 >
-                    {renderApp(win.type)}
+                    {renderApp(win)}
                 </Window>
             ))}
         </div>

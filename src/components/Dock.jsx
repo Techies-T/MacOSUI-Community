@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-const Dock = ({ onAppClick }) => {
+const Dock = ({ onAppClick, windows = [] }) => {
     const apps = [
         { id: 'finder', name: 'Finder', icon: '😊' }, // Placeholder icons
         { id: 'browser', name: 'Browser', icon: '🌎' },
@@ -10,6 +10,13 @@ const Dock = ({ onAppClick }) => {
         { id: 'notes', name: 'Notes', icon: '📝' },
         { id: 'gemini', name: 'Gemini', icon: '✨' },
     ];
+
+    const handleAppClick = (appId) => {
+        console.log("Dock: handleAppClick", appId);
+        if (onAppClick) {
+            onAppClick(appId);
+        }
+    };
 
     return (
         <div style={{
@@ -29,27 +36,38 @@ const Dock = ({ onAppClick }) => {
                 boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
                 border: '1px solid rgba(255, 255, 255, 0.1)'
             }}>
-                {apps.map((app) => (
-                    <motion.div
-                        key={app.id}
-                        whileHover={{ scale: 1.2, translateY: -10 }}
-                        style={{
-                            width: '50px',
-                            height: '50px',
-                            backgroundColor: '#fff',
-                            borderRadius: '12px',
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            fontSize: '30px',
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
-                        }}
-                        onClick={() => onAppClick && onAppClick(app.id)}
-                    >
-                        {app.icon}
-                    </motion.div>
-                ))}
+                {apps.map((app) => {
+                    const isOpen = windows.some(w => w.type === app.id);
+                    return (
+                        <div key={app.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                            <motion.div
+                                whileHover={{ scale: 1.2, translateY: -10 }}
+                                style={{
+                                    width: '50px',
+                                    height: '50px',
+                                    backgroundColor: '#fff',
+                                    borderRadius: '12px',
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    fontSize: '30px',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
+                                }}
+                                onClick={() => handleAppClick(app.id)}
+                            >
+                                {app.icon}
+                            </motion.div>
+                            <div style={{
+                                width: '4px',
+                                height: '4px',
+                                borderRadius: '50%',
+                                backgroundColor: isOpen ? '#333' : 'transparent',
+                                opacity: 0.8
+                            }}></div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

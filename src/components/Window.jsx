@@ -2,22 +2,107 @@ import React, { useRef, useState } from 'react';
 import Draggable from 'react-draggable';
 import { Resizable } from 'react-resizable';
 
-const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, initialHeight, zIndex, onFocus, onClose }) => {
+const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, initialHeight, zIndex, onFocus, onClose, onMinimize, minimized }) => {
     const nodeRef = useRef(null);
     const [width, setWidth] = useState(initialWidth);
     const [height, setHeight] = useState(initialHeight);
     const [isResizing, setIsResizing] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
+    const [isMaximized, setIsMaximized] = useState(false);
+    const [preMaximizeState, setPreMaximizeState] = useState(null);
 
     const onResize = (event, { size }) => {
         setWidth(size.width);
         setHeight(size.height);
     };
 
+    const toggleMaximize = () => {
+        console.log("Window: toggleMaximize called");
+        if (isMaximized) {
+            // Restore
+            if (preMaximizeState) {
+                setWidth(preMaximizeState.width);
+                setHeight(preMaximizeState.height);
+            }
+            setIsMaximized(false);
+        } else {
+            // Maximize
+            setPreMaximizeState({ width, height });
+            setWidth(window.innerWidth);
+            setHeight(window.innerHeight - 30 - 70); // Minus menubar and dock approx
+            setIsMaximized(true);
+        }
+    };
+
+    // If minimized, hide
+    if (minimized) {
+        return null;
+    }
+
+    // Calculate position style based on maximization
+    if (isMaximized) {
+        return (
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 30,
+                    left: 0,
+                    width: '100vw',
+                    height: 'calc(100vh - 100px)', // Leave room for Dock
+                    zIndex: zIndex,
+                    backgroundColor: '#fff',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    pointerEvents: 'auto'
+                }}
+                onClick={onFocus}
+            >
+                <div
+                    className="window-header"
+                    style={{
+                        height: '30px',
+                        backgroundColor: '#f0f0f0',
+                        borderBottom: '1px solid #ddd',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '0 10px',
+                    }}
+                    onDoubleClick={toggleMaximize}
+                >
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <div
+                            onClick={(e) => { e.stopPropagation(); console.log("Close clicked"); onClose(); }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ff5f56', cursor: 'pointer' }}
+                        ></div>
+                        <div
+                            onClick={(e) => { e.stopPropagation(); console.log("Minimize clicked"); onMinimize(); }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ffbd2e', cursor: 'pointer' }}
+                        ></div>
+                        <div
+                            onClick={(e) => { e.stopPropagation(); console.log("Maximize clicked"); toggleMaximize(); }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#27c93f', cursor: 'pointer' }}
+                        ></div>
+                    </div>
+                    <div style={{ flex: 1, textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#333' }}>
+                        {title}
+                    </div>
+                    <div style={{ width: '52px' }}></div>
+                </div>
+                <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+                    {children}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <Draggable
             nodeRef={nodeRef}
             handle=".window-header"
+            cancel=".no-drag"
             defaultPosition={{ x: initialX, y: initialY }}
             onStart={() => {
                 onFocus();
@@ -79,11 +164,27 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                                 padding: '0 10px',
                                 cursor: 'default'
                             }}
+                            onDoubleClick={toggleMaximize}
                         >
                             <div style={{ display: 'flex', gap: '8px' }}>
-                                <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ff5f56', cursor: 'pointer' }}></div>
-                                <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ffbd2e' }}></div>
-                                <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#27c93f' }}></div>
+                                <div
+                                    className="no-drag"
+                                    onClick={(e) => { e.stopPropagation(); console.log("Close clicked"); onClose(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ff5f56', cursor: 'pointer' }}
+                                ></div>
+                                <div
+                                    className="no-drag"
+                                    onClick={(e) => { e.stopPropagation(); console.log("Minimize clicked"); onMinimize(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ffbd2e', cursor: 'pointer' }}
+                                ></div>
+                                <div
+                                    className="no-drag"
+                                    onClick={(e) => { e.stopPropagation(); console.log("Maximize clicked"); toggleMaximize(); }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#27c93f', cursor: 'pointer' }}
+                                ></div>
                             </div>
                             <div style={{ flex: 1, textAlign: 'center', fontSize: '13px', fontWeight: '600', color: '#333' }}>
                                 {title}

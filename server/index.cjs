@@ -286,6 +286,47 @@ app.get('/api/fs/read', async (req, res) => {
     }
 });
 
+// File System: List directory content
+app.get('/api/fs/list', async (req, res) => {
+    const { path: dirPath } = req.query;
+    // Default to user's home directory if no path provided
+    const targetPath = dirPath || require('os').homedir();
+
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+
+        const entries = await fs.readdir(targetPath, { withFileTypes: true });
+
+        const files = entries.map(entry => {
+            const fullPath = path.join(targetPath, entry.name);
+            const isDirectory = entry.isDirectory();
+            // Simple mimeType estimation
+            let mimeType = isDirectory ? 'application/vnd.google-apps.folder' : 'application/octet-stream';
+            if (!isDirectory) {
+                if (entry.name.endsWith('.html')) mimeType = 'text/html';
+                else if (entry.name.endsWith('.png')) mimeType = 'image/png';
+                else if (entry.name.endsWith('.jpg')) mimeType = 'image/jpeg';
+                else if (entry.name.endsWith('.txt')) mimeType = 'text/plain';
+                else if (entry.name.endsWith('.pdf')) mimeType = 'application/pdf';
+            }
+
+            return {
+                id: fullPath, // Use full path as ID for local files
+                name: entry.name,
+                mimeType: mimeType,
+                iconLink: null, // Frontend will handle default icons
+                thumbnailLink: null
+            };
+        });
+
+        res.json({ files });
+    } catch (error) {
+        console.error("File List Error:", error);
+        res.status(500).json({ error: 'Failed to list directory' });
+    }
+});
+
 // Google Drive API endpoints
 // Google Drive API endpoints
 
