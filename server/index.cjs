@@ -43,6 +43,7 @@ app.get('/api/config', async (req, res) => {
         const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET') || process.env.GOOGLE_CLIENT_SECRET;
         const geminiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const googleDriveRootId = await db.getSetting('GOOGLE_DRIVE_ROOT_ID');
+        const googleDriveRagFolderId = await db.getSetting('GOOGLE_DRIVE_RAG_FOLDER_ID');
 
         const isConfigured = !!(clientId && clientSecret);
         const geminiModel = await db.getSetting('GEMINI_MODEL');
@@ -51,7 +52,9 @@ app.get('/api/config', async (req, res) => {
             clientId: clientId || '',
             isConfigured,
             geminiModel,
-            googleDriveRootId: googleDriveRootId || ''
+            geminiModel,
+            googleDriveRootId: googleDriveRootId || '',
+            googleDriveRagFolderId: googleDriveRagFolderId || ''
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -61,7 +64,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId } = req.body;
 
     try {
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
@@ -69,6 +72,7 @@ app.post('/api/config', async (req, res) => {
         if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
         if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
         if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
+        if (googleDriveRagFolderId !== undefined) await db.setSetting('GOOGLE_DRIVE_RAG_FOLDER_ID', googleDriveRagFolderId);
 
         res.json({ success: true });
     } catch (error) {
@@ -220,23 +224,82 @@ app.post('/api/gemini', async (req, res) => {
         // Initialize Gemini Client with new SDK
         const client = new GoogleGenAI({ apiKey });
 
-        // Create chat session
-        const chat = client.chats.create({
-            model: modelName,
-            history: history || [],
-            config: {
-                maxOutputTokens: 1000,
-            },
+        // Get RAG files
+        const ragFiles = await new Promise((resolve, reject) => {
+            db.all("SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files", (err, rows) => {
+                if (err) resolve([]); // Ignore error, just no RAG
+                else resolve(rows || []);
+            });
         });
 
-        // Send message with retry logic for Overload (503) and Rate Limit (429)
+        // Construct history with files if available
+        // If we have RAG files, we should add them to the system instruction or as part of the first message?
+        // Or we can just pass them in the history.
+        // The SDK allows passing file parts in messages.
+        // Let's add them to the current message or a system prompt.
+        // Actually, best practice for "File Search" (which is effectively long context with files) is to pass them in the request.
+
+        let requestMessage = message;
+        let requestParts = [{ text: message }];
+
+        if (ragFiles.length > 0) {
+            // Add files to the request parts
+            // We only add them if they are not already in history? 
+            // For simplicity, let's add them to this message. 
+            // Note: Repeatedly sending files might consume tokens. 
+            // Ideally we only send them once or use a cached content.
+            // For this "Personal RAG" MVP, we will just attach them to the user message.
+
+            const fileParts = ragFiles.map(f => ({
+                fileData: {
+                    mimeType: f.mime_type || 'application/pdf', // Use stored mimeType or default
+                    fileUri: f.gemini_file_uri
+                }
+            }));
+
+            // We need to know the mimeType. Let's assume we can get it or just use a generic one if the API allows.
+            // Actually, we should probably store mimeType in rag_files.
+            // For now, let's just use the URI and hope the API resolves it or defaults.
+            // Wait, fileData requires mimeType.
+            // Let's update the DB schema to store mimeType or fetch it.
+            // For now, I'll default to 'application/pdf' since that's what we convert Docs to, and text is text/plain.
+            // I'll try to guess from the URI or just use a safe default?
+            // Let's just add mimeType to the DB in a separate step or just assume PDF for now as it's the most common for RAG.
+            // Actually, I can just fetch the mimeType from the file extension in the URI if present, or just store it.
+            // I'll update the sync logic to store mimeType in the DB in the next step if needed.
+            // For now, let's just prepend the files to the message parts.
+            requestParts = [
+                ...fileParts,
+                { text: message }
+            ];
+        }
+
+        // Construct contents with history
+        const contents = history ? history.map(m => ({
+            role: m.role,
+            parts: m.parts
+        })) : [];
+
+        // Add current message
+        contents.push({
+            role: 'user',
+            parts: requestParts
+        });
+
+        // Send message using generateContent
         let retries = 3;
         let result;
-        let delay = 1000; // Start with 1s
+        let delay = 1000;
 
         while (retries > 0) {
             try {
-                result = await chat.sendMessage({ message });
+                result = await client.models.generateContent({
+                    model: modelName,
+                    contents: contents,
+                    config: {
+                        maxOutputTokens: 8192,
+                    }
+                });
                 break;
             } catch (err) {
                 const status = err.status || (err.response && err.response.status);
@@ -244,7 +307,7 @@ app.post('/api/gemini', async (req, res) => {
                 if ((status === 503 || status === 429) && retries > 1) {
                     console.log(`Gemini Error ${status}. Retrying in ${delay}ms... (${retries - 1} attempts left)`);
                     await new Promise(resolve => setTimeout(resolve, delay));
-                    delay *= 2; // Exponential backoff
+                    delay *= 2;
                     retries--;
                 } else {
                     throw err;
@@ -252,10 +315,17 @@ app.post('/api/gemini', async (req, res) => {
             }
         }
 
-        // Get response text (new SDK uses .text property)
+        // Get response text
         const text = result.text;
 
         if (!text) {
+            console.error("Gemini Empty Response Debug:");
+            console.error("Request Parts:", JSON.stringify(requestParts, null, 2));
+            console.error("Full Result:", JSON.stringify(result, null, 2));
+            if (result.candidates && result.candidates.length > 0) {
+                console.error("Candidate Finish Reason:", result.candidates[0].finishReason);
+                console.error("Safety Ratings:", JSON.stringify(result.candidates[0].safetyRatings, null, 2));
+            }
             throw new Error("Empty response from Gemini");
         }
 
@@ -268,6 +338,111 @@ app.post('/api/gemini', async (req, res) => {
             error: "Failed to fetch response from Gemini",
             details: errorMessage
         });
+    }
+});
+
+// RAG: Sync files from Drive to Gemini
+app.post('/api/rag/sync', async (req, res) => {
+    try {
+        const drive = await getDriveClient(req, res);
+        if (!drive) return; // Response already sent
+
+        const ragFolderId = await db.getSetting('GOOGLE_DRIVE_RAG_FOLDER_ID');
+        if (!ragFolderId) {
+            return res.status(400).json({ error: 'RAG Folder ID not configured' });
+        }
+
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ error: "GEMINI_API_KEY is not set on server" });
+        }
+
+        const client = new GoogleGenAI({ apiKey });
+
+        // 1. List files in Drive Folder
+        const driveRes = await drive.files.list({
+            q: `'${ragFolderId}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
+            fields: 'files(id, name, mimeType, modifiedTime)',
+            pageSize: 20, // Limit for now
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true
+        });
+
+        const files = driveRes.data.files;
+        const syncedFiles = [];
+
+        for (const file of files) {
+            // Check if already synced and not modified
+            // For simplicity, we'll just re-upload or check if we have a record
+            // Ideally we check hash or modifiedTime.
+            // Let's just upload for now to ensure it works.
+
+            // Download content
+            let content;
+            let mimeType = file.mimeType;
+            let extension = '';
+
+            if (file.mimeType === 'application/vnd.google-apps.document') {
+                const exportRes = await drive.files.export({
+                    fileId: file.id,
+                    mimeType: 'application/pdf' // Export Docs as PDF for Gemini
+                }, { responseType: 'arraybuffer' });
+                content = Buffer.from(exportRes.data);
+                mimeType = 'application/pdf';
+                extension = 'pdf';
+            } else {
+                const getRes = await drive.files.get({
+                    fileId: file.id,
+                    alt: 'media'
+                }, { responseType: 'arraybuffer' });
+                content = Buffer.from(getRes.data);
+                if (mimeType === 'text/plain') extension = 'txt';
+                if (mimeType === 'application/pdf') extension = 'pdf';
+            }
+
+            // Upload to Gemini
+            // @google/genai uploadFile
+            // We need to write to a temp file first because uploadFile usually takes a path or we use uploadMedia
+            // Let's check if we can pass a buffer. The SDK might expect a file path.
+            // If so, write to /tmp
+            const fs = require('fs');
+            const path = require('path');
+            const os = require('os');
+            const tempFilePath = path.join(os.tmpdir(), `gemini_upload_${file.id}.${extension}`);
+            fs.writeFileSync(tempFilePath, content);
+
+            const uploadResult = await client.files.upload({
+                file: tempFilePath,
+                config: {
+                    displayName: file.name,
+                    mimeType: mimeType
+                }
+            });
+
+            // Clean up temp file
+            fs.unlinkSync(tempFilePath);
+
+            // Store in DB
+            await new Promise((resolve, reject) => {
+                db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, mime_type, last_synced_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+                    [file.id, uploadResult.uri, mimeType],
+                    (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    }
+                );
+            });
+
+            syncedFiles.push({ name: file.name, uri: uploadResult.uri });
+        }
+
+        res.json({ success: true, syncedFiles });
+
+    } catch (error) {
+        console.error("RAG Sync Error:", error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to sync files', details: error.message });
+        }
     }
 });
 

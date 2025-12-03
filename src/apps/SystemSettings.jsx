@@ -5,18 +5,20 @@ const SystemSettings = ({ user }) => {
     const [models, setModels] = useState([]);
     const [currentModel, setCurrentModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
+    const [ragFolderId, setRagFolderId] = useState('');
     const [geminiApiKey, setGeminiApiKey] = useState('');
+    const [isSyncing, setIsSyncing] = useState(false);
 
     useEffect(() => {
         if (activeTab === 'System') {
             // Fetch models
-            fetch('http://localhost:3000/api/gemini/models')
+            fetch('/api/gemini/models')
                 .then(res => res.json())
                 .then(data => setModels(data.models || []))
                 .catch(err => console.error("Failed to fetch models", err));
 
             // Fetch current config
-            fetch('http://localhost:3000/api/config')
+            fetch('/api/config')
                 .then(res => res.json())
                 .then(data => {
                     if (data.geminiModel) {
@@ -28,6 +30,9 @@ const SystemSettings = ({ user }) => {
                     if (data.googleDriveRootId) {
                         setDriveRootId(data.googleDriveRootId);
                     }
+                    if (data.googleDriveRagFolderId) {
+                        setRagFolderId(data.googleDriveRagFolderId);
+                    }
                 })
                 .catch(err => console.error("Failed to fetch config", err));
         }
@@ -36,7 +41,7 @@ const SystemSettings = ({ user }) => {
     const handleModelChange = async (modelName) => {
         setCurrentModel(modelName);
         try {
-            await fetch('http://localhost:3000/api/config', {
+            await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ geminiModel: modelName })
@@ -48,7 +53,7 @@ const SystemSettings = ({ user }) => {
 
     const handleSaveDriveRoot = async () => {
         try {
-            await fetch('http://localhost:3000/api/config', {
+            await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ googleDriveRootId: driveRootId })
@@ -60,9 +65,43 @@ const SystemSettings = ({ user }) => {
         }
     };
 
+    const handleSaveRagFolder = async () => {
+        try {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ googleDriveRagFolderId: ragFolderId })
+            });
+            alert('RAG Folder ID saved!');
+        } catch (err) {
+            console.error("Failed to save RAG folder", err);
+            alert('Failed to save.');
+        }
+    };
+
+    const handleSyncRag = async () => {
+        setIsSyncing(true);
+        try {
+            const res = await fetch('/api/rag/sync', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`Sync Complete! ${data.syncedFiles.length} files synced.`);
+            } else {
+                alert('Sync Failed: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error("Sync Error", err);
+            alert('Sync Failed.');
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const handleSaveGeminiKey = async () => {
         try {
-            await fetch('http://localhost:3000/api/config', {
+            await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ geminiApiKey })
@@ -217,6 +256,33 @@ const SystemSettings = ({ user }) => {
                                     </button>
                                 </div>
                                 <p className="text-[10px] text-gray-400 mt-1">Only files within this folder will be shown in Finder.</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Personal RAG Folder ID</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={ragFolderId}
+                                        onChange={(e) => setRagFolderId(e.target.value)}
+                                        placeholder="Drive Folder ID for RAG"
+                                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                                    />
+                                    <button
+                                        onClick={handleSaveRagFolder}
+                                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={handleSyncRag}
+                                        disabled={isSyncing}
+                                        className={`px-3 py-2 text-white rounded text-xs font-medium transition-colors ${isSyncing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}`}
+                                    >
+                                        {isSyncing ? 'Syncing...' : 'Sync Now'}
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">Files in this folder will be synced to Gemini for Personal RAG.</p>
                             </div>
                         </div>
 

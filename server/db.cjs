@@ -36,6 +36,19 @@ function initDb() {
     key TEXT PRIMARY KEY,
     value TEXT
   )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS rag_files (
+    drive_file_id TEXT PRIMARY KEY,
+    gemini_file_uri TEXT,
+    mime_type TEXT,
+    last_synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    file_hash TEXT
+  )`);
+
+    // Migration for rag_files
+    db.run("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", (err) => {
+        // Ignore error if column exists
+    });
 }
 
 // Helper to get a setting
