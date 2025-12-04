@@ -1,42 +1,52 @@
 import React, { useState, useEffect } from 'react';
 
 const SystemSettings = ({ user }) => {
-    const [activeTab, setActiveTab] = useState('Appearance');
+    const [activeTab, setActiveTab] = useState('General');
     const [models, setModels] = useState([]);
     const [currentModel, setCurrentModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolderId, setRagFolderId] = useState('');
     const [geminiApiKey, setGeminiApiKey] = useState('');
+    const [googleClientId, setGoogleClientId] = useState('');
+    const [isConfigured, setIsConfigured] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
 
     useEffect(() => {
-        if (activeTab === 'System') {
-            // Fetch models
-            fetch('/api/gemini/models')
-                .then(res => res.json())
-                .then(data => setModels(data.models || []))
-                .catch(err => console.error("Failed to fetch models", err));
+        // Fetch models
+        fetch('/api/gemini/models')
+            .then(res => res.json())
+            .then(data => setModels(data.models || []))
+            .catch(err => console.error("Failed to fetch models", err));
 
-            // Fetch current config
-            fetch('/api/config')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.geminiModel) {
-                        setCurrentModel(data.geminiModel);
-                    } else {
-                        // Default fallback if not set
-                        setCurrentModel('models/gemini-2.5-flash-preview-09-2025');
-                    }
-                    if (data.googleDriveRootId) {
-                        setDriveRootId(data.googleDriveRootId);
-                    }
-                    if (data.googleDriveRagFolderId) {
-                        setRagFolderId(data.googleDriveRagFolderId);
-                    }
-                })
-                .catch(err => console.error("Failed to fetch config", err));
-        }
-    }, [activeTab]);
+        // Fetch current config
+        fetch('/api/config')
+            .then(res => res.json())
+            .then(data => {
+                if (data.geminiModel) {
+                    setCurrentModel(data.geminiModel);
+                } else {
+                    setCurrentModel('models/gemini-2.5-flash-preview-09-2025');
+                }
+                if (data.googleDriveRootId) {
+                    setDriveRootId(data.googleDriveRootId);
+                }
+                if (data.googleDriveRagFolderId) {
+                    setRagFolderId(data.googleDriveRagFolderId);
+                }
+                if (data.maskedClientId) {
+                    setGoogleClientId(data.maskedClientId);
+                }
+                if (data.isConfigured) {
+                    setIsConfigured(data.isConfigured);
+                }
+                if (data.lastRagSyncTime) {
+                    setLastRagSyncTime(data.lastRagSyncTime);
+                }
+            })
+            .catch(err => console.error("Failed to fetch config", err));
+    }, []);
 
     const handleModelChange = async (modelName) => {
         setCurrentModel(modelName);
@@ -88,6 +98,7 @@ const SystemSettings = ({ user }) => {
             const data = await res.json();
             if (data.success) {
                 alert(`Sync Complete! ${data.syncedFiles.length} files synced.`);
+                setLastRagSyncTime(new Date().toISOString());
             } else {
                 alert('Sync Failed: ' + (data.error || 'Unknown error'));
             }
@@ -115,13 +126,14 @@ const SystemSettings = ({ user }) => {
     };
 
     const sidebarItems = [
-        { id: 'Appearance', icon: '🎨', label: 'Appearance' },
         { id: 'General', icon: '⚙️', label: 'General' },
+        { id: 'Appearance', icon: '🎨', label: 'Appearance' },
         { id: 'System', icon: '🔒', label: 'System' },
+        { id: 'Gemini', icon: '✨', label: 'Gemini' },
+        { id: 'Personal RAG', icon: '🧠', label: 'Personal RAG' },
+        { id: 'Finder', icon: '📁', label: 'Finder' },
         { id: 'Users', icon: '👥', label: 'Users & Groups' },
     ];
-
-    const [searchTerm, setSearchTerm] = useState('');
 
     const filteredModels = models.filter(model =>
         model.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -131,13 +143,6 @@ const SystemSettings = ({ user }) => {
         if (b.name === currentModel) return 1;
         return 0;
     });
-
-    const formatLimit = (num) => {
-        if (!num) return '-';
-        if (num >= 1000000) return (num / 1000000) + 'M';
-        if (num >= 1000) return (num / 1000) + 'k';
-        return num;
-    };
 
     return (
         <div className="flex h-full bg-[#f5f5f7] text-black font-sans text-sm">
@@ -209,151 +214,6 @@ const SystemSettings = ({ user }) => {
                     </div>
                 )}
 
-                {activeTab === 'System' && (
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                        <h2 className="font-semibold mb-3">System Configuration</h2>
-                        <p className="text-xs text-gray-500 mb-4">
-                            These keys are stored securely in the database.
-                        </p>
-                        <div className="space-y-3 mb-6">
-                            <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">Google Client ID</label>
-                                <input type="text" disabled value="Configured" className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400" />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">Gemini API Key</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="password"
-                                        value={geminiApiKey}
-                                        onChange={(e) => setGeminiApiKey(e.target.value)}
-                                        placeholder="Enter new API Key to update"
-                                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                                    />
-                                    <button
-                                        onClick={handleSaveGeminiKey}
-                                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                    >
-                                        Save
-                                    </button>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">Google Drive Root Folder ID (Optional)</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        value={driveRootId}
-                                        onChange={(e) => setDriveRootId(e.target.value)}
-                                        placeholder="Folder ID (leave empty for root)"
-                                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                                    />
-                                    <button
-                                        onClick={handleSaveDriveRoot}
-                                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                    >
-                                        Save
-                                    </button>
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Only files within this folder will be shown in Finder.</p>
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1">Personal RAG Folder ID</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        value={ragFolderId}
-                                        onChange={(e) => setRagFolderId(e.target.value)}
-                                        placeholder="Drive Folder ID for RAG"
-                                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                                    />
-                                    <button
-                                        onClick={handleSaveRagFolder}
-                                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                    >
-                                        Save
-                                    </button>
-                                    <button
-                                        onClick={handleSyncRag}
-                                        disabled={isSyncing}
-                                        className={`px-3 py-2 text-white rounded text-xs font-medium transition-colors ${isSyncing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}`}
-                                    >
-                                        {isSyncing ? 'Syncing...' : 'Sync Now'}
-                                    </button>
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Files in this folder will be synced to Gemini for Personal RAG.</p>
-                            </div>
-                        </div>
-
-                        {/* Selected Model Details */}
-                        {currentModel && models.find(m => m.name === currentModel) && (
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 text-xs mb-6">
-                                <h3 className="font-semibold mb-2 text-gray-700">Selected Model Specs</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <span className="block text-gray-500 mb-1">Description</span>
-                                        <p className="text-gray-800">{models.find(m => m.name === currentModel).description || 'No description available'}</p>
-                                    </div>
-                                    <div>
-                                        <span className="block text-gray-500 mb-1">Context Window</span>
-                                        <p className="text-gray-800">
-                                            Input: <span className="font-medium">{models.find(m => m.name === currentModel).inputTokenLimit?.toLocaleString()}</span> tokens<br />
-                                            Output: <span className="font-medium">{models.find(m => m.name === currentModel).outputTokenLimit?.toLocaleString()}</span> tokens
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="flex items-center justify-between mb-3">
-                            <h2 className="font-semibold">Gemini Model List</h2>
-                            <input
-                                type="text"
-                                placeholder="Filter models..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="px-2 py-1 text-xs border border-gray-200 rounded bg-gray-50 focus:outline-none focus:border-blue-500 w-40"
-                            />
-                        </div>
-                        <div className="overflow-hidden border border-gray-200 rounded-lg mb-4">
-                            <div className="max-h-[300px] overflow-y-auto">
-                                <table className="w-full text-left text-xs table-fixed">
-                                    <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
-                                        <tr>
-                                            <th className="w-10 px-4 py-2 font-medium text-gray-500"></th>
-                                            <th className="px-4 py-2 font-medium text-gray-500">Name</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {filteredModels.map((model) => (
-                                            <tr key={model.name} className={`hover:bg-gray-50 ${currentModel === model.name ? 'bg-blue-50' : ''} cursor-pointer`} onClick={() => handleModelChange(model.name)}>
-                                                <td className="px-4 py-2 text-center">
-                                                    <input
-                                                        type="radio"
-                                                        name="geminiModel"
-                                                        checked={currentModel === model.name}
-                                                        onChange={() => handleModelChange(model.name)}
-                                                        className="text-blue-600 focus:ring-blue-500 pointer-events-none"
-                                                    />
-                                                </td>
-                                                <td className="px-4 py-2 font-medium break-words" title={model.displayName}>{model.displayName}</td>
-                                            </tr>
-                                        ))}
-                                        {filteredModels.length === 0 && (
-                                            <tr>
-                                                <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
-                                                    {models.length === 0 ? 'Loading models...' : 'No models found'}
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
                 {activeTab === 'General' && (
                     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
                         <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
@@ -363,6 +223,193 @@ const SystemSettings = ({ user }) => {
                         <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                             <span>Software Update</span>
                             <span className="text-gray-500 flex items-center gap-1">Up to date <span className="text-green-500">●</span></span>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'System' && (
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        <h2 className="font-semibold mb-3">System Configuration</h2>
+                        <p className="text-xs text-gray-500 mb-4">
+                            These keys are stored securely in the database.
+                        </p>
+                        <div className="space-y-3 mb-6">
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Google Client ID</label>
+                                <input type="text" disabled value={googleClientId || "Not Configured"} className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400 font-mono" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Google Client Secret</label>
+                                <input type="text" disabled value={isConfigured ? "******** (Configured)" : "Not Configured"} className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400 font-mono" />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'Gemini' && (
+                    <div className="space-y-6">
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                            <h2 className="font-semibold mb-3">API Configuration</h2>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Gemini API Key</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="password"
+                                    value={geminiApiKey}
+                                    onChange={(e) => setGeminiApiKey(e.target.value)}
+                                    placeholder="Enter new API Key to update"
+                                    className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <button
+                                    onClick={handleSaveGeminiKey}
+                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                >
+                                    Save
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                            <h2 className="font-semibold mb-3">Model Selection</h2>
+
+                            {/* Selected Model Details */}
+                            {currentModel && models.find(m => m.name === currentModel) && (
+                                <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 text-xs mb-6">
+                                    <h3 className="font-semibold mb-2 text-gray-700">Selected Model Specs</h3>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <span className="block text-gray-500 mb-1">Description</span>
+                                            <p className="text-gray-800">{models.find(m => m.name === currentModel).description || 'No description available'}</p>
+                                        </div>
+                                        <div>
+                                            <span className="block text-gray-500 mb-1">Context Window</span>
+                                            <p className="text-gray-800">
+                                                Input: <span className="font-medium">{models.find(m => m.name === currentModel).inputTokenLimit?.toLocaleString()}</span> tokens<br />
+                                                Output: <span className="font-medium">{models.find(m => m.name === currentModel).outputTokenLimit?.toLocaleString()}</span> tokens
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-medium text-sm">Available Models</h3>
+                                <input
+                                    type="text"
+                                    placeholder="Filter models..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="px-2 py-1 text-xs border border-gray-200 rounded bg-gray-50 focus:outline-none focus:border-blue-500 w-40"
+                                />
+                            </div>
+                            <div className="overflow-hidden border border-gray-200 rounded-lg mb-4">
+                                <div className="max-h-[300px] overflow-y-auto">
+                                    <table className="w-full text-left text-xs table-fixed">
+                                        <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
+                                            <tr>
+                                                <th className="w-10 px-4 py-2 font-medium text-gray-500"></th>
+                                                <th className="px-4 py-2 font-medium text-gray-500">Name</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {filteredModels.map((model) => (
+                                                <tr key={model.name} className={`hover:bg-gray-50 ${currentModel === model.name ? 'bg-blue-50' : ''} cursor-pointer`} onClick={() => handleModelChange(model.name)}>
+                                                    <td className="px-4 py-2 text-center">
+                                                        <input
+                                                            type="radio"
+                                                            name="geminiModel"
+                                                            checked={currentModel === model.name}
+                                                            onChange={() => handleModelChange(model.name)}
+                                                            className="text-blue-600 focus:ring-blue-500 pointer-events-none"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-2 font-medium break-words" title={model.displayName}>{model.displayName}</td>
+                                                </tr>
+                                            ))}
+                                            {filteredModels.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
+                                                        {models.length === 0 ? 'Loading models...' : 'No models found'}
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'Personal RAG' && (
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        <h2 className="font-semibold mb-3">Personal RAG Configuration</h2>
+                        <p className="text-xs text-gray-500 mb-4">
+                            Configure a Google Drive folder to sync documents for AI context.
+                        </p>
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Personal RAG Folder ID</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={ragFolderId}
+                                    onChange={(e) => setRagFolderId(e.target.value)}
+                                    placeholder="Drive Folder ID for RAG"
+                                    className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <button
+                                    onClick={handleSaveRagFolder}
+                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                >
+                                    Save
+                                </button>
+                                <button
+                                    onClick={handleSyncRag}
+                                    disabled={isSyncing}
+                                    className={`px-3 py-2 text-white rounded text-xs font-medium transition-colors ${isSyncing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}`}
+                                >
+                                    {isSyncing ? 'Syncing...' : 'Sync Now'}
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-1">Files in this folder will be synced to Gemini for Personal RAG.</p>
+                            {lastRagSyncTime && (
+                                <div className="mt-3 p-2 bg-gray-50 rounded border border-gray-100">
+                                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>Last Synced:</span>
+                                        <span className="font-medium text-gray-700">{new Date(lastRagSyncTime).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs text-gray-500">
+                                        <span>Next Sync Needed:</span>
+                                        <span className="font-medium text-red-500">
+                                            {new Date(new Date(lastRagSyncTime).getTime() + 24 * 60 * 60 * 1000).toLocaleString()}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'Finder' && (
+                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        <h2 className="font-semibold mb-3">Finder Configuration</h2>
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Google Drive Root Folder ID</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={driveRootId}
+                                    onChange={(e) => setDriveRootId(e.target.value)}
+                                    placeholder="Folder ID (leave empty for root)"
+                                    className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <button
+                                    onClick={handleSaveDriveRoot}
+                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                >
+                                    Save
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-1">Only files within this folder will be shown in Finder.</p>
                         </div>
                     </div>
                 )}

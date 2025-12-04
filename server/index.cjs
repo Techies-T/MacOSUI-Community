@@ -48,13 +48,22 @@ app.get('/api/config', async (req, res) => {
         const isConfigured = !!(clientId && clientSecret);
         const geminiModel = await db.getSetting('GEMINI_MODEL');
 
+        let maskedClientId = '';
+        if (clientId && clientId.length > 20) {
+            maskedClientId = clientId.substring(0, 15) + '...' + clientId.substring(clientId.length - 5);
+        } else {
+            maskedClientId = clientId || '';
+        }
+
+        const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
+
         res.json({
-            clientId: clientId || '',
+            maskedClientId,
             isConfigured,
             geminiModel,
-            geminiModel,
             googleDriveRootId: googleDriveRootId || '',
-            googleDriveRagFolderId: googleDriveRagFolderId || ''
+            googleDriveRagFolderId: googleDriveRagFolderId || '',
+            lastRagSyncTime: lastRagSyncTime || null
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -435,6 +444,9 @@ app.post('/api/rag/sync', async (req, res) => {
 
             syncedFiles.push({ name: file.name, uri: uploadResult.uri });
         }
+
+        // Store last sync time
+        await db.setSetting('LAST_RAG_SYNC_TIME', new Date().toISOString());
 
         res.json({ success: true, syncedFiles });
 
