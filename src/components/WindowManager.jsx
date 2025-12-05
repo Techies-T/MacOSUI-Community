@@ -4,6 +4,7 @@ import Calculator from '../apps/Calculator';
 import Notes from '../apps/Notes';
 import Finder from '../apps/Finder';
 import Gemini from '../apps/Gemini';
+import Calendar from '../apps/Calendar';
 import SystemSettings from '../apps/SystemSettings';
 import Browser from '../apps/Browser';
 
@@ -16,6 +17,7 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, user }) 
             case 'notes': return <Notes />;
             case 'finder': return <Finder user={user} onOpen={onOpen} />;
             case 'gemini': return <Gemini />;
+            case 'calendar': return <Calendar />;
             case 'settings': return <SystemSettings user={user} />;
             case 'browser': return <Browser {...win.props} />;
             default: return null;

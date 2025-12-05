@@ -707,7 +707,94 @@ app.get('/api/drive/read', async (req, res) => {
         }
     } catch (error) {
         console.error("Drive Read Error:", error);
-        res.status(500).json({ error: 'Failed to read file', details: error.message });
+    }
+});
+
+// Calendar API endpoints
+async function getCalendarClient(req, res) {
+    const token = req.cookies.token;
+    if (!token) {
+        res.status(401).json({ error: 'Not authenticated' });
+        return null;
+    }
+
+    return new Promise((resolve) => {
+        jwt.verify(token, process.env.JWT_SECRET || 'secret', async (err, decoded) => {
+            if (err) {
+                res.status(403).json({ error: 'Invalid token' });
+                resolve(null);
+                return;
+            }
+
+            db.get("SELECT access_token, refresh_token FROM users WHERE google_id = ?", [decoded.googleId], async (err, row) => {
+                if (err || !row || !row.access_token) {
+                    res.status(401).json({ error: 'No access token found' });
+                    resolve(null);
+                    return;
+                }
+
+                const oAuth2Client = await getOAuthClient();
+                oAuth2Client.setCredentials({
+                    access_token: row.access_token,
+                    refresh_token: row.refresh_token
+                });
+
+                oAuth2Client.on('tokens', (tokens) => {
+                    if (tokens.access_token) {
+                        const updateSql = `UPDATE users SET access_token = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
+                        const params = [tokens.access_token];
+                        if (tokens.refresh_token) params.push(tokens.refresh_token);
+                        params.push(decoded.googleId);
+                        db.run(updateSql, params);
+                    }
+                });
+
+                resolve(google.calendar({ version: 'v3', auth: oAuth2Client }));
+            });
+        });
+    });
+}
+
+app.get('/api/calendar/events', async (req, res) => {
+    try {
+        const calendar = await getCalendarClient(req, res);
+        if (!calendar) return;
+
+        const response = await calendar.events.list({
+            calendarId: 'primary',
+            timeMin: (new Date()).toISOString(),
+            maxResults: 50,
+            singleEvents: true,
+            orderBy: 'startTime',
+        });
+        res.json({ events: response.data.items });
+    } catch (error) {
+        console.error("Calendar List Error:", error);
+        res.status(500).json({ error: 'Failed to list events', details: error.message });
+    }
+});
+
+app.post('/api/calendar/events', async (req, res) => {
+    try {
+        const calendar = await getCalendarClient(req, res);
+        if (!calendar) return;
+
+        const { summary, description, start, end } = req.body;
+        const event = {
+            summary,
+            description,
+            start: { dateTime: start },
+            end: { dateTime: end },
+        };
+
+        const response = await calendar.events.insert({
+            calendarId: 'primary',
+            resource: event,
+        });
+        res.json({ event: response.data });
+    } catch (error) {
+        console.error("Calendar Create Error:", error);
+        res.status(500).json({ error: 'Failed to create event', details: error.message });
     }
 });
 

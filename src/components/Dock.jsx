@@ -8,6 +8,7 @@ const Dock = ({ onAppClick, windows = [] }) => {
         { id: 'settings', name: 'Settings', icon: '⚙️' },
         { id: 'calculator', name: 'Calculator', icon: '🧮' },
         { id: 'notes', name: 'Notes', icon: '📝' },
+        { id: 'calendar', name: 'Calendar', icon: '📅' },
         { id: 'gemini', name: 'Gemini', icon: '✨' },
     ];
 
