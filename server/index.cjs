@@ -58,6 +58,7 @@ app.get('/api/config', async (req, res) => {
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
 
         res.json({
+            clientId, // Expose full client ID for frontend auth
             maskedClientId,
             isConfigured,
             geminiModel,
