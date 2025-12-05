@@ -92,20 +92,47 @@ const SystemSettings = ({ user }) => {
     const handleSyncRag = async () => {
         setIsSyncing(true);
         try {
+            // Trigger sync
             const res = await fetch('/api/rag/sync', {
                 method: 'POST'
             });
             const data = await res.json();
-            if (data.success) {
-                alert(`Sync Complete! ${data.syncedFiles.length} files synced.`);
-                setLastRagSyncTime(new Date().toISOString());
-            } else {
-                alert('Sync Failed: ' + (data.error || 'Unknown error'));
+
+            if (!res.ok) {
+                alert('Sync Failed to Start: ' + (data.error || 'Unknown error'));
+                setIsSyncing(false);
+                return;
             }
+
+            // Start polling
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch('/api/rag/status');
+                    const statusData = await statusRes.json();
+
+                    if (statusData.state === 'completed') {
+                        clearInterval(pollInterval);
+                        setIsSyncing(false);
+                        setLastRagSyncTime(new Date().toISOString());
+                        alert('Sync Complete!');
+                    } else if (statusData.state === 'error') {
+                        clearInterval(pollInterval);
+                        setIsSyncing(false);
+                        alert('Sync Failed: ' + statusData.error);
+                    } else if (statusData.state === 'syncing') {
+                        // Optional: Update a progress state if we had one
+                        // For now, just keep isSyncing true
+                    }
+                } catch (err) {
+                    console.error("Polling Error", err);
+                    clearInterval(pollInterval);
+                    setIsSyncing(false);
+                }
+            }, 2000); // Poll every 2 seconds
+
         } catch (err) {
-            console.error("Sync Error", err);
-            alert('Sync Failed.');
-        } finally {
+            console.error("Sync Trigger Error", err);
+            alert('Sync Failed to Start.');
             setIsSyncing(false);
         }
     };
@@ -371,6 +398,11 @@ const SystemSettings = ({ user }) => {
                                 </button>
                             </div>
                             <p className="text-[10px] text-gray-400 mt-1">Files in this folder will be synced to Gemini for Personal RAG.</p>
+                            {isSyncing && (
+                                <div className="mt-2 text-xs text-blue-600 animate-pulse">
+                                    Syncing in progress... Please wait.
+                                </div>
+                            )}
                             {lastRagSyncTime && (
                                 <div className="mt-3 p-2 bg-gray-50 rounded border border-gray-100">
                                     <div className="flex justify-between text-xs text-gray-500 mb-1">

@@ -26,40 +26,63 @@ const Gemini = () => {
         setInput('');
         setIsLoading(true);
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
         try {
             const history = messages.map(m => ({
                 role: m.role,
                 parts: [{ text: m.text }]
             }));
 
+            // Start Job
             const response = await fetch('/api/gemini', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: userMessage.text,
                     history: history
-                }),
-                signal: controller.signal
+                })
             });
 
-            clearTimeout(timeoutId);
             const data = await response.json();
 
-            if (response.ok) {
-                setMessages(prev => [...prev, { role: 'model', text: data.reply }]);
-            } else {
-                setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error: " + data.error }]);
+            if (!response.ok) {
+                throw new Error(data.error || "Failed to start request");
             }
+
+            const jobId = data.jobId;
+            let attempts = 0;
+            const maxAttempts = 60; // 60 * 1s = 60 seconds timeout
+
+            // Poll for result
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                try {
+                    const jobRes = await fetch(`/api/gemini/job/${jobId}`);
+                    const jobData = await jobRes.json();
+
+                    if (jobData.state === 'completed') {
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev, { role: 'model', text: jobData.reply }]);
+                        setIsLoading(false);
+                    } else if (jobData.state === 'error') {
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev, { role: 'model', text: "Error: " + jobData.error }]);
+                        setIsLoading(false);
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev, { role: 'model', text: "Request timed out." }]);
+                        setIsLoading(false);
+                    }
+                } catch (err) {
+                    console.error("Polling Error:", err);
+                    clearInterval(pollInterval);
+                    setMessages(prev => [...prev, { role: 'model', text: "Network error during polling." }]);
+                    setIsLoading(false);
+                }
+            }, 1000);
+
         } catch (error) {
-            if (error.name === 'AbortError') {
-                setMessages(prev => [...prev, { role: 'model', text: "Request timed out. Please try again." }]);
-            } else {
-                setMessages(prev => [...prev, { role: 'model', text: "Sorry, I couldn't reach the server." }]);
-            }
-        } finally {
+            console.error("Chat Error:", error);
+            setMessages(prev => [...prev, { role: 'model', text: "Sorry, I couldn't reach the server." }]);
             setIsLoading(false);
         }
     };
