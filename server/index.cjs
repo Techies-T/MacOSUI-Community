@@ -225,7 +225,7 @@ app.get('/api/gemini/models', async (req, res) => {
 const geminiJobs = {};
 
 // Background Gemini Job Processor
-async function processGeminiJob(jobId, message, history, apiKey, modelName) {
+async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig) {
     geminiJobs[jobId] = { state: 'processing', reply: null, error: null };
     console.log(`Starting Gemini Job ${jobId}...`);
 
@@ -265,15 +265,18 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName) {
         let retries = 3;
         let result;
 
+        const generationConfig = {
+            temperature: 0.7,
+            maxOutputTokens: 8192,
+            ...customConfig // Merge custom config
+        };
+
         while (retries > 0) {
             try {
                 result = await client.models.generateContent({
                     model: modelName,
                     contents: contents,
-                    config: {
-                        temperature: 0.7,
-                        maxOutputTokens: 8192,
-                    }
+                    config: generationConfig
                 });
                 break;
             } catch (apiError) {
@@ -300,9 +303,11 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName) {
             responseText = result.text;
         } else if (result.candidates && result.candidates.length > 0 && result.candidates[0].content && result.candidates[0].content.parts && result.candidates[0].content.parts.length > 0) {
             responseText = result.candidates[0].content.parts.map(p => p.text).join('');
+        } else if (result.text) {
+            responseText = result.text;
         } else {
-            console.error("Unexpected Gemini Response:", JSON.stringify(result, null, 2));
-            throw new Error("Unexpected response structure from Gemini API");
+            // Fallback: try to access candidates directly
+            responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "No text response found.";
         }
 
         geminiJobs[jobId] = { state: 'completed', reply: responseText, error: null };
@@ -314,27 +319,101 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName) {
     }
 }
 
+app.post('/api/gemini/tts', async (req, res) => {
+    try {
+        const { text } = req.body;
+        if (!text) return res.status(400).json({ error: 'Text is required' });
+
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        if (!apiKey) return res.status(500).json({ error: 'Gemini API Key not configured' });
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: text }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: "Kore" }
+                        }
+                    }
+                }
+            }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`TTS API Error: ${response.status} ${errorText}`);
+        }
+
+        const result = await response.json();
+        res.json(result);
+
+    } catch (error) {
+        console.error("TTS Endpoint Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/gemini/proxy', async (req, res) => {
+    try {
+        const targetUrl = req.query.target;
+        if (!targetUrl) return res.status(400).json({ error: 'Target URL is required' });
+
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        if (!apiKey) return res.status(500).json({ error: 'Gemini API Key not configured' });
+
+        // Construct the new URL with the server-side API key
+        const urlObj = new URL(targetUrl);
+        urlObj.searchParams.set('key', apiKey);
+
+        // Forward the request
+        const response = await fetch(urlObj.toString(), {
+            method: req.method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(req.body)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Proxy Upstream Error:", response.status, errorText);
+            return res.status(response.status).send(errorText);
+        }
+
+        const data = await response.json();
+        res.json(data);
+
+    } catch (error) {
+        console.error("Gemini Proxy Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/gemini', async (req, res) => {
-    const { message, history } = req.body;
+    const { message, history, config } = req.body; // Accept config
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        const modelName = await db.getSetting('GEMINI_MODEL') || "gemini-2.5-flash-preview-09-2025";
+        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-1.5-flash';
 
         if (!apiKey) {
-            return res.status(500).json({ error: "GEMINI_API_KEY is not set on server" });
+            return res.status(500).json({ error: 'Gemini API Key not configured' });
         }
 
         const crypto = require('crypto');
         const jobId = crypto.randomUUID();
 
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, modelName);
+        processGeminiJob(jobId, message, history, apiKey, modelName, config); // Pass config
 
         res.json({ jobId, status: 'processing' });
 
     } catch (error) {
-        console.error("Gemini Request Error:", error);
-        res.status(500).json({ error: "Failed to start Gemini job" });
+        console.error("Gemini API Error:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 

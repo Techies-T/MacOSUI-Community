@@ -19,7 +19,28 @@ const Browser = ({ initialUrl, driveFileId }) => {
                 .then(res => res.json())
                 .then(data => {
                     if (data.content) {
-                        setSrcDoc(data.content);
+                        // Inject API Proxy Interceptor
+                        const interceptorScript = `
+                            <script>
+                            (function() {
+                                const originalFetch = window.fetch;
+                                window.fetch = async (input, init) => {
+                                    let url = input;
+                                    if (input instanceof Request) {
+                                        url = input.url;
+                                    }
+                                    
+                                    if (typeof url === 'string' && url.includes('generativelanguage.googleapis.com')) {
+                                        console.log('Intercepting Gemini API call:', url);
+                                        const proxyUrl = '/api/gemini/proxy?target=' + encodeURIComponent(url);
+                                        return originalFetch(proxyUrl, init);
+                                    }
+                                    return originalFetch(input, init);
+                                };
+                            })();
+                            </script>
+                        `;
+                        setSrcDoc(interceptorScript + data.content);
                         setSrc(null);
                         setUrl(data.name || 'Google Drive File');
                     } else {
@@ -159,7 +180,7 @@ const Browser = ({ initialUrl, driveFileId }) => {
                     srcDoc={srcDoc}
                     style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
                     title="Browser"
-                    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-presentation"
+                    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-presentation allow-same-origin"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 />
             </div>
