@@ -878,6 +878,78 @@ app.post('/api/calendar/events', async (req, res) => {
     }
 });
 
+// Middleware for authentication
+const authenticateToken = (req, res, next) => {
+    const token = req.cookies.token || req.headers['authorization']?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
+        if (err) return res.status(403).json({ error: 'Invalid token' });
+        req.user = user;
+        next();
+    });
+};
+
+// ==========================================
+// USER PREFERENCES API
+// ==========================================
+app.get('/api/user/preferences', authenticateToken, (req, res) => {
+    db.get("SELECT window_state FROM user_preferences WHERE user_id = ?", [req.user.id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ windowState: row ? JSON.parse(row.window_state) : [] });
+    });
+});
+
+app.post('/api/user/preferences', authenticateToken, (req, res) => {
+    const { windowState } = req.body;
+    db.run(`INSERT OR REPLACE INTO user_preferences (user_id, window_state, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+        [req.user.id, JSON.stringify(windowState)],
+        (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        }
+    );
+});
+
+// ==========================================
+// MEMOS API
+// ==========================================
+app.get('/api/memos', authenticateToken, (req, res) => {
+    db.all("SELECT * FROM memos WHERE user_id = ?", [req.user.id], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+app.post('/api/memos', authenticateToken, (req, res) => {
+    const { id, content, color, x, y, width, height, zIndex } = req.body;
+    db.run(`INSERT INTO memos (id, user_id, content, color, x, y, width, height, z_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, req.user.id, content, color, x, y, width, height, zIndex],
+        (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        }
+    );
+});
+
+app.put('/api/memos/:id', authenticateToken, (req, res) => {
+    const { content, color, x, y, width, height, zIndex } = req.body;
+    db.run(`UPDATE memos SET content = ?, color = ?, x = ?, y = ?, width = ?, height = ?, z_index = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`,
+        [content, color, x, y, width, height, zIndex, req.params.id, req.user.id],
+        (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        }
+    );
+});
+
+app.delete('/api/memos/:id', authenticateToken, (req, res) => {
+    db.run("DELETE FROM memos WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
+});
+
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log("Gemini API endpoint configured with @google/genai");

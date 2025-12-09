@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import Draggable from 'react-draggable';
 import { Resizable } from 'react-resizable';
 
-const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, initialHeight, zIndex, onFocus, onClose, onMinimize, minimized }) => {
+const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, initialHeight, zIndex, onFocus, onClose, onMinimize, onUpdate, minimized }) => {
     const nodeRef = useRef(null);
     const [width, setWidth] = useState(initialWidth);
     const [height, setHeight] = useState(initialHeight);
@@ -14,6 +14,20 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
     const onResize = (event, { size }) => {
         setWidth(size.width);
         setHeight(size.height);
+    };
+
+    const onResizeStop = (event, { size }) => {
+        setIsResizing(false);
+        if (onUpdate) {
+            onUpdate({ width: size.width, height: size.height });
+        }
+    };
+
+    const onDragStop = (e, data) => {
+        setIsDragging(false);
+        if (onUpdate) {
+            onUpdate({ x: data.x, y: data.y });
+        }
     };
 
     const toggleMaximize = () => {
@@ -108,7 +122,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                 onFocus();
                 setIsDragging(true);
             }}
-            onStop={() => setIsDragging(false)}
+            onStop={onDragStop}
         >
             <div
                 ref={nodeRef}
@@ -124,7 +138,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                     height={height}
                     onResize={onResize}
                     onResizeStart={() => setIsResizing(true)}
-                    onResizeStop={() => setIsResizing(false)}
+                    onResizeStop={onResizeStop}
                     minConstraints={[300, 200]}
                     maxConstraints={[1600, 1000]}
                 >

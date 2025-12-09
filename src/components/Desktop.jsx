@@ -1,10 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import MenuBar from './MenuBar';
 import Dock from './Dock';
 import WindowManager from './WindowManager';
+import StickiesLayer from '../apps/Stickies';
 
 const Desktop = ({ user, onLogout }) => {
   const [windows, setWindows] = useState([]);
+  const saveTimeoutRef = useRef(null);
+  const isInitialMount = useRef(true);
+  const stickiesRef = useRef(null);
+
+  // Load window state on mount
+  useEffect(() => {
+    const loadState = async () => {
+      try {
+        const res = await fetch('/api/user/preferences');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.windowState && Array.isArray(data.windowState)) {
+            setWindows(data.windowState);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load window state", error);
+      }
+    };
+    loadState();
+  }, []);
+
+  // Save window state on change (debounced)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await fetch('/api/user/preferences', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ windowState: windows })
+        });
+      } catch (error) {
+        console.error("Failed to save window state", error);
+      }
+    }, 1000); // Save after 1 second of inactivity
+
+    return () => clearTimeout(saveTimeoutRef.current);
+  }, [windows]);
 
   const openWindow = (id, type, title, props = {}) => {
     setWindows(prev => {
@@ -61,6 +107,11 @@ const Desktop = ({ user, onLogout }) => {
     });
   };
 
+  // Update window position/size (called by Window component)
+  const updateWindow = (id, updates) => {
+    setWindows(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
+  };
+
   return (
     <div
       className="desktop"
@@ -78,22 +129,38 @@ const Desktop = ({ user, onLogout }) => {
       }}
     >
       <MenuBar onLogout={onLogout} />
+
+      {/* Stickies Layer - Below windows but above background */}
+      <StickiesLayer ref={stickiesRef} />
+
       <WindowManager
         windows={windows}
         onFocus={bringToFront}
         onClose={closeWindow}
         onMinimize={minimizeWindow}
         onOpen={openWindow}
+        onUpdate={updateWindow} // Pass update handler
         user={user}
       />
       <Dock
         windows={windows}
         onAppClick={(id) => {
+          if (id === 'stickies') {
+            if (stickiesRef.current) {
+              stickiesRef.current.addNote();
+            }
+            return;
+          }
+
           // Simple mapping for demo purposes
-          const titleMap = { calculator: 'Calculator', notes: 'Notes', finder: 'Finder', gemini: 'Gemini AI', settings: 'System Settings', browser: 'Safari' };
-          // Check if window of this type is already open, if so just focus it (for singleton apps in this demo)
-          // Or allow multiple. Let's allow multiple for Finder, single for others? 
-          // For simplicity, let's make them singletons based on ID for now.
+          const titleMap = {
+            calculator: 'Calculator',
+            notes: 'Notes',
+            finder: 'Finder',
+            gemini: 'Gemini AI',
+            settings: 'System Settings',
+            browser: 'Safari'
+          };
           openWindow(id, id, titleMap[id]);
         }} />
     </div>

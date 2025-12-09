@@ -8,7 +8,7 @@ import Calendar from '../apps/Calendar';
 import SystemSettings from '../apps/SystemSettings';
 import Browser from '../apps/Browser';
 
-const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, user }) => {
+const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate, user }) => {
     const renderApp = (win) => {
         const type = win.type;
         console.log("WindowManager: renderApp", type);
@@ -39,6 +39,7 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, user }) 
                     onFocus={() => onFocus(win.id)}
                     onClose={() => onClose(win.id)}
                     onMinimize={() => onMinimize(win.id)}
+                    onUpdate={(updates) => onUpdate(win.id, updates)}
                     minimized={win.minimized}
                 >
                     {renderApp(win)}
