@@ -118,6 +118,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
             handle=".window-header"
             cancel=".no-drag"
             defaultPosition={{ x: initialX, y: initialY }}
+            bounds={{ top: 28 }}
             onStart={() => {
                 onFocus();
                 setIsDragging(true);
