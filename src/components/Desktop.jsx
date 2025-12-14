@@ -18,7 +18,12 @@ const Desktop = ({ user, onLogout }) => {
         if (res.ok) {
           const data = await res.json();
           if (data.windowState && Array.isArray(data.windowState)) {
-            setWindows(data.windowState);
+            // Sanitize window positions to ensure they are constrained
+            const sanitizedWindows = data.windowState.map(w => ({
+              ...w,
+              y: Math.max(w.y, 28) // Ensure valid Y position (below Menu Bar)
+            }));
+            setWindows(sanitizedWindows);
           }
         }
       } catch (error) {

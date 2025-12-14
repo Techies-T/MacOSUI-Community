@@ -76,10 +76,11 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                     style={{
                         height: '30px',
                         backgroundColor: '#f0f0f0',
-                        borderBottom: '1px solid #ddd',
                         display: 'flex',
                         alignItems: 'center',
                         padding: '0 10px',
+                        position: 'relative',
+                        zIndex: 10000
                     }}
                     onDoubleClick={toggleMaximize}
                 >
@@ -177,7 +178,9 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                                 display: 'flex',
                                 alignItems: 'center',
                                 padding: '0 10px',
-                                cursor: 'default'
+                                cursor: 'default',
+                                position: 'relative',
+                                zIndex: 10000
                             }}
                             onDoubleClick={toggleMaximize}
                         >
