@@ -72,6 +72,9 @@ const Desktop = ({ user, onLogout }) => {
       } else if (type === 'browser') {
         width = 800;
         height = 600;
+      } else if (type === 'html-editor') {
+        width = 800;
+        height = 600;
       }
 
       return [...prev, {
@@ -159,7 +162,8 @@ const Desktop = ({ user, onLogout }) => {
             finder: 'Finder',
             gemini: 'Gemini AI',
             settings: 'System Settings',
-            browser: 'Safari'
+            browser: 'Safari',
+            'html-editor': 'HTML Editor'
           };
           openWindow(id, id, titleMap[id]);
         }} />

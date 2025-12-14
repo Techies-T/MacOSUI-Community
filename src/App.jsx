@@ -10,17 +10,23 @@ const App = () => {
     const [loadingConfig, setLoadingConfig] = useState(true);
     const [loadingSession, setLoadingSession] = useState(true);
 
-    const fetchConfig = async () => {
+    const fetchConfig = async (retries = 3) => {
         try {
             const res = await fetch('/api/config');
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             const data = await res.json();
             setConfig(data);
+            setLoadingConfig(false);
             return data;
         } catch (error) {
             console.error("Failed to load config", error);
-            return null;
-        } finally {
+            if (retries > 0) {
+                console.log(`Retrying config fetch... (${retries} attempts left)`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return fetchConfig(retries - 1);
+            }
             setLoadingConfig(false);
+            return null;
         }
     };
 

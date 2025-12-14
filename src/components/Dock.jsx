@@ -7,8 +7,9 @@ const Dock = ({ onAppClick, windows = [] }) => {
         { id: 'browser', name: 'Browser', icon: '🌎' },
         { id: 'settings', name: 'Settings', icon: '⚙️' },
         { id: 'calculator', name: 'Calculator', icon: '🧮' },
-        { id: 'stickies', name: 'Stickies', icon: '📝' }, // Added Stickies app
-        { id: 'notes', name: 'Notes', icon: '🗒️' }, // Modified Notes app icon
+        { id: 'stickies', name: 'Stickies', icon: '📌' }, // Changed Stickies icon
+        { id: 'notes', name: 'Notes', icon: '🗒️' },
+        { id: 'html-editor', name: 'HTML Editor', icon: '📰' }, // Added HTML Editor
         { id: 'calendar', name: 'Calendar', icon: '📅' },
         { id: 'gemini', name: 'Gemini', icon: '✨' },
     ];

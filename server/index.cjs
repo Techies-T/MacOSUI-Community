@@ -578,18 +578,157 @@ app.get('/api/rag/status', (req, res) => {
     res.json(ragSyncStatus);
 });
 
-// File System: Read file content
-app.get('/api/fs/read', async (req, res) => {
-    const { path: filePath } = req.query;
-    if (!filePath) return res.status(400).json({ error: 'Path is required' });
-
+// Google Drive: Read file content
+app.get('/api/drive/read', async (req, res) => {
     try {
-        const fs = require('fs').promises;
-        const content = await fs.readFile(filePath, 'utf-8');
-        res.json({ content });
+        const { fileId } = req.query;
+        if (!fileId) return res.status(400).json({ error: 'File ID is required' });
+
+        const drive = await getDriveClient(req, res);
+        if (!drive) return;
+
+        const response = await drive.files.get({
+            fileId: fileId,
+            alt: 'media'
+        }, { responseType: 'text' });
+
+        res.json({ content: response.data });
     } catch (error) {
-        console.error("File Read Error:", error);
+        console.error("Drive Read Error:", error);
         res.status(500).json({ error: 'Failed to read file' });
+    }
+});
+
+// Google Drive: Upload/Update file
+app.post('/api/drive/upload', async (req, res) => {
+    try {
+        const { name, content, mimeType, folderId, fileId } = req.body;
+        console.log('Upload Request Body:', JSON.stringify({ name, mimeType, folderId, fileId }, null, 2));
+
+        if (!content) return res.status(400).json({ error: 'Content is required' });
+
+        const drive = await getDriveClient(req, res);
+        if (!drive) return;
+
+        // Resolve folder ID - use configured root if 'root' or not provided
+        let resolvedFolderId = folderId;
+        if (!folderId || folderId === 'root') {
+            const configuredRoot = await db.getSetting('GOOGLE_DRIVE_ROOT_ID');
+            resolvedFolderId = configuredRoot || null;
+        }
+
+        // Create a Readable stream from the content string
+        const { Readable } = require('stream');
+
+        // Helper to create fresh media object with new stream for each attempt
+        const createMedia = () => ({
+            mimeType: mimeType || 'text/plain',
+            body: Readable.from([content])
+        });
+
+        let response;
+
+        // Helper to safely create file, falling back to root if folder not found
+        const safeCreate = async (metadata) => {
+            try {
+                return await drive.files.create({
+                    resource: metadata,
+                    media: createMedia(),
+                    fields: 'id, name, webViewLink, webContentLink',
+                    supportsAllDrives: true
+                });
+            } catch (createError) {
+                // Check for 404 (Parent not found)
+                const isNotFound =
+                    createError.code === 404 ||
+                    createError.code === '404' ||
+                    createError.status === 404 ||
+                    createError.status === '404' ||
+                    (createError.errors && createError.errors[0]?.reason === 'notFound');
+
+                if (isNotFound && metadata.parents && metadata.parents.length > 0) {
+                    console.log(`Folder ${metadata.parents[0]} not found. Falling back to root...`);
+                    const rootMetadata = { ...metadata };
+                    delete rootMetadata.parents; // Remove parents to save in Root
+                    return await drive.files.create({
+                        resource: rootMetadata,
+                        media: createMedia(), // Create NEW stream for retry
+                        fields: 'id, name, webViewLink, webContentLink',
+                        supportsAllDrives: true
+                    });
+                }
+                throw createError;
+            }
+        };
+
+        if (fileId) {
+            try {
+                // Update existing file
+                console.log(`Updating file ${fileId}...`);
+                response = await drive.files.update({
+                    fileId: fileId,
+                    media: createMedia(),
+                    fields: 'id, name, webViewLink, webContentLink',
+                    supportsAllDrives: true
+                });
+            } catch (updateError) {
+                console.log("Update detected error:", updateError.code, updateError.message);
+
+                // Check for 404 Not Found
+                const isNotFound =
+                    updateError.code === 404 ||
+                    updateError.code === '404' ||
+                    updateError.status === 404 ||
+                    updateError.status === '404' ||
+                    (updateError.errors && updateError.errors[0]?.reason === 'notFound');
+
+                // If file not found (404), fall back to create new file
+                if (isNotFound) {
+                    console.log(`File ${fileId} not found (404). Creating new file instead...`);
+                    // Fall through to create logic
+                    const fileMetadata = {
+                        name: name || 'Untitled',
+                    };
+                    // Only add parents if we have a valid folder ID
+                    if (resolvedFolderId) {
+                        fileMetadata.parents = [resolvedFolderId];
+                    }
+                    response = await safeCreate(fileMetadata);
+                } else {
+                    // Re-throw other errors
+                    throw updateError;
+                }
+            }
+        } else {
+            // Create new file
+            const fileMetadata = {
+                name: name || 'Untitled',
+            };
+
+            // Only add parents if we have a valid folder ID
+            if (resolvedFolderId) {
+                fileMetadata.parents = [resolvedFolderId];
+            }
+
+            response = await safeCreate(fileMetadata);
+        }
+
+        res.json(response.data);
+
+    } catch (error) {
+        console.error("Drive Upload Error:", error.message);
+        if (error.response) {
+            console.error("Error Response Data:", error.response.data);
+        }
+        if (error.errors) {
+            console.error("Error Details:", error.errors);
+        }
+        console.error("Full Error:", JSON.stringify(error, null, 2));
+        res.status(500).json({
+            error: 'Failed to upload file',
+            details: error.message,
+            errorData: error.response?.data || error.errors || null
+        });
     }
 });
 
