@@ -6,6 +6,7 @@ const SystemSettings = ({ user }) => {
     const [currentModel, setCurrentModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolderId, setRagFolderId] = useState('');
+    const [researchFolderId, setResearchFolderId] = useState(''); // New state
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [googleClientId, setGoogleClientId] = useState('');
     const [isConfigured, setIsConfigured] = useState(false);
@@ -43,6 +44,9 @@ const SystemSettings = ({ user }) => {
                 }
                 if (data.lastRagSyncTime) {
                     setLastRagSyncTime(data.lastRagSyncTime);
+                }
+                if (data.geminiResearchFolderId) {
+                    setResearchFolderId(data.geminiResearchFolderId);
                 }
             })
             .catch(err => console.error("Failed to fetch config", err));
@@ -85,6 +89,20 @@ const SystemSettings = ({ user }) => {
             alert('RAG Folder ID saved!');
         } catch (err) {
             console.error("Failed to save RAG folder", err);
+            alert('Failed to save.');
+        }
+    };
+
+    const handleSaveResearchFolder = async () => {
+        try {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ geminiResearchFolderId: researchFolderId })
+            });
+            alert('Research Folder ID saved!');
+        } catch (err) {
+            console.error("Failed to save Research folder", err);
             alert('Failed to save.');
         }
     };
@@ -292,6 +310,93 @@ const SystemSettings = ({ user }) => {
                                 >
                                     Save
                                 </button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                            <h2 className="font-semibold mb-3">RAG Configuration</h2>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">RAG Folder ID</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={ragFolderId}
+                                            onChange={(e) => setRagFolderId(e.target.value)}
+                                            placeholder="Google Drive Folder ID for RAG"
+                                            className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
+                                        />
+                                        <button
+                                            onClick={handleSaveRagFolder}
+                                            className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                        >
+                                            Save
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 mt-1">
+                                        ID of the folder containing PDFs/Docs to sync.
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">Deep Research Folder ID</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={researchFolderId}
+                                            onChange={(e) => setResearchFolderId(e.target.value)}
+                                            placeholder="Folder ID to save Research Reports"
+                                            className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
+                                        />
+                                        <button
+                                            onClick={handleSaveResearchFolder}
+                                            className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                                        >
+                                            Save
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 mt-1">
+                                        Where generated research files will be saved.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                            <h2 className="font-semibold mb-3">Personal RAG Status</h2>
+                            <p className="text-xs text-gray-500 mb-4">
+                                Configure a Google Drive folder to sync documents for AI context.
+                            </p>
+                            <div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleSyncRag}
+                                        disabled={isSyncing}
+                                        className={`px-3 py-2 text-white rounded text-xs font-medium transition-colors ${isSyncing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}`}
+                                    >
+                                        {isSyncing ? 'Syncing...' : 'Sync Now'}
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">Files in the configured RAG folder will be synced to Gemini for Personal RAG.</p>
+                                {isSyncing && (
+                                    <div className="mt-2 text-xs text-blue-600 animate-pulse">
+                                        Syncing in progress... Please wait.
+                                    </div>
+                                )}
+                                {lastRagSyncTime && (
+                                    <div className="mt-3 p-2 bg-gray-50 rounded border border-gray-100">
+                                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                            <span>Last Synced:</span>
+                                            <span className="font-medium text-gray-700">{new Date(lastRagSyncTime).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs text-gray-500">
+                                            <span>Next Sync Needed:</span>
+                                            <span className="font-medium text-red-500">
+                                                {new Date(new Date(lastRagSyncTime).getTime() + 24 * 60 * 60 * 1000).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

@@ -225,99 +225,17 @@ app.get('/api/gemini/models', async (req, res) => {
 const geminiJobs = {};
 
 // Background Gemini Job Processor
-async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig) {
-    geminiJobs[jobId] = { state: 'processing', reply: null, error: null };
-    console.log(`Starting Gemini Job ${jobId}...`);
 
-    try {
-        const client = new GoogleGenAI({ apiKey });
-
-        // Get RAG files
-        const ragFiles = await new Promise((resolve, reject) => {
-            db.all("SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files", (err, rows) => {
-                if (err) resolve([]);
-                else resolve(rows || []);
-            });
-        });
-
-        let requestParts = [{ text: message }];
-
-        if (ragFiles.length > 0) {
-            const fileParts = ragFiles.map(f => ({
-                fileData: {
-                    mimeType: f.mime_type || 'application/pdf',
-                    fileUri: f.gemini_file_uri
-                }
-            }));
-            requestParts = [...fileParts, { text: message }];
-        }
-
-        const contents = history ? history.map(m => ({
-            role: m.role,
-            parts: m.parts
-        })) : [];
-
-        contents.push({
-            role: 'user',
-            parts: requestParts
-        });
-
-        let retries = 3;
-        let result;
-
-        const generationConfig = {
-            temperature: 0.7,
-            maxOutputTokens: 8192,
-            ...customConfig // Merge custom config
-        };
-
-        while (retries > 0) {
-            try {
-                result = await client.models.generateContent({
-                    model: modelName,
-                    contents: contents,
-                    config: generationConfig
-                });
-                break;
-            } catch (apiError) {
-                console.error(`Gemini API Error (Retries left: ${retries - 1}):`, apiError);
-                if (apiError.status === 503 || apiError.message.includes('Overloaded')) {
-                    retries--;
-                    await new Promise(res => setTimeout(res, 2000));
-                } else {
-                    throw apiError;
-                }
-            }
-        }
-
-        if (!result) {
-            throw new Error("Failed to get response from Gemini after retries");
-        }
-
-        let responseText;
-        if (result.response && typeof result.response.text === 'function') {
-            responseText = result.response.text();
-        } else if (typeof result.text === 'function') {
-            responseText = result.text();
-        } else if (result.text) {
-            responseText = result.text;
-        } else if (result.candidates && result.candidates.length > 0 && result.candidates[0].content && result.candidates[0].content.parts && result.candidates[0].content.parts.length > 0) {
-            responseText = result.candidates[0].content.parts.map(p => p.text).join('');
-        } else if (result.text) {
-            responseText = result.text;
-        } else {
-            // Fallback: try to access candidates directly
-            responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "No text response found.";
-        }
-
-        geminiJobs[jobId] = { state: 'completed', reply: responseText, error: null };
-        console.log(`Gemini Job ${jobId} completed.`);
-
-    } catch (error) {
-        console.error(`Gemini Job ${jobId} Failed:`, error);
-        geminiJobs[jobId] = { state: 'error', reply: null, error: error.message };
+app.get('/api/gemini/job/:jobId', (req, res) => {
+    const { jobId } = req.params;
+    const job = geminiJobs[jobId];
+    if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
     }
-}
+    res.json(job);
+});
+
+
 
 app.post('/api/gemini/tts', async (req, res) => {
     try {
@@ -393,11 +311,15 @@ app.post('/api/gemini/proxy', async (req, res) => {
     }
 });
 
+// ... (Top of file needs googleapis import if not present, but it is likely there or we use raw fetch)
+// Retrieving 'google' from googleapis is needed for Drive API usage inside the job.
+// Google Drive API endpoints (google import moved to top)
+
 app.post('/api/gemini', async (req, res) => {
-    const { message, history, config } = req.body; // Accept config
+    const { message, history, config } = req.body;
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-1.5-flash';
+        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.0-flash';
 
         if (!apiKey) {
             return res.status(500).json({ error: 'Gemini API Key not configured' });
@@ -406,8 +328,31 @@ app.post('/api/gemini', async (req, res) => {
         const crypto = require('crypto');
         const jobId = crypto.randomUUID();
 
+        // Get Access Token for Drive Tools
+        const token = req.cookies.token;
+        let accessToken = null;
+        if (token) {
+            // Decode JWT to find if we stored access token?
+            // Current auth implementation stores user info in JWT but maybe not access token.
+            // Let's check /api/auth/google/callback logic or just rely on 'req.user'?
+            // Standard generic auth usually doesn't put long access tokens in JWT.
+            // BUT, for this app, we need delegation. 
+            // See 'getDriveClient' helper? It extracts token from 'req.cookies.token' if it IS the access token?
+            // Let's look at 'getDriveClient' implementation if possible.
+            // Assuming we pass the raw value of cookie 'token' if that's what we use for Drive.
+
+            // In typical setup here: 
+            // req.cookies.token is the JWT.
+            // We need the GOOGLE ACCESS TOKEN.
+            // If the app is simple, maybe the cookie IS the access token?
+            // "res.cookie('token', token ...)" in auth callback.
+            // If we can't get it, 'save_to_drive' will fail.
+            // I'll pass the whole cookie token and try to use it.
+            accessToken = token;
+        }
+
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, modelName, config); // Pass config
+        processGeminiJob(jobId, message, history, apiKey, modelName, config, accessToken);
 
         res.json({ jobId, status: 'processing' });
 
@@ -417,17 +362,260 @@ app.post('/api/gemini', async (req, res) => {
     }
 });
 
-app.get('/api/gemini/job/:jobId', (req, res) => {
-    const { jobId } = req.params;
-    const job = geminiJobs[jobId];
+// ...
 
-    if (!job) {
-        return res.status(404).json({ error: "Job not found" });
+// Background Gemini Job Processor
+async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, accessToken) {
+    geminiJobs[jobId] = { state: 'processing', reply: null, error: null };
+    console.log(`Starting Gemini Job ${jobId}...`);
+
+    try {
+        const client = new GoogleGenAI({ apiKey });
+
+        const mode = customConfig?.mode || 'rag'; // Default to RAG
+
+        // Get RAG files (ONLY if mode is 'rag')
+        let ragFiles = [];
+        if (mode === 'rag') {
+            ragFiles = await new Promise((resolve, reject) => {
+                db.all("SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files", (err, rows) => {
+                    if (err) resolve([]);
+                    else resolve(rows || []);
+                });
+            });
+        }
+
+        let requestParts = [{ text: message }];
+
+        if (ragFiles.length > 0) {
+            const fileParts = ragFiles.map(f => ({
+                fileData: {
+                    mimeType: f.mime_type || 'application/pdf',
+                    fileUri: f.gemini_file_uri
+                }
+            }));
+            requestParts = [...fileParts, { text: message }];
+        }
+
+        const contents = history ? history.map(m => ({
+            role: m.role,
+            parts: m.parts
+        })) : [];
+
+        contents.push({
+            role: 'user',
+            parts: requestParts
+        });
+
+        const generationConfig = {
+            temperature: 0.7,
+            maxOutputTokens: 8192,
+            ...customConfig // Merge custom config
+        };
+
+        // Configure Tools based on mode
+        const tools = [];
+        if (mode === 'search') {
+            tools.push({ googleSearch: {} });
+
+            // Add Save to Drive tool definition
+            tools.push({
+                functionDeclarations: [{
+                    name: "save_to_drive",
+                    description: "Save a file (Research Report, Article, etc.) to Google Drive. Use this to save the result of your research.",
+                    parameters: {
+                        type: "OBJECT",
+                        properties: {
+                            filename: {
+                                type: "STRING",
+                                description: "The name of the file to save (e.g., 'Research_Report_Containers.md')."
+                            },
+                            content: {
+                                type: "STRING",
+                                description: "The text content to save into the file."
+                            },
+                            mimeType: {
+                                type: "STRING",
+                                description: "MIME type of the file. Defaults to 'text/markdown'.",
+                                enum: ["text/plain", "text/markdown", "application/json"]
+                            }
+                        },
+                        required: ["filename", "content"]
+                    }
+                }]
+            });
+        }
+
+        let maxTurns = 5; // Prevent infinite loops
+        let currentRetries = 3;
+
+        while (maxTurns > 0) {
+            maxTurns--;
+            console.log(`Gemini Turn: ${5 - maxTurns}`);
+
+            let result;
+            try {
+                result = await client.models.generateContent({
+                    model: modelName,
+                    contents: contents,
+                    config: generationConfig,
+                    tools: tools.length > 0 ? tools : undefined
+                });
+            } catch (apiError) {
+                console.error(`Gemini API Error (Retries left: ${currentRetries - 1}):`, apiError);
+                if (currentRetries > 0 && (apiError.status === 503 || apiError.message.includes('Overloaded'))) {
+                    currentRetries--;
+                    maxTurns++; // Don't count retry as a turn
+                    await new Promise(res => setTimeout(res, 2000));
+                    continue;
+                } else {
+                    throw apiError;
+                }
+            }
+
+            let response = result.response;
+            if (!response && result.candidates) {
+                // Handle @google/genai SDK structure where result IS the response
+                response = result;
+            }
+
+            if (!response || !response.candidates) {
+                throw new Error("Empty response from Gemini");
+            }
+
+            // Helper to get function calls
+            const getFunctionCalls = (resp) => {
+                if (typeof resp.functionCalls === 'function') return resp.functionCalls();
+
+                // Manual parsing for new SDK object structure
+                const calls = [];
+                const candidate = resp.candidates[0];
+                if (candidate && candidate.content && candidate.content.parts) {
+                    for (const part of candidate.content.parts) {
+                        if (part.functionCall) {
+                            calls.push({
+                                name: part.functionCall.name,
+                                args: part.functionCall.args
+                            });
+                        }
+                    }
+                }
+                return calls;
+            };
+
+            const functionCalls = getFunctionCalls(response);
+
+            if (functionCalls && functionCalls.length > 0) {
+                // 1. Add model's function call message to history
+                // Note: content might need adaptation if direct object
+                const modelContent = response.candidates[0].content;
+                contents.push(modelContent);
+
+                // 2. Execute functions
+                const functionResponses = [];
+                for (const call of functionCalls) {
+                    console.log(`Executing Tool: ${call.name}`);
+                    if (call.name === 'save_to_drive') {
+                        try {
+                            const { filename, content, mimeType } = call.args;
+                            const folderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
+
+                            if (!folderId) {
+                                functionResponses.push({
+                                    functionResponse: {
+                                        name: call.name,
+                                        response: { error: "Research Folder ID not configured in System Settings." }
+                                    }
+                                });
+                                continue;
+                            }
+
+                            if (!accessToken) {
+                                throw new Error("User authorization missing. Cannot save to Drive.");
+                            }
+
+                            // Create Drive Client
+                            const auth = new google.auth.OAuth2();
+                            auth.setCredentials({ access_token: accessToken });
+                            const drive = google.drive({ version: 'v3', auth });
+
+                            const res = await drive.files.create({
+                                requestBody: {
+                                    name: filename,
+                                    parents: [folderId],
+                                    mimeType: mimeType || 'text/markdown'
+                                },
+                                media: {
+                                    mimeType: mimeType || 'text/markdown',
+                                    body: content
+                                }
+                            });
+
+                            console.log(`Saved file: ${filename} (ID: ${res.data.id})`);
+                            functionResponses.push({
+                                functionResponse: {
+                                    name: call.name,
+                                    response: { success: true, fileId: res.data.id, message: `File '${filename}' saved successfully.` }
+                                }
+                            });
+
+                        } catch (toolErr) {
+                            console.error("Tool Execution Error:", toolErr);
+                            functionResponses.push({
+                                functionResponse: {
+                                    name: call.name,
+                                    response: { error: "Failed to save file: " + toolErr.message }
+                                }
+                            });
+                        }
+                    } else {
+                        functionResponses.push({
+                            functionResponse: {
+                                name: call.name,
+                                response: { error: "Unknown tool" }
+                            }
+                        });
+                    }
+                }
+
+                // 3. Add function responses to history
+                contents.push({
+                    role: "function",
+                    parts: functionResponses
+                });
+
+                // Loop continues to generate text based on function result
+            } else {
+                // No function calls, just text
+                // Manual text extraction
+                let text = "";
+                if (typeof response.text === 'function') {
+                    text = response.text();
+                } else if (response.candidates && response.candidates[0].content.parts) {
+                    text = response.candidates[0].content.parts
+                        .filter(p => p.text)
+                        .map(p => p.text)
+                        .join('');
+                }
+
+                if (text) {
+                    geminiJobs[jobId] = { state: 'completed', reply: text, error: null };
+                    console.log(`Gemini Job ${jobId} completed.`);
+                    return;
+                } else {
+                    geminiJobs[jobId] = { state: 'completed', reply: "No content generated.", error: null };
+                    return;
+                }
+            }
+        }
+
+        geminiJobs[jobId] = { state: 'error', reply: null, error: "Max turns exceeded" };
+
+    } catch (error) {
+        console.error(`Gemini Job ${jobId} Failed:`, error);
+        geminiJobs[jobId] = { state: 'error', reply: null, error: error.message };
     }
-
-    res.json(job);
-});
-
+}
 
 // Global sync status
 let ragSyncStatus = {

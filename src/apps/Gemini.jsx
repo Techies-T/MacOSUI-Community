@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 const Gemini = () => {
+    const [mode, setMode] = useState('rag'); // Default to RAG as per existing behavior, or 'chat'? User asked for selector. Let's default to RAG as it was the previous "only" mode.
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -33,13 +34,16 @@ const Gemini = () => {
             }));
 
             // Start Job
+            const requestBody = {
+                message: userMessage.text,
+                history: history,
+                config: { mode: mode } // Pass selected mode
+            };
+
             const response = await fetch('/api/gemini', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: userMessage.text,
-                    history: history
-                })
+                body: JSON.stringify(requestBody)
             });
 
             const data = await response.json();
@@ -102,17 +106,36 @@ const Gemini = () => {
             {/* Content */}
             <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
 
+                {/* Header / Mode Selector */}
+                <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-center">
+                    <div className="bg-white/20 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
+                        <select
+                            value={mode}
+                            onChange={(e) => setMode(e.target.value)}
+                            className="bg-transparent border-none text-white text-sm font-medium outline-none cursor-pointer appearance-none pr-6 pl-3 py-1.5 focus:ring-0"
+                            style={{ backgroundImage: 'none', minWidth: '120px' }}
+                        >
+                            <option value="rag" className="text-gray-800">📚 Personal RAG</option>
+                            <option value="chat" className="text-gray-800">💬 Normal Chat</option>
+                            <option value="search" className="text-gray-800">🔍 Deep Research</option>
+                        </select>
+                        <span className="text-white/80 text-[10px] pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 transform">▼</span>
+                    </div>
+                </div>
+
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
+                <div className="flex-1 overflow-y-auto p-4 pt-16 space-y-6 scrollbar-hide">
                     {messages.length === 0 && (
-                        <div className="h-full flex flex-col items-center justify-center text-white/90 text-center mt-10">
+                        <div className="h-full flex flex-col items-center justify-center text-white/90 text-center mt-10 animate-fadeIn">
                             <div className="w-20 h-20 mb-4 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-lg ring-1 ring-white/40">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-10 h-10 text-white">
-                                    <path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813a3.75 3.75 0 002.576-2.576l.813-2.846A.75.75 0 019 4.5zM9 15a.75.75 0 01.75.75v1.5h1.5a.75.75 0 010 1.5h-1.5v1.5a.75.75 0 01-1.5 0v-1.5h-1.5a.75.75 0 010-1.5h1.5v-1.5A.75.75 0 019 15z" clipRule="evenodd" />
-                                </svg>
+                                <span className="text-4xl">✨</span>
                             </div>
-                            <h2 className="text-2xl font-medium mb-1">Gemini</h2>
-                            <p className="text-sm opacity-80">How can I help you today?</p>
+                            <h2 className="text-2xl font-medium mb-1">Gemini AI</h2>
+                            <p className="text-sm opacity-80 mb-4">How can I help you today?</p>
+
+                            <div className="bg-white/10 px-3 py-1 rounded-full text-xs font-medium border border-white/10">
+                                {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Google Search' : 'Mode: Chat'}
+                            </div>
                         </div>
                     )}
 
@@ -205,7 +228,7 @@ const Gemini = () => {
           scrollbar-width: none;
         }
       `}</style>
-        </div>
+        </div >
     );
 };
 
