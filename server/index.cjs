@@ -319,7 +319,7 @@ app.post('/api/gemini', async (req, res) => {
     const { message, history, config } = req.body;
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.0-flash';
+        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3-flash-preview';
 
         if (!apiKey) {
             return res.status(500).json({ error: 'Gemini API Key not configured' });
@@ -368,6 +368,7 @@ app.post('/api/gemini', async (req, res) => {
 async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, accessToken) {
     geminiJobs[jobId] = { state: 'processing', reply: null, error: null };
     console.log(`Starting Gemini Job ${jobId}...`);
+    console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
 
     try {
         const client = new GoogleGenAI({ apiKey });
@@ -407,17 +408,22 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             parts: requestParts
         });
 
-        const generationConfig = {
-            temperature: 0.7,
-            maxOutputTokens: 8192,
-            ...customConfig // Merge custom config
-        };
+        // Dedicated System Instruction for Grounding
+        let systemInstruction = undefined;
+        if (mode === 'chat' && customConfig?.grounding) {
+            systemInstruction = {
+                parts: [{ text: "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge." }]
+            };
+        }
 
         // Configure Tools based on mode
         const tools = [];
-        if (mode === 'search') {
+        if (mode === 'search' || (mode === 'chat' && customConfig?.grounding)) {
+            // SDK expects camelCase googleSearch
             tools.push({ googleSearch: {} });
+        }
 
+        if (mode === 'search') {
             // Add Save to Drive tool definition
             tools.push({
                 functionDeclarations: [{
@@ -446,6 +452,19 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             });
         }
 
+        const config = {
+            temperature: customConfig?.temperature ?? 0.7,
+            maxOutputTokens: customConfig?.maxOutputTokens ?? 8192,
+            topP: customConfig?.topP,
+            topK: customConfig?.topK,
+            tools: tools.length > 0 ? tools : undefined
+        };
+
+        // Add thinkingConfig for Gemini 3.0 Flash to improve grounding and reasoning
+        if (mode === 'chat' && customConfig?.grounding) {
+            config.thinkingConfig = { thinkingLevel: 'HIGH' };
+        }
+
         let maxTurns = 5; // Prevent infinite loops
         let currentRetries = 3;
 
@@ -453,17 +472,49 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             maxTurns--;
             console.log(`Gemini Turn: ${5 - maxTurns}`);
 
-            let result;
+            let responseText = "";
+            let fullResult = null;
+            let response = null;
+
             try {
-                result = await client.models.generateContent({
+                console.log("Sending request to Gemini (Stream)...");
+                const streamResult = await client.models.generateContentStream({
                     model: modelName,
                     contents: contents,
-                    config: generationConfig,
-                    tools: tools.length > 0 ? tools : undefined
+                    systemInstruction: systemInstruction,
+                    config: config
                 });
+
+                for await (const chunk of streamResult) {
+                    if (chunk.text) {
+                        responseText += (typeof chunk.text === 'function' ? chunk.text() : chunk.text);
+                    }
+                    fullResult = chunk; // Last chunk usually has metadata
+                }
+
+                if (!fullResult) {
+                    throw new Error("Empty response from Gemini stream");
+                }
+
+                response = fullResult.response || fullResult;
+
+                if (!response || !response.candidates) {
+                    throw new Error("No candidates in Gemini response");
+                }
+
+                // Logging for verification
+                if (config.tools) {
+                    console.log(`Gemini Job ${jobId}: Tools enabled: ${JSON.stringify(config.tools.map(t => Object.keys(t)[0]))}`);
+                    const candidate = response.candidates[0];
+                    if (candidate?.groundingMetadata) {
+                        console.log(`Gemini Job ${jobId}: Grounding Metadata found! Queries: ${JSON.stringify(candidate.groundingMetadata.webSearchQueries)}`);
+                    } else {
+                        console.log(`Gemini Job ${jobId}: No Grounding Metadata in response.`);
+                    }
+                }
             } catch (apiError) {
                 console.error(`Gemini API Error (Retries left: ${currentRetries - 1}):`, apiError);
-                if (currentRetries > 0 && (apiError.status === 503 || apiError.message.includes('Overloaded'))) {
+                if (currentRetries > 0 && (apiError.status === 503 || apiError.message?.includes('Overloaded'))) {
                     currentRetries--;
                     maxTurns++; // Don't count retry as a turn
                     await new Promise(res => setTimeout(res, 2000));
@@ -473,23 +524,10 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                 }
             }
 
-            let response = result.response;
-            if (!response && result.candidates) {
-                // Handle @google/genai SDK structure where result IS the response
-                response = result;
-            }
-
-            if (!response || !response.candidates) {
-                throw new Error("Empty response from Gemini");
-            }
-
             // Helper to get function calls
             const getFunctionCalls = (resp) => {
-                if (typeof resp.functionCalls === 'function') return resp.functionCalls();
-
-                // Manual parsing for new SDK object structure
                 const calls = [];
-                const candidate = resp.candidates[0];
+                const candidate = resp.candidates?.[0];
                 if (candidate && candidate.content && candidate.content.parts) {
                     for (const part of candidate.content.parts) {
                         if (part.functionCall) {
@@ -507,7 +545,6 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
             if (functionCalls && functionCalls.length > 0) {
                 // 1. Add model's function call message to history
-                // Note: content might need adaptation if direct object
                 const modelContent = response.candidates[0].content;
                 contents.push(modelContent);
 
@@ -586,20 +623,9 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
                 // Loop continues to generate text based on function result
             } else {
-                // No function calls, just text
-                // Manual text extraction
-                let text = "";
-                if (typeof response.text === 'function') {
-                    text = response.text();
-                } else if (response.candidates && response.candidates[0].content.parts) {
-                    text = response.candidates[0].content.parts
-                        .filter(p => p.text)
-                        .map(p => p.text)
-                        .join('');
-                }
-
-                if (text) {
-                    geminiJobs[jobId] = { state: 'completed', reply: text, error: null };
+                // No function calls, use the aggregated text from stream
+                if (responseText) {
+                    geminiJobs[jobId] = { state: 'completed', reply: responseText, error: null };
                     console.log(`Gemini Job ${jobId} completed.`);
                     return;
                 } else {

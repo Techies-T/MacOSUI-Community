@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 const Gemini = () => {
-    const [mode, setMode] = useState('rag'); // Default to RAG as per existing behavior, or 'chat'? User asked for selector. Let's default to RAG as it was the previous "only" mode.
+    const [mode, setMode] = useState('rag'); // Default to RAG
+    const [useGrounding, setUseGrounding] = useState(false);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -37,7 +38,7 @@ const Gemini = () => {
             const requestBody = {
                 message: userMessage.text,
                 history: history,
-                config: { mode: mode } // Pass selected mode
+                config: { mode: mode, grounding: useGrounding } // Pass selected mode and grounding flag
             };
 
             const response = await fetch('/api/gemini', {
@@ -121,6 +122,21 @@ const Gemini = () => {
                         </select>
                         <span className="text-white/80 text-[10px] pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 transform">▼</span>
                     </div>
+
+                    {mode === 'chat' && (
+                        <div className="flex items-center gap-2 bg-white/20 backdrop-blur-md rounded-lg px-3 py-1.5 shadow-sm border border-white/10">
+                            <span className="text-white text-xs font-medium">Google Search</span>
+                            <button
+                                onClick={() => setUseGrounding(!useGrounding)}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${useGrounding ? 'bg-blue-500' : 'bg-gray-400/50'}`}
+                            >
+                                <span
+                                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${useGrounding ? 'translate-x-4.5' : 'translate-x-1'}`}
+                                    style={{ transform: useGrounding ? 'translateX(18px)' : 'translateX(4px)' }}
+                                />
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Messages Area */}
@@ -134,7 +150,7 @@ const Gemini = () => {
                             <p className="text-sm opacity-80 mb-4">How can I help you today?</p>
 
                             <div className="bg-white/10 px-3 py-1 rounded-full text-xs font-medium border border-white/10">
-                                {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Google Search' : 'Mode: Chat'}
+                                {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Google Search' : (useGrounding ? 'Mode: Chat (with Search)' : 'Mode: Chat')}
                             </div>
                         </div>
                     )}
