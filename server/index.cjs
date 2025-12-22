@@ -792,26 +792,6 @@ app.get('/api/rag/status', (req, res) => {
     res.json(ragSyncStatus);
 });
 
-// Google Drive: Read file content
-app.get('/api/drive/read', async (req, res) => {
-    try {
-        const { fileId } = req.query;
-        if (!fileId) return res.status(400).json({ error: 'File ID is required' });
-
-        const drive = await getDriveClient(req, res);
-        if (!drive) return;
-
-        const response = await drive.files.get({
-            fileId: fileId,
-            alt: 'media'
-        }, { responseType: 'text' });
-
-        res.json({ content: response.data });
-    } catch (error) {
-        console.error("Drive Read Error:", error);
-        res.status(500).json({ error: 'Failed to read file' });
-    }
-});
 
 // Google Drive: Upload/Update file
 app.post('/api/drive/upload', async (req, res) => {

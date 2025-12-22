@@ -8,21 +8,22 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
 
-    // Folder selection
     const [selectedFolderId, setSelectedFolderId] = useState(initialFolderId || null);
     const [selectedFolderName, setSelectedFolderName] = useState('Root');
-    const [showFolderPicker, setShowFolderPicker] = useState(false);
+    // Picker state
+    const [showPicker, setShowPicker] = useState(false);
+    const [pickerMode, setPickerMode] = useState('save'); // 'save' or 'open'
     const [items, setItems] = useState([]);
     const [currentPickerPath, setCurrentPickerPath] = useState([{ id: 'root', name: 'Root' }]);
     const [loadingFolders, setLoadingFolders] = useState(false);
 
     useEffect(() => {
         if (initialFileId) {
-            loadFile(initialFileId);
+            loadFile(initialFileId, initialFileName);
         }
     }, [initialFileId]);
 
-    const loadFile = async (id) => {
+    const loadFile = async (id, name = null) => {
         setLoading(true);
         try {
             const res = await fetch(`/api/drive/read?fileId=${id}`, { credentials: 'include' });
@@ -30,7 +31,10 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                 const data = await res.json();
                 setContent(data.content);
                 setFileId(id);
-                if (initialFileName) setFileName(initialFileName);
+                if (name) setFileName(name);
+                else if (initialFileName) setFileName(initialFileName);
+                setMessage('File loaded successfully');
+                setTimeout(() => setMessage(''), 3000);
             } else {
                 setMessage('Failed to load file.');
             }
@@ -41,6 +45,7 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
             setLoading(false);
         }
     };
+
     const loadFolders = async (folderId) => {
         setLoadingFolders(true);
         try {
@@ -51,18 +56,19 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                 console.log("Loaded items:", data.files);
                 setItems(data.files || []);
             } else {
-                setMessage('Failed to load folders');
+                setMessage('Failed to load path');
             }
         } catch (error) {
-            console.error("Error loading folders:", error);
+            console.error("Error loading path:", error);
             setMessage(`Error: ${error.message}`);
         } finally {
             setLoadingFolders(false);
         }
     };
 
-    const openFolderPicker = () => {
-        setShowFolderPicker(true);
+    const openPicker = (mode) => {
+        setPickerMode(mode);
+        setShowPicker(true);
         setCurrentPickerPath([{ id: 'root', name: 'Root' }]);
         loadFolders('root');
     };
@@ -79,16 +85,27 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
     };
 
     const selectFolder = (folder) => {
-        setSelectedFolderId(folder.id);
-        setSelectedFolderName(folder.name);
-        setShowFolderPicker(false);
+        if (pickerMode === 'save') {
+            setSelectedFolderId(folder.id);
+            setSelectedFolderName(folder.name);
+            setShowPicker(false);
+        }
+    };
+
+    const selectFile = (file) => {
+        if (pickerMode === 'open') {
+            loadFile(file.id, file.name);
+            setShowPicker(false);
+        }
     };
 
     const selectCurrentFolder = () => {
-        const current = currentPickerPath[currentPickerPath.length - 1];
-        setSelectedFolderId(current.id);
-        setSelectedFolderName(current.name);
-        setShowFolderPicker(false);
+        if (pickerMode === 'save') {
+            const current = currentPickerPath[currentPickerPath.length - 1];
+            setSelectedFolderId(current.id);
+            setSelectedFolderName(current.name);
+            setShowPicker(false);
+        }
     };
 
     const handleSave = async () => {
@@ -141,6 +158,16 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
         <div className="flex flex-col h-full bg-[#1e1e1e] text-white font-mono text-sm relative">
             {/* Toolbar */}
             <div className="flex items-center gap-2 p-2 bg-[#2d2d2d] border-b border-[#3e3e3e] flex-wrap">
+                <button
+                    onClick={() => openPicker('open')}
+                    className="px-3 py-1 bg-[#444] hover:bg-[#555] rounded text-white flex items-center gap-1"
+                    title="Open HTML file"
+                >
+                    📂 Open
+                </button>
+
+                <div className="w-[1px] h-4 bg-[#444] mx-1" />
+
                 <input
                     type="text"
                     value={fileName}
@@ -151,7 +178,7 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
 
                 {/* Folder selector button */}
                 <button
-                    onClick={openFolderPicker}
+                    onClick={() => openPicker('save')}
                     className="px-3 py-1 bg-[#444] hover:bg-[#555] rounded text-white text-xs flex items-center gap-1"
                     title="Select save folder"
                 >
@@ -182,14 +209,14 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                 spellCheck="false"
             />
 
-            {/* Folder Picker Modal */}
-            {showFolderPicker && (
+            {/* File/Folder Picker Modal */}
+            {showPicker && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
                     <div className="bg-[#2d2d2d] rounded-lg shadow-xl w-96 max-h-[80%] flex flex-col">
                         <div className="p-3 border-b border-[#3e3e3e] flex justify-between items-center">
-                            <span className="font-bold">Select Folder</span>
+                            <span className="font-bold">{pickerMode === 'open' ? 'Open File' : 'Select Folder'}</span>
                             <button
-                                onClick={() => setShowFolderPicker(false)}
+                                onClick={() => setShowPicker(false)}
                                 className="text-gray-400 hover:text-white"
                             >
                                 ✕
@@ -211,7 +238,7 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                             ))}
                         </div>
 
-                        {/* Folder list */}
+                        {/* Item list */}
                         <div className="flex-1 overflow-auto p-2 min-h-[200px]">
                             {loadingFolders ? (
                                 <div className="text-center text-gray-400 py-4">Loading...</div>
@@ -220,24 +247,36 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                             ) : (
                                 items.map(item => {
                                     const isFolder = item.mimeType === 'application/vnd.google-apps.folder';
+                                    const isHtml = item.mimeType === 'text/html' || item.name.endsWith('.html');
+
+                                    if (pickerMode === 'open' && !isFolder && !isHtml) return null;
+
                                     return (
                                         <div
                                             key={item.id}
-                                            className={`flex items-center gap-2 p-2 rounded ${isFolder ? 'hover:bg-[#3e3e3e] cursor-pointer' : 'opacity-70 cursor-default'} group`}
+                                            className={`flex items-center gap-2 p-2 rounded hover:bg-[#3e3e3e] group ${isFolder ? 'cursor-pointer' : (pickerMode === 'open' ? 'cursor-pointer' : 'opacity-50 cursor-default')}`}
                                         >
                                             <span
                                                 className="flex-1 flex items-center gap-2"
-                                                onClick={() => isFolder && navigateToFolder(item)}
+                                                onClick={() => isFolder ? navigateToFolder(item) : (pickerMode === 'open' && selectFile(item))}
                                             >
                                                 <span>{isFolder ? '📁' : '📄'}</span>
                                                 {item.name}
                                             </span>
-                                            {isFolder && (
+                                            {isFolder && pickerMode === 'save' && (
                                                 <button
                                                     onClick={() => selectFolder(item)}
                                                     className="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded opacity-0 group-hover:opacity-100"
                                                 >
                                                     Select
+                                                </button>
+                                            )}
+                                            {!isFolder && pickerMode === 'open' && (
+                                                <button
+                                                    onClick={() => selectFile(item)}
+                                                    className="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded opacity-0 group-hover:opacity-100"
+                                                >
+                                                    Open
                                                 </button>
                                             )}
                                         </div>
@@ -248,17 +287,19 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                         {/* Actions */}
                         <div className="p-3 border-t border-[#3e3e3e] flex justify-end gap-2">
                             <button
-                                onClick={() => setShowFolderPicker(false)}
+                                onClick={() => setShowPicker(false)}
                                 className="px-3 py-1 bg-[#444] hover:bg-[#555] rounded text-white text-sm"
                             >
                                 Cancel
                             </button>
-                            <button
-                                onClick={selectCurrentFolder}
-                                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm"
-                            >
-                                Use Current Folder
-                            </button>
+                            {pickerMode === 'save' && (
+                                <button
+                                    onClick={selectCurrentFolder}
+                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm"
+                                >
+                                    Use Current Folder
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
