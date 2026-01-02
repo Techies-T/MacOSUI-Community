@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isToday } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isToday, addDays } from 'date-fns';
 
 const Calendar = () => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -8,13 +8,19 @@ const Calendar = () => {
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
-        fetchEvents();
-    }, []);
+        fetchEvents(currentMonth);
+    }, [currentMonth]);
 
-    const fetchEvents = async () => {
+    const fetchEvents = async (month) => {
         setIsLoading(true);
         try {
-            const res = await fetch('/api/calendar/events');
+            const start = startOfMonth(month);
+            const end = endOfMonth(month);
+            const params = new URLSearchParams({
+                timeMin: start.toISOString(),
+                timeMax: end.toISOString()
+            });
+            const res = await fetch(`/api/calendar/events?${params}`);
             if (res.ok) {
                 const data = await res.json();
                 setEvents(data.events || []);
@@ -81,6 +87,16 @@ const Calendar = () => {
         );
     };
 
+    const getContrastYIQ = (hexcolor) => {
+        if (!hexcolor) return 'black';
+        const hex = hexcolor.replace("#", "");
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+        return (yiq >= 128) ? 'black' : 'white';
+    };
+
     const renderCells = () => {
         const monthStart = startOfMonth(currentMonth);
         const monthEnd = endOfMonth(monthStart);
@@ -96,7 +112,7 @@ const Calendar = () => {
         while (day <= endDate) {
             for (let i = 0; i < 7; i++) {
                 formattedDate = format(day, dateFormat);
-                const cloneDay = day;
+                const cloneDay = new Date(day);
 
                 const dayEvents = events.filter(e => {
                     const eventDate = new Date(e.start.dateTime || e.start.date);
@@ -105,7 +121,7 @@ const Calendar = () => {
 
                 days.push(
                     <div
-                        key={day}
+                        key={day.toString()}
                         className={`min-h-[100px] p-2 border-b border-r border-gray-100 relative group transition-colors hover:bg-gray-50
                             ${!isSameMonth(day, monthStart) ? "bg-gray-50/50 text-gray-400" : "bg-white"}
                             ${isSameDay(day, selectedDate) ? "bg-blue-50" : ""}
@@ -117,21 +133,31 @@ const Calendar = () => {
                         `}>
                             {formattedDate}
                         </div>
-                        <div className="space-y-1">
-                            {dayEvents.map((event, idx) => (
-                                <div key={idx} className="text-[10px] truncate px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
-                                    {event.summary}
-                                </div>
-                            ))}
+                        <div className="space-y-1 overflow-hidden">
+                            {dayEvents.map((event, idx) => {
+                                const bgColor = event.backgroundColor || '#3b82f6';
+                                const textColor = getContrastYIQ(bgColor);
+                                return (
+                                    <div
+                                        key={idx}
+                                        className="text-[10px] truncate px-1.5 py-0.5 rounded shadow-sm border border-black/5 font-semibold"
+                                        style={{
+                                            backgroundColor: bgColor,
+                                            color: textColor,
+                                        }}
+                                        title={`${event.calendarSummary}: ${event.summary}`}
+                                    >
+                                        {event.summary}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 );
-                day = new Date(day.setDate(day.getDate() + 1)); // Use native date increment to avoid date-fns addDays import if not needed, but we imported it? No, let's use logic.
-                // Actually we didn't import addDays. Let's fix the loop logic.
-                // day = addDays(day, 1);
+                day = addDays(day, 1);
             }
             rows.push(
-                <div className="grid grid-cols-7" key={day}>
+                <div className="grid grid-cols-7" key={day.toString()}>
                     {days}
                 </div>
             );

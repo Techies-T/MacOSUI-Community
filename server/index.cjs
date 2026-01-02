@@ -1173,14 +1173,58 @@ app.get('/api/calendar/events', async (req, res) => {
         const calendar = await getCalendarClient(req, res);
         if (!calendar) return;
 
-        const response = await calendar.events.list({
-            calendarId: 'primary',
-            timeMin: (new Date()).toISOString(),
-            maxResults: 50,
-            singleEvents: true,
-            orderBy: 'startTime',
+        const { timeMin, timeMax } = req.query;
+
+        // 1. Get List of all calendars
+        const calendarList = await calendar.calendarList.list({
+            minAccessRole: 'reader'
         });
-        res.json({ events: response.data.items });
+
+        const allCalendars = calendarList.data.items || [];
+        console.log(`Found ${allCalendars.length} calendars for user.`);
+
+        // 2. Fetch events from all calendars concurrently
+        const eventPromises = allCalendars.map(async (cal) => {
+            try {
+                const response = await calendar.events.list({
+                    calendarId: cal.id,
+                    timeMin: timeMin || (new Date(new Date().getFullYear(), new Date().getMonth(), 1)).toISOString(),
+                    timeMax: timeMax,
+                    singleEvents: true,
+                    orderBy: 'startTime',
+                });
+                // Tag events with calendar color or id if needed
+                return (response.data.items || []).map(item => ({
+                    ...item,
+                    calendarId: cal.id,
+                    calendarSummary: cal.summary,
+                    backgroundColor: cal.backgroundColor,
+                    foregroundColor: cal.foregroundColor
+                }));
+            } catch (err) {
+                console.error(`Failed to fetch events for calendar ${cal.id}:`, err.message);
+                return [];
+            }
+        });
+
+        const eventsArrays = await Promise.all(eventPromises);
+        let allEvents = eventsArrays.flat();
+
+        // 3. Filter out non-default events (workingLocation, outOfOffice, etc.)
+        allEvents = allEvents.filter(event => {
+            // eventType is 'default' for regular meetings. 
+            // 'workingLocation' is used for things like "自宅".
+            return !event.eventType || event.eventType === 'default';
+        });
+
+        // Sort by start time
+        allEvents.sort((a, b) => {
+            const startA = new Date(a.start.dateTime || a.start.date);
+            const startB = new Date(b.start.dateTime || b.start.date);
+            return startA - startB;
+        });
+
+        res.json({ events: allEvents });
     } catch (error) {
         console.error("Calendar List Error:", error);
         res.status(500).json({ error: 'Failed to list events', details: error.message });
