@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, folderId: initialFolderId }) => {
     const [content, setContent] = useState('<!DOCTYPE html>\n<html>\n<head>\n<title>Page Title</title>\n</head>\n<body>\n\n<h1>This is a Heading</h1>\n<p>This is a paragraph.</p>\n\n</body>\n</html>');
@@ -142,21 +142,105 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
         }
     };
 
+    // Live Preview Logic
+    const previewWindowId = useRef('editor-preview-' + Date.now());
+    const [isLivePreviewEnabled, setIsLivePreviewEnabled] = useState(false);
+
+    useEffect(() => {
+        if (isLivePreviewEnabled && onOpen) {
+            const timer = setTimeout(() => {
+                onOpen(previewWindowId.current, 'browser', 'Live Preview', { liveContent: content });
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [content, isLivePreviewEnabled, onOpen]);
+
     const handleOpenInBrowser = () => {
-        if (!fileId) {
-            setMessage('Please save the file first.');
-            return;
-        }
+        setIsLivePreviewEnabled(true);
         if (onOpen) {
-            onOpen('browser-' + Date.now(), 'browser', 'Safari', { driveFileId: fileId });
+            onOpen(previewWindowId.current, 'browser', 'Live Preview', { liveContent: content });
         }
+    };
+
+    const [aiPrompt, setAiPrompt] = useState('');
+    const [isAiProcessing, setIsAiProcessing] = useState(false);
+
+    const handleAiEdit = async () => {
+        if (!aiPrompt) return;
+        setIsAiProcessing(true);
+        setMessage('AI is thinking...');
+        try {
+            const res = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: `Please update the following HTML code based on this request: "${aiPrompt}". \n\nExisting Code:\n\`\`\`html\n${content}\n\`\`\`\n\nReturn ONLY the updated HTML code, no explanations or markdown blocks.`,
+                    config: { mode: 'chat' }
+                })
+            });
+
+            if (res.ok) {
+                const { jobId } = await res.json();
+                // Poll for result
+                const poll = setInterval(async () => {
+                    const statusRes = await fetch(`/api/gemini/job/${jobId}`);
+                    const status = await statusRes.json();
+                    if (status.state === 'completed') {
+                        clearInterval(poll);
+                        let updatedCode = status.reply;
+                        // Strip markdown blocks if AI included them despite instructions
+                        updatedCode = updatedCode.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim();
+                        setContent(updatedCode);
+                        setMessage('AI update applied!');
+                        setAiPrompt('');
+                        setIsAiProcessing(false);
+                        setTimeout(() => setMessage(''), 3000);
+                    } else if (status.state === 'error') {
+                        clearInterval(poll);
+                        setMessage('AI error: ' + status.error);
+                        setIsAiProcessing(false);
+                    }
+                }, 1000);
+            } else {
+                setMessage('AI request failed.');
+                setIsAiProcessing(false);
+            }
+        } catch (error) {
+            console.error("AI Edit error:", error);
+            setMessage('AI connection error.');
+            setIsAiProcessing(false);
+        }
+    };
+
+    const insertTag = (tag, endTag = null) => {
+        const textarea = document.getElementById('base-html-editor');
+        if (!textarea) return;
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+        const before = text.substring(0, start);
+        const after = text.substring(end);
+        const selected = text.substring(start, end);
+
+        const open = `<${tag}>`;
+        const close = endTag ? `</${endTag}>` : `</${tag}>`;
+
+        const newContent = before + open + selected + close + after;
+        setContent(newContent);
+
+        // Restore focus and selection
+        setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + open.length, end + open.length);
+        }, 0);
     };
 
     if (loading) return <div className="flex items-center justify-center h-full bg-[#1e1e1e] text-white">Loading...</div>;
 
     return (
         <div className="flex flex-col h-full bg-[#1e1e1e] text-white font-mono text-sm relative">
-            {/* Toolbar */}
+            {/* Main Toolbar */}
             <div className="flex items-center gap-2 p-2 bg-[#2d2d2d] border-b border-[#3e3e3e] flex-wrap">
                 <button
                     onClick={() => openPicker('open')}
@@ -172,11 +256,11 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                     type="text"
                     value={fileName}
                     onChange={(e) => setFileName(e.target.value)}
-                    className="bg-[#3e3e3e] border border-[#555] rounded px-2 py-1 text-white focus:outline-none focus:border-blue-500 w-40"
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="bg-[#3e3e3e] border border-[#555] rounded px-2 py-1 text-white focus:outline-none focus:border-blue-500 w-40 no-drag"
                     placeholder="filename.html"
                 />
 
-                {/* Folder selector button */}
                 <button
                     onClick={() => openPicker('save')}
                     className="px-3 py-1 bg-[#444] hover:bg-[#555] rounded text-white text-xs flex items-center gap-1"
@@ -192,22 +276,65 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                 >
                     {saving ? 'Saving...' : 'Save'}
                 </button>
+
                 <button
                     onClick={handleOpenInBrowser}
-                    className="px-3 py-1 bg-[#444] hover:bg-[#555] rounded text-white"
+                    className={`px-3 py-1 rounded text-white transition-colors ${isLivePreviewEnabled ? 'bg-green-600 hover:bg-green-500' : 'bg-[#444] hover:bg-[#555]'}`}
                 >
-                    Open in Browser
+                    {isLivePreviewEnabled ? 'Live Preview ON' : 'Live Preview'}
                 </button>
-                <span className="ml-auto text-xs text-gray-400">{message}</span>
+
+                <div className="w-[1px] h-4 bg-[#444] mx-1" />
+
+                {/* Vibe Coding Input */}
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                    <input
+                        type="text"
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAiEdit();
+                            e.stopPropagation(); // Prevent bubbling to draggable containers
+                        }}
+                        placeholder="Vibe Coding: e.g. 'Make it look premium'"
+                        className="flex-1 bg-white/10 border border-white/20 rounded px-3 py-1 focus:outline-none focus:border-blue-500 no-drag"
+                        disabled={isAiProcessing}
+                    />
+                    <button
+                        onClick={handleAiEdit}
+                        disabled={isAiProcessing || !aiPrompt}
+                        className="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded text-white disabled:opacity-50 flex items-center gap-1 no-drag"
+                    >
+                        {isAiProcessing ? '🪄...' : '🪄 Vibe'}
+                    </button>
+                </div>
+
+                <span className="text-xs text-gray-400">{message}</span>
+            </div>
+
+            {/* Formatting Toolbar */}
+            <div className="flex items-center gap-1 p-1 bg-[#1e1e1e] border-b border-[#333] px-4">
+                <button onClick={() => insertTag('h1')} className="px-2 py-1 hover:bg-[#333] rounded text-xs">H1</button>
+                <button onClick={() => insertTag('h2')} className="px-2 py-1 hover:bg-[#333] rounded text-xs">H2</button>
+                <button onClick={() => insertTag('b')} className="px-2 py-1 hover:bg-[#333] font-bold rounded text-xs">B</button>
+                <button onClick={() => insertTag('i')} className="px-2 py-1 hover:bg-[#333] italic rounded text-xs">I</button>
+                <button onClick={() => insertTag('u')} className="px-2 py-1 hover:bg-[#333] underline rounded text-xs">U</button>
+                <button onClick={() => insertTag('p')} className="px-2 py-1 hover:bg-[#333] rounded text-xs">P</button>
+                <button onClick={() => insertTag('a href="#"', 'a')} className="px-2 py-1 hover:bg-[#333] rounded text-xs text-blue-400">Link</button>
+                <button onClick={() => insertTag('img src="https://placehold.jp/150x150.png"', 'img')} className="px-2 py-1 hover:bg-[#333] rounded text-xs">Img</button>
             </div>
 
             {/* Editor Area */}
-            <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="flex-1 bg-[#1e1e1e] text-[#d4d4d4] p-4 resize-none focus:outline-none font-mono leading-relaxed"
-                spellCheck="false"
-            />
+            <div className="flex-1 flex overflow-hidden">
+                <textarea
+                    id="base-html-editor"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()} // Prevent bubbling
+                    className="flex-1 bg-[#1e1e1e] text-[#d4d4d4] p-4 resize-none focus:outline-none font-mono leading-relaxed no-drag"
+                    spellCheck="false"
+                />
+            </div>
 
             {/* File/Folder Picker Modal */}
             {showPicker && (
@@ -308,4 +435,4 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
     );
 };
 
-export default HtmlEditor;
+export default React.memo(HtmlEditor);

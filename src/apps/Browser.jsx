@@ -1,18 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-const Browser = ({ initialUrl, driveFileId }) => {
+const Browser = ({ initialUrl, driveFileId, liveContent }) => {
     const [url, setUrl] = useState('');
     const [src, setSrc] = useState(null);
-    const [srcDoc, setSrcDoc] = useState(`
-        <div style="font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #333;">
-            <h1 style="font-size: 24px; margin-bottom: 16px;">Start Page</h1>
-            <p style="color: #666;">Enter a URL or file path above to browse.</p>
-        </div>
-    `);
+    const [srcDoc, setSrcDoc] = useState('');
     const [loading, setLoading] = useState(false);
     const iframeRef = useRef(null);
 
     useEffect(() => {
+        if (liveContent) {
+            setSrcDoc(liveContent);
+            setSrc(null);
+            if (!url) setUrl('Live Preview');
+            return;
+        }
         if (driveFileId) {
             setLoading(true);
             fetch(`/api/drive/read?fileId=${driveFileId}`)
@@ -70,7 +71,7 @@ const Browser = ({ initialUrl, driveFileId }) => {
                 setSrcDoc(null);
             }
         }
-    }, [initialUrl, driveFileId]);
+    }, [initialUrl, driveFileId, liveContent]);
 
     const handleNavigate = async (e) => {
         e?.preventDefault();

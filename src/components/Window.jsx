@@ -19,14 +19,14 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
     const onResizeStop = (event, { size }) => {
         setIsResizing(false);
         if (onUpdate) {
-            onUpdate({ width: size.width, height: size.height });
+            onUpdate(_id, { width: size.width, height: size.height });
         }
     };
 
     const onDragStop = (e, data) => {
         setIsDragging(false);
         if (onUpdate) {
-            onUpdate({ x: data.x, y: data.y });
+            onUpdate(_id, { x: data.x, y: data.y });
         }
     };
 
@@ -57,6 +57,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
     if (isMaximized) {
         return (
             <div
+                id={_id}
                 style={{
                     position: 'absolute',
                     top: 30,
@@ -69,7 +70,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                     flexDirection: 'column',
                     pointerEvents: 'auto'
                 }}
-                onClick={onFocus}
+                onClick={() => onFocus(_id)}
             >
                 <div
                     className="window-header"
@@ -86,12 +87,12 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                 >
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <div
-                            onClick={(e) => { e.stopPropagation(); console.log("Close clicked"); onClose(); }}
+                            onClick={(e) => { e.stopPropagation(); console.log("Close clicked"); onClose(_id); }}
                             onMouseDown={(e) => e.stopPropagation()}
                             style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ff5f56', cursor: 'pointer' }}
                         ></div>
                         <div
-                            onClick={(e) => { e.stopPropagation(); console.log("Minimize clicked"); onMinimize(); }}
+                            onClick={(e) => { e.stopPropagation(); console.log("Minimize clicked"); onMinimize(_id); }}
                             onMouseDown={(e) => e.stopPropagation()}
                             style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ffbd2e', cursor: 'pointer' }}
                         ></div>
@@ -120,20 +121,22 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
             cancel=".no-drag"
             defaultPosition={{ x: initialX, y: initialY }}
             bounds={{ top: 28 }}
+            enableUserSelectHack={false}
             onStart={() => {
-                onFocus();
+                onFocus(_id);
                 setIsDragging(true);
             }}
             onStop={onDragStop}
         >
             <div
                 ref={nodeRef}
+                id={_id}
                 style={{
                     position: 'absolute',
                     zIndex: zIndex,
                     pointerEvents: 'auto'
                 }}
-                onClick={onFocus}
+                onClick={() => onFocus(_id)}
             >
                 <Resizable
                     width={width}
@@ -159,15 +162,9 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                         }}
                     >
                         {(isResizing || isDragging) && (
-                            <div style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: '100%',
-                                zIndex: 9999,
-                                backgroundColor: 'transparent'
-                            }} />
+                            <style>{`
+                                #${_id} iframe { pointer-events: none !important; }
+                            `}</style>
                         )}
                         <div
                             className="window-header"
@@ -187,13 +184,13 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <div
                                     className="no-drag"
-                                    onClick={(e) => { e.stopPropagation(); console.log("Close clicked"); onClose(); }}
+                                    onClick={(e) => { e.stopPropagation(); console.log("Close clicked"); onClose(_id); }}
                                     onMouseDown={(e) => e.stopPropagation()}
                                     style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ff5f56', cursor: 'pointer' }}
                                 ></div>
                                 <div
                                     className="no-drag"
-                                    onClick={(e) => { e.stopPropagation(); console.log("Minimize clicked"); onMinimize(); }}
+                                    onClick={(e) => { e.stopPropagation(); console.log("Minimize clicked"); onMinimize(_id); }}
                                     onMouseDown={(e) => e.stopPropagation()}
                                     style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#ffbd2e', cursor: 'pointer' }}
                                 ></div>
@@ -219,4 +216,4 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
     );
 };
 
-export default Window;
+export default React.memo(Window);

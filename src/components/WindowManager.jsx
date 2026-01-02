@@ -38,10 +38,10 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
                     initialWidth={win.width}
                     initialHeight={win.height}
                     zIndex={win.zIndex}
-                    onFocus={() => onFocus(win.id)}
-                    onClose={() => onClose(win.id)}
-                    onMinimize={() => onMinimize(win.id)}
-                    onUpdate={(updates) => onUpdate(win.id, updates)}
+                    onFocus={onFocus}
+                    onClose={onClose}
+                    onMinimize={onMinimize}
+                    onUpdate={onUpdate}
                     minimized={win.minimized}
                 >
                     {renderApp(win)}

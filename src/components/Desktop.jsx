@@ -57,7 +57,7 @@ const Desktop = ({ user, onLogout }) => {
     return () => clearTimeout(saveTimeoutRef.current);
   }, [windows]);
 
-  const openWindow = (id, type, title, props = {}) => {
+  const openWindow = React.useCallback((id, type, title, props = {}) => {
     setWindows(prev => {
       // If window already exists, bring to front and restore if minimized
       const existing = prev.find(w => w.id === id);
@@ -95,30 +95,32 @@ const Desktop = ({ user, onLogout }) => {
         props
       }];
     });
-  };
+  }, []);
 
-  const closeWindow = (id) => {
+  const closeWindow = React.useCallback((id) => {
     console.log("Desktop: closeWindow", id);
     setWindows(prev => prev.filter(w => w.id !== id));
-  };
+  }, []);
 
-  const minimizeWindow = (id) => {
+  const minimizeWindow = React.useCallback((id) => {
     console.log("Desktop: minimizeWindow", id);
     setWindows(prev => prev.map(w => w.id === id ? { ...w, minimized: true } : w));
-  };
+  }, []);
 
-  const bringToFront = (id) => {
-    // console.log("Desktop: bringToFront", id); // Too noisy
+  const bringToFront = React.useCallback((id) => {
     setWindows(prev => {
       const maxZ = Math.max(...prev.map(w => w.zIndex), 0);
+      // Only update if not already at front to save renders
+      const current = prev.find(w => w.id === id);
+      if (current && current.zIndex === maxZ && prev.length > 1) return prev;
+
       return prev.map(w => w.id === id ? { ...w, zIndex: maxZ + 1 } : w);
     });
-  };
+  }, []);
 
-  // Update window position/size (called by Window component)
-  const updateWindow = (id, updates) => {
+  const updateWindow = React.useCallback((id, updates) => {
     setWindows(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
-  };
+  }, []);
 
   return (
     <div
