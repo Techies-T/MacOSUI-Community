@@ -1,5 +1,86 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import * as Diff from 'diff';
+
+// Simple HTML Syntax Highlighter Component
+const SimpleHtmlHighlighter = ({ code }) => {
+    // Basic Regex for HTML tokens
+    const tokens = [];
+    const regex = /(<\/?)(\w+)([^>]*)(>)|([^<]+)/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(code)) !== null) {
+        const [full, open, tagName, attrs, close, text] = match;
+        if (open) {
+            // Tag parts
+            tokens.push(<span key={match.index + 'open'} className="text-blue-400 opacity-60">{open}</span>);
+            tokens.push(<span key={match.index + 'tag'} className="text-pink-400 font-bold">{tagName}</span>);
+
+            // Basic attribute coloring (simplified)
+            if (attrs) {
+                tokens.push(<span key={match.index + 'attrs'} className="text-purple-300 italic">{attrs}</span>);
+            }
+
+            tokens.push(<span key={match.index + 'close'} className="text-blue-400 opacity-60">{close}</span>);
+        } else if (text) {
+            // Content
+            tokens.push(<span key={match.index + 'text'} className="text-gray-100">{text}</span>);
+        }
+    }
+
+    return (
+        <pre className="font-mono text-sm leading-7 m-0 p-8 whitespace-pre-wrap break-words pointer-events-none" style={{ fontFamily: '"SF Mono", "Menlo", "Consolas", "Monaco", monospace' }}>
+            {tokens}
+        </pre>
+    );
+};
+
+// Diff Viewer Component
+const DiffViewer = ({ oldCode, newCode, onApply, onDiscard }) => {
+    const diff = Diff.diffLines(oldCode, newCode);
+
+    return (
+        <div className="flex flex-col h-full bg-[#1a1a1a] text-white rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 bg-[#252525] border-b border-white/5">
+                <div className="flex items-center gap-2">
+                    <span className="text-xl">✨</span>
+                    <h3 className="font-bold text-lg">Review Changes</h3>
+                </div>
+                <div className="flex gap-3">
+                    <button
+                        onClick={onDiscard}
+                        className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm font-medium transition-colors"
+                    >
+                        Discard
+                    </button>
+                    <button
+                        onClick={onApply}
+                        className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-bold shadow-lg shadow-green-900/20 transition-all hover:scale-105 active:scale-95"
+                    >
+                        Apply Changes
+                    </button>
+                </div>
+            </div>
+
+            {/* Diff Content */}
+            <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-5">
+                {diff.map((part, index) => {
+                    const color = part.added ? 'bg-green-500/20 text-green-200' :
+                        part.removed ? 'bg-red-500/20 text-red-200 decoration-red-500/50' : 'text-gray-400';
+                    const prefix = part.added ? '+ ' : part.removed ? '- ' : '  ';
+
+                    return (
+                        <div key={index} className={`${color} whitespace-pre-wrap ${part.removed ? 'select-none opacity-60' : ''}`}>
+                            {part.value}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
 
 const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, folderId: initialFolderId }) => {
     const [content, setContent] = useState('<!DOCTYPE html>\n<html>\n<head>\n<title>Page Title</title>\n</head>\n<body>\n\n<h1>This is a Heading</h1>\n<p>This is a paragraph.</p>\n\n</body>\n</html>');
@@ -19,9 +100,12 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
     const [loadingFolders, setLoadingFolders] = useState(false);
     const [isSavingInProgress, setIsSavingInProgress] = useState(false);
 
-    // Vibe Modal State
     const [showVibeModal, setShowVibeModal] = useState(false);
     const [isAiSuccess, setIsAiSuccess] = useState(false);
+
+    // Diff Modal State
+    const [showDiffModal, setShowDiffModal] = useState(false);
+    const [pendingCode, setPendingCode] = useState('');
 
     useEffect(() => {
         if (initialFileId) {
@@ -203,7 +287,26 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: `Please update the following HTML code based on this request: "${aiPrompt}". \n\nExisting Code:\n\`\`\`html\n${content}\n\`\`\`\n\nReturn ONLY the updated HTML code, no explanations or markdown blocks.`,
-                    config: { mode: 'chat' }
+                    config: {
+                        mode: 'chat',
+                        systemInstruction: `You are an expert Frontend Engineer and HTML Specialist.
+Your task is to modify the provided HTML code strictly according to the user's request.
+
+ENVIRONMENT CONTEXT:
+- You are running in a secure "MacOSUI" web environment.
+- Do NOT use raw API keys in client-side code.
+- To access external APIs (like Google Gemini), use the backend proxy:
+  Endpoint: POST /api/gemini/proxy?target={FULL_TARGET_URL}
+  Usage: Change fetch('https://api.google.com/...?key=...') to fetch('/api/gemini/proxy?target=' + encodeURIComponent('https://api.google.com/...'))
+  The backend will inject the API Key.
+
+CRITICAL RULES:
+1. PRESERVE existing structure, classes, and styles unless explicitly asked to change them.
+2. Do NOT add markdown code blocks (like \`\`\`html). Return RAW HTML only.
+3. Do NOT add explanations or conversational text.
+4. If the user asks for a visual change, use standard Tailwind classes if possible, or inline styles if necessary.
+5. Ensure the output is valid, complete HTML.`
+                    }
                 })
             });
 
@@ -218,6 +321,17 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                         let updatedCode = status.reply;
                         // Strip markdown blocks if AI included them despite instructions
                         updatedCode = updatedCode.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim();
+
+                        // Show Diff Modal instead of applying directly
+                        setPendingCode(updatedCode);
+                        setMessage('Review your changes...');
+                        setAiPrompt('');
+                        setIsAiProcessing(false);
+                        setShowVibeModal(false);
+                        setShowDiffModal(true); // Open Diff View
+
+                        /* 
+                        // Old direct update logic - moved to handleApplyChanges
                         setContent(updatedCode);
                         setMessage('AI update applied!');
                         setAiPrompt('');
@@ -225,7 +339,8 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                         setShowVibeModal(false);
                         setIsAiSuccess(true);
                         setTimeout(() => setIsAiSuccess(false), 2000);
-                        setTimeout(() => setMessage(''), 3000);
+                        setTimeout(() => setMessage(''), 3000); 
+                        */
                     } else if (status.state === 'error') {
                         clearInterval(poll);
                         setMessage('AI error: ' + status.error);
@@ -241,6 +356,25 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
             setMessage('AI connection error.');
             setIsAiProcessing(false);
         }
+    };
+
+    const handleApplyChanges = () => {
+        setContent(pendingCode);
+        setShowDiffModal(false);
+        setPendingCode('');
+
+        // Success feedback
+        setMessage('AI update applied!');
+        setIsAiSuccess(true);
+        setTimeout(() => setIsAiSuccess(false), 2000);
+        setTimeout(() => setMessage(''), 3000);
+    };
+
+    const handleDiscardChanges = () => {
+        setShowDiffModal(false);
+        setPendingCode('');
+        setMessage('Changes discarded.');
+        setTimeout(() => setMessage(''), 2000);
     };
 
     const insertTag = (tag, endTag = null) => {
@@ -280,7 +414,15 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                         className="p-2 rounded-lg hover:bg-white/10 transition-colors group relative"
                         title="Open File"
                     >
-                        <div className="text-xl opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all">📂</div>
+                        <svg className="w-6 h-6 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)] group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.8)] transition-all group-hover:scale-110" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="url(#blue-gradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="rgba(59, 130, 246, 0.1)" />
+                            <defs>
+                                <linearGradient id="blue-gradient" x1="3" y1="5" x2="21" y2="19" gradientUnits="userSpaceOnUse">
+                                    <stop offset="0%" stopColor="#60A5FA" />
+                                    <stop offset="100%" stopColor="#3B82F6" />
+                                </linearGradient>
+                            </defs>
+                        </svg>
                     </button>
 
                     <button
@@ -289,8 +431,18 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                         className="p-2 rounded-lg hover:bg-white/10 transition-colors group relative"
                         title="Save File"
                     >
-                        <div className={`text-xl transition-all group-hover:scale-110 ${saving ? 'opacity-50 animate-pulse' : 'opacity-80 group-hover:opacity-100'}`}>
-                            {saving ? '💾' : '💾'}
+                        <div className={`transition-all group-hover:scale-110 ${saving ? 'opacity-50 animate-pulse' : 'opacity-100'}`}>
+                            <svg className="w-6 h-6 drop-shadow-[0_0_8px_rgba(168,85,247,0.5)] group-hover:drop-shadow-[0_0_12px_rgba(168,85,247,0.8)] transition-all" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M19 21H5C3.89543 21 3 20.1046 3 19V5C3 3.89543 3.89543 3 5 3H16L21 8V19C21 20.1046 20.1046 21 19 21Z" stroke="url(#purple-gradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="rgba(168, 85, 247, 0.1)" />
+                                <path d="M17 21V13H7V21" stroke="url(#purple-gradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M7 3V8H15" stroke="url(#purple-gradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                <defs>
+                                    <linearGradient id="purple-gradient" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+                                        <stop offset="0%" stopColor="#C084FC" />
+                                        <stop offset="100%" stopColor="#A855F7" />
+                                    </linearGradient>
+                                </defs>
+                            </svg>
                         </div>
                     </button>
 
@@ -340,8 +492,8 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                     <button
                         onClick={handleOpenInBrowser}
                         className={`text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all border ${isLivePreviewEnabled
-                                ? 'bg-green-500/10 text-green-400 border-green-500/20 shadow-[0_0_10px_-3px_rgba(74,222,128,0.2)]'
-                                : 'bg-white/5 text-white/60 hover:text-white border-white/5 hover:bg-white/10'
+                            ? 'bg-green-500/10 text-green-400 border-green-500/20 shadow-[0_0_10px_-3px_rgba(74,222,128,0.2)]'
+                            : 'bg-white/5 text-white/60 hover:text-white border-white/5 hover:bg-white/10'
                             }`}
                     >
                         {isLivePreviewEnabled ? 'LIVE' : 'PREVIEW'}
@@ -350,110 +502,169 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
             </div>
 
             {/* Editor Area */}
+            {/* Editor Area with Syntax Highlighting Overlay */}
+            {/* Editor Area with Syntax Highlighting Overlay */}
             <div className="flex-1 flex overflow-hidden relative">
-                <motion.textarea
-                    id="base-html-editor"
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    onKeyDown={(e) => e.stopPropagation()}
-                    className="flex-1 w-full h-full text-[#e0e0e0] p-8 resize-none focus:outline-none font-mono leading-7 text-sm relative z-10 no-drag selection:bg-purple-500/30"
-                    spellCheck="false"
-                    animate={{
-                        backgroundColor: isAiSuccess ? 'rgba(76, 29, 149, 0.2)' : '#1e1e1e'
-                    }}
-                    transition={{ duration: 0.5 }}
-                    style={{
-                        fontFamily: '"SF Mono", "Menlo", "Consolas", "Monaco", monospace',
-                        letterSpacing: '0.01em',
-                        lineHeight: '1.6'
-                    }}
-                />
+                <div className="relative flex-1 w-full h-full">
+                    {/* Syntax Highlighter Layer (Back) */}
+                    <div
+                        id="syntax-highlighter-layer"
+                        className="absolute inset-0 z-0 pointer-events-none select-none overflow-hidden"
+                    >
+                        <SimpleHtmlHighlighter code={content} />
+                    </div>
+
+                    {/* Editable Textarea Layer (Front) */}
+                    <motion.textarea
+                        id="base-html-editor"
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onScroll={(e) => {
+                            const highlighter = document.getElementById('syntax-highlighter-layer');
+                            if (highlighter) {
+                                highlighter.scrollTop = e.target.scrollTop;
+                                highlighter.scrollLeft = e.target.scrollLeft;
+                            }
+                        }}
+                        className="absolute inset-0 w-full h-full bg-transparent text-transparent p-8 resize-none focus:outline-none font-mono leading-7 text-sm z-10 no-drag selection:bg-purple-500/30 caret-white"
+                        spellCheck="false"
+                        animate={{
+                            backgroundColor: isAiSuccess ? 'rgba(76, 29, 149, 0.2)' : 'transparent'
+                        }}
+                        transition={{ duration: 0.5 }}
+                        style={{
+                            fontFamily: '"SF Mono", "Menlo", "Consolas", "Monaco", monospace',
+                            letterSpacing: '0.01em',
+                            lineHeight: '1.6'
+                        }}
+                    />
+                </div>
 
                 {/* Vibe Modal Overlay */}
                 <AnimatePresence>
                     {showVibeModal && (
                         <motion.div
-                            className="absolute inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/40 backdrop-blur-[2px]"
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
                             onClick={() => setShowVibeModal(false)}
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
                         >
                             <motion.div
-                                className="w-[640px] bg-[#121212]/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/10 relative group"
+                                className="w-[500px] bg-[#1a1a1a] rounded-3xl overflow-hidden relative shadow-[0_0_50px_-10px_rgba(168,85,247,0.4)] border border-white/10 ring-1 ring-white/20"
                                 onClick={(e) => e.stopPropagation()}
-                                initial={{ scale: 0.95, y: 20, opacity: 0 }}
-                                animate={{ scale: 1, y: 0, opacity: 1 }}
-                                exit={{ scale: 0.95, y: 20, opacity: 0 }}
-                                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                                animate={{ scale: 1, opacity: 1, y: 0 }}
+                                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                                transition={{ type: "spring", duration: 0.5 }}
                             >
-                                {/* Liquid/Glass Gradient Background */}
-                                <div className="absolute inset-x-0 top-0 h-[200px] bg-gradient-to-b from-purple-500/10 via-blue-500/5 to-transparent pointer-events-none" />
-                                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-transparent to-blue-500/5 opacity-50" />
+                                {/* Background Effects */}
+                                <div className="absolute inset-0 bg-gradient-to-br from-purple-900/30 via-black to-blue-900/30" />
+                                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150" />
 
-                                <div className="relative p-5 flex flex-col gap-4">
-                                    <div className="flex items-start gap-4">
-                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/20 shrink-0 animate-pulse">
-                                            <span className="text-xl text-white">✨</span>
-                                        </div>
-                                        <div className="flex-1">
+                                <div className="relative p-8 flex flex-col items-center gap-6">
+                                    {/* Header */}
+                                    <div className="flex flex-col items-center gap-2">
+                                        <motion.div
+                                            initial={{ scale: 0 }}
+                                            animate={{ scale: 1 }}
+                                            transition={{ delay: 0.1, type: "spring" }}
+                                            className="text-4xl"
+                                        >
+                                            ✨
+                                        </motion.div>
+                                        <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 tracking-tight filter drop-shadow-lg font-sans">
+                                            Vibe Coding
+                                        </h2>
+                                    </div>
+
+                                    {/* Input Area */}
+                                    <div className="w-full relative group">
+                                        <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl opacity-30 group-hover:opacity-70 transition duration-500 blur"></div>
+                                        <div className="relative flex items-center bg-[#0a0a0a] rounded-xl p-1 shadow-2xl">
                                             <textarea
                                                 id="vibe-modal-input"
                                                 autoFocus
-                                                placeholder="Describe the changes you want..."
-                                                className="w-full bg-transparent border-none focus:ring-0 text-lg text-white placeholder-white/20 resize-none min-h-[48px] py-1 leading-relaxed font-light"
+                                                placeholder="Describe your change..."
+                                                className="w-full bg-transparent border-none text-white placeholder-white/30 resize-none h-[50px] py-3 px-4 focus:ring-0 leading-relaxed font-medium text-lg rounded-xl"
                                                 value={aiPrompt}
-                                                onChange={(e) => {
-                                                    setAiPrompt(e.target.value);
-                                                    e.target.style.height = 'auto';
-                                                    e.target.style.height = e.target.scrollHeight + 'px';
-                                                }}
+                                                onChange={(e) => setAiPrompt(e.target.value)}
                                                 onKeyDown={(e) => {
+                                                    // Check for IME composition
+                                                    if (e.nativeEvent.isComposing || e.key === 'Process' || e.keyCode === 229) {
+                                                        return;
+                                                    }
                                                     if (e.key === 'Enter' && !e.shiftKey) {
                                                         e.preventDefault();
                                                         handleAiEdit();
                                                     }
                                                     if (e.key === 'Escape') setShowVibeModal(false);
                                                 }}
-                                                style={{ maxHeight: '200px' }}
                                             />
+                                            <button
+                                                onClick={handleAiEdit}
+                                                disabled={isAiProcessing || !aiPrompt.trim()}
+                                                className={`mr-1 px-4 py-2 rounded-lg font-bold text-sm transition-all shrink-0 flex items-center gap-2 ${isAiProcessing || !aiPrompt.trim()
+                                                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                                                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-lg shadow-purple-900/50 hover:shadow-purple-700/80 active:scale-95'
+                                                    }`}
+                                            >
+                                                {isAiProcessing ? (
+                                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                ) : (
+                                                    <>
+                                                        Generate <span className="text-xs">✨</span>
+                                                    </>
+                                                )}
+                                            </button>
                                         </div>
                                     </div>
 
-                                    <div className="flex justify-between items-center pt-2 border-t border-white/5">
-                                        <div className="flex gap-2 text-[10px] text-white/30 font-medium uppercase tracking-wider">
-                                            <span className="bg-white/5 px-2 py-1 rounded">Enter to Generate</span>
-                                            <span className="bg-white/5 px-2 py-1 rounded">Esc to Cancel</span>
-                                        </div>
-                                        <button
-                                            onClick={handleAiEdit}
-                                            disabled={isAiProcessing || !aiPrompt.trim()}
-                                            className={`px-6 py-2 rounded-xl text-sm font-bold text-white transition-all transform active:scale-95 flex items-center gap-2
-                                            ${isAiProcessing
-                                                    ? 'bg-white/5 cursor-not-allowed opacity-50'
-                                                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-lg shadow-purple-900/40 hover:shadow-purple-700/60'
-                                                }`}
-                                        >
-                                            {isAiProcessing ? (
-                                                <>
-                                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                                    <span>Thinking...</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <span>Generate</span>
-                                                    <span className="text-lg">✨</span>
-                                                </>
-                                            )}
-                                        </button>
+                                    {/* Footer / Status */}
+                                    <div className="h-6 flex items-center justify-center">
+                                        {message ? (
+                                            <motion.span
+                                                initial={{ opacity: 0, y: 5 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                className="text-xs font-medium text-purple-300"
+                                            >
+                                                {message}
+                                            </motion.span>
+                                        ) : (
+                                            <div className="flex gap-4 text-[10px] text-white/20 font-medium uppercase tracking-widest">
+                                                <span>Enter to Submit</span>
+                                                <span>Esc to Close</span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
-                                {message && (
-                                    <div className="px-5 py-2 bg-purple-900/20 border-t border-purple-500/20 text-purple-200 text-xs font-medium animate-in slide-in-from-top-1">
-                                        {message}
-                                    </div>
-                                )}
+                {/* Diff Review Modal */}
+                <AnimatePresence>
+                    {showDiffModal && (
+                        <motion.div
+                            className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-8"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                        >
+                            <motion.div
+                                className="w-full h-full max-w-5xl max-h-[90vh]"
+                                initial={{ scale: 0.95, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.95, opacity: 0 }}
+                            >
+                                <DiffViewer
+                                    oldCode={content}
+                                    newCode={pendingCode}
+                                    onApply={handleApplyChanges}
+                                    onDiscard={handleDiscardChanges}
+                                />
                             </motion.div>
                         </motion.div>
                     )}

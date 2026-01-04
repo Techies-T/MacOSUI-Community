@@ -62,7 +62,7 @@ const Finder = ({ user, onOpen }) => {
             if (file.mimeType === 'text/html' || file.name.endsWith('.html')) {
                 // Open in Browser
                 if (onOpen) {
-                    onOpen('browser-' + Date.now(), 'browser', 'Safari', { driveFileId: file.id });
+                    onOpen('editor-' + Date.now(), 'html-editor', 'HTML Editor', { fileId: file.id, fileName: file.name, folderId: file.parents?.[0] });
                 }
             } else if (file.webViewLink) {
                 window.open(file.webViewLink, '_blank');

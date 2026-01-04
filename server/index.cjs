@@ -408,9 +408,14 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             parts: requestParts
         });
 
-        // Dedicated System Instruction for Grounding
+        // Dedicated System Instruction
         let systemInstruction = undefined;
-        if (mode === 'chat' && customConfig?.grounding) {
+
+        if (customConfig?.systemInstruction) {
+            systemInstruction = {
+                parts: [{ text: customConfig.systemInstruction }]
+            };
+        } else if (mode === 'chat' && customConfig?.grounding) {
             systemInstruction = {
                 parts: [{ text: "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge." }]
             };
