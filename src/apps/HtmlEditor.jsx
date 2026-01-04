@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, folderId: initialFolderId }) => {
     const [content, setContent] = useState('<!DOCTYPE html>\n<html>\n<head>\n<title>Page Title</title>\n</head>\n<body>\n\n<h1>This is a Heading</h1>\n<p>This is a paragraph.</p>\n\n</body>\n</html>');
@@ -17,6 +18,10 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
     const [currentPickerPath, setCurrentPickerPath] = useState([{ id: 'root', name: 'Root' }]);
     const [loadingFolders, setLoadingFolders] = useState(false);
     const [isSavingInProgress, setIsSavingInProgress] = useState(false);
+
+    // Vibe Modal State
+    const [showVibeModal, setShowVibeModal] = useState(false);
+    const [isAiSuccess, setIsAiSuccess] = useState(false);
 
     useEffect(() => {
         if (initialFileId) {
@@ -217,6 +222,9 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
                         setMessage('AI update applied!');
                         setAiPrompt('');
                         setIsAiProcessing(false);
+                        setShowVibeModal(false);
+                        setIsAiSuccess(true);
+                        setTimeout(() => setIsAiSuccess(false), 2000);
                         setTimeout(() => setMessage(''), 3000);
                     } else if (status.state === 'error') {
                         clearInterval(poll);
@@ -262,174 +270,194 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
     if (loading) return <div className="flex items-center justify-center h-full bg-[#1e1e1e] text-white">Loading...</div>;
 
     return (
-        <div className="flex flex-col h-full bg-[#1e1e1e] text-white font-mono text-sm relative">
-            {/* Main Toolbar - Glassmorphic Redesign */}
-            <div className="flex items-center gap-3 p-2 bg-black/40 backdrop-blur-xl border-b border-white/5 shadow-lg z-20 sticky top-0">
-                {/* File Controls Group */}
-                <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1 border border-white/10">
+        <div className="flex flex-col h-full bg-[#1e1e1e] text-white font-mono text-sm relative overflow-hidden">
+            {/* Mac-style Toolbar */}
+            <div className="h-12 flex items-center justify-between px-4 bg-[#2c2c2c]/90 backdrop-blur-xl border-b border-black/40 shadow-sm z-30 shrink-0 select-none">
+                {/* Left: File Actions */}
+                <div className="flex items-center gap-3">
                     <button
                         onClick={() => openPicker('open')}
-                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/10 rounded-md text-white/80 hover:text-white transition-all group"
+                        className="p-2 rounded-lg hover:bg-white/10 transition-colors group relative"
                         title="Open File"
                     >
-                        <span className="text-base group-hover:scale-110 transition-transform opacity-70">📂</span>
-                        <span className="text-[10px] font-bold tracking-wider opacity-40 group-hover:opacity-100 uppercase">Open</span>
+                        <div className="text-xl opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all">📂</div>
                     </button>
-
-                    <div className="w-px h-6 bg-white/10 mx-1" />
-
-                    <input
-                        type="text"
-                        value={fileName}
-                        onChange={(e) => setFileName(e.target.value)}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        className="bg-transparent border-none text-sm font-medium text-white/90 focus:outline-none focus:text-white w-32 px-2 placeholder-white/30 truncate no-drag"
-                        placeholder="Untitled"
-                    />
 
                     <button
                         onClick={handleSave}
                         disabled={saving}
-                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/10 rounded-md text-white/80 hover:text-white transition-all disabled:opacity-50 group"
-                        title={saving ? 'Saving...' : 'Save'}
+                        className="p-2 rounded-lg hover:bg-white/10 transition-colors group relative"
+                        title="Save File"
                     >
-                        <span className="text-base group-hover:scale-110 transition-transform text-blue-400">{saving ? '💾...' : '💾'}</span>
-                        <span className="text-[10px] font-bold tracking-wider opacity-60 group-hover:opacity-100 uppercase">{saving ? 'Save' : 'Save'}</span>
+                        <div className={`text-xl transition-all group-hover:scale-110 ${saving ? 'opacity-50 animate-pulse' : 'opacity-80 group-hover:opacity-100'}`}>
+                            {saving ? '💾' : '💾'}
+                        </div>
                     </button>
 
-                    <button
-                        onClick={() => openPicker('save')}
-                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/10 rounded-md text-white/80 hover:text-white transition-all group"
-                        title={`Current Folder: ${selectedFolderName}`}
-                    >
-                        <span className="text-base group-hover:scale-110 transition-transform opacity-70">📁</span>
-                        <span className="text-[10px] font-bold tracking-wider opacity-40 group-hover:opacity-100 max-w-[80px] truncate">{selectedFolderName.toUpperCase()}</span>
-                    </button>
+                    <div className="h-6 w-px bg-white/10 mx-1" />
+
+                    <div className="flex flex-col justify-center">
+                        <input
+                            value={fileName}
+                            onChange={(e) => setFileName(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            className="bg-transparent border-none text-xs font-semibold text-white/90 focus:text-white focus:outline-none w-40 truncate transition-colors placeholder-white/30"
+                            placeholder="Untitled"
+                        />
+                        <button
+                            onClick={() => openPicker('save')}
+                            className="text-[10px] text-white/40 hover:text-white/70 text-left truncate max-w-[160px] transition-colors"
+                        >
+                            {selectedFolderName}
+                        </button>
+                    </div>
                 </div>
 
-                {/* Spacer */}
-                <div className="flex-1" />
+                {/* Center: Vibe Trigger */}
+                <button
+                    onClick={() => setShowVibeModal(true)}
+                    className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-purple-500/10 to-blue-500/10 hover:from-purple-500/20 hover:to-blue-500/20 border border-purple-500/20 hover:border-purple-500/40 transition-all group shadow-[0_0_15px_-5px_rgba(168,85,247,0.3)] hover:shadow-[0_0_20px_-5px_rgba(168,85,247,0.5)]"
+                >
+                    <span className="text-lg group-hover:rotate-12 transition-transform">✨</span>
+                    <span className="text-purple-200/90 group-hover:text-purple-100 transition-colors text-xs font-medium tracking-wide">Vibe Coding</span>
+                </button>
 
-                {/* Right Actions */}
+                {/* Right: Actions */}
                 <div className="flex items-center gap-2">
+                    {/* Formatting Tools (Collapsed) */}
+                    <div className="flex bg-black/20 rounded-lg p-0.5 border border-white/5 mr-2">
+                        {['h1', 'b', 'i'].map(tag => (
+                            <button
+                                key={tag}
+                                onClick={() => insertTag(tag)}
+                                className="w-6 h-6 flex items-center justify-center hover:bg-white/10 rounded text-[10px] font-bold text-white/50 hover:text-white transition-colors uppercase"
+                            >
+                                {tag}
+                            </button>
+                        ))}
+                    </div>
+
                     <button
                         onClick={handleOpenInBrowser}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all shadow-sm border border-transparent ${isLivePreviewEnabled
-                            ? 'bg-green-500/20 text-green-300 border-green-500/30'
-                            : 'bg-white/5 hover:bg-white/10 text-white/70 border-white/5'
+                        className={`text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all border ${isLivePreviewEnabled
+                                ? 'bg-green-500/10 text-green-400 border-green-500/20 shadow-[0_0_10px_-3px_rgba(74,222,128,0.2)]'
+                                : 'bg-white/5 text-white/60 hover:text-white border-white/5 hover:bg-white/10'
                             }`}
                     >
-                        {isLivePreviewEnabled ? '● Live' : 'Preview'}
+                        {isLivePreviewEnabled ? 'LIVE' : 'PREVIEW'}
                     </button>
                 </div>
             </div>
 
-            {/* Vibe Coding "Magic Bar" - Prominent Redesign */}
-            <div
-                className="flex flex-col gap-2 p-3 bg-gradient-to-r from-purple-900/20 to-blue-900/20 backdrop-blur-md border-b border-white/5 relative group transition-all"
-                onClick={() => {
-                    const textarea = document.getElementById('vibe-prompt-input');
-                    if (textarea) textarea.focus();
-                }}
-            >
-                {/* Subtle Glow Background */}
-                <div className="absolute inset-x-0 -bottom-px h-px bg-gradient-to-r from-transparent via-purple-500/50 to-transparent opacity-0 group-focus-within:opacity-100 transition-opacity" />
-
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 text-lg shadow-[0_0_15px_rgba(168,85,247,0.2)] animate-pulse">
-                        ✨
-                    </div>
-
-                    <div className="flex-1 relative">
-                        <textarea
-                            id="vibe-prompt-input"
-                            rows="1"
-                            value={aiPrompt}
-                            onChange={(e) => {
-                                setAiPrompt(e.target.value);
-                                e.target.style.height = 'auto';
-                                e.target.style.height = e.target.scrollHeight + 'px';
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                                    e.preventDefault();
-                                    handleAiEdit();
-                                }
-                                e.stopPropagation();
-                            }}
-                            placeholder="Describe your Vibe... (e.g., 'Make a dark mode dashboard with pink glass buttons')"
-                            className="w-full bg-transparent border-none py-1.5 text-base text-white placeholder-white/20 focus:outline-none no-drag font-medium resize-none overflow-hidden"
-                            style={{ minHeight: '24px', maxHeight: '120px' }}
-                            disabled={isAiProcessing}
-                        />
-                    </div>
-
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleAiEdit(); }}
-                        disabled={isAiProcessing || !aiPrompt.trim()}
-                        className={`
-                            flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all no-drag
-                            ${isAiProcessing
-                                ? 'bg-white/5 text-white/30 cursor-not-allowed'
-                                : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 active:scale-95'}
-                        `}
-                    >
-                        {isAiProcessing ? (
-                            <>
-                                <span className="animate-spin text-lg">🌀</span>
-                                <span>THINKING...</span>
-                            </>
-                        ) : (
-                            <>
-                                <span className="text-lg">✨</span>
-                                <span>GENERATE</span>
-                            </>
-                        )}
-                    </button>
-                </div>
-            </div>
-
-            {/* Formatting Toolbar - Integrated into Main or separate glass strip? Keeping separate but cleaner */}
-            <div className="flex items-center gap-1 px-4 py-1.5 bg-black/20 border-b border-white/5 backdrop-blur-md overflow-x-auto">
-                <div className="flex bg-white/5 rounded-lg p-0.5 border border-white/10">
-                    {['h1', 'h2', 'p', 'b', 'i', 'u'].map(tag => (
-                        <button
-                            key={tag}
-                            onClick={() => insertTag(tag)}
-                            className="px-2.5 py-0.5 hover:bg-white/10 rounded text-[10px] font-medium uppercase text-white/70 hover:text-white transition-colors"
-                        >
-                            {tag}
-                        </button>
-                    ))}
-                </div>
-                <div className="w-[1px] h-3 bg-white/10 mx-2" />
-                <div className="flex gap-1">
-                    <button onClick={() => insertTag('a href="#"', 'a')} className="px-2 py-0.5 hover:bg-white/10 rounded text-[10px] text-blue-300 hover:text-blue-200">Link</button>
-                    <button onClick={() => insertTag('img src="https://placehold.jp/150x150.png"', 'img')} className="px-2 py-0.5 hover:bg-white/10 rounded text-[10px] text-green-300 hover:text-green-200">Img</button>
-                </div>
-
-                {/* Status Message moved here */}
-                <div className="flex-1 text-right">
-                    <span className="text-[10px] text-white/40 tracking-wide font-medium">{message}</span>
-                </div>
-            </div>
-
-            {/* Editor Area */}
             {/* Editor Area */}
             <div className="flex-1 flex overflow-hidden relative">
-                <div className="absolute inset-0 bg-[#1e1e1e]" /> {/* Background */}
-                <textarea
+                <motion.textarea
                     id="base-html-editor"
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
-                    onKeyDown={(e) => e.stopPropagation()} // Prevent bubbling
-                    className="flex-1 w-full h-full bg-transparent text-[#d4d4d4] p-6 resize-none focus:outline-none font-mono leading-7 text-sm relative z-10 no-drag"
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="flex-1 w-full h-full text-[#e0e0e0] p-8 resize-none focus:outline-none font-mono leading-7 text-sm relative z-10 no-drag selection:bg-purple-500/30"
                     spellCheck="false"
+                    animate={{
+                        backgroundColor: isAiSuccess ? 'rgba(76, 29, 149, 0.2)' : '#1e1e1e'
+                    }}
+                    transition={{ duration: 0.5 }}
                     style={{
-                        fontFamily: '"Menlo", "Consolas", "Monaco", monospace',
-                        letterSpacing: '0.5px'
+                        fontFamily: '"SF Mono", "Menlo", "Consolas", "Monaco", monospace',
+                        letterSpacing: '0.01em',
+                        lineHeight: '1.6'
                     }}
                 />
+
+                {/* Vibe Modal Overlay */}
+                <AnimatePresence>
+                    {showVibeModal && (
+                        <motion.div
+                            className="absolute inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/40 backdrop-blur-[2px]"
+                            onClick={() => setShowVibeModal(false)}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                        >
+                            <motion.div
+                                className="w-[640px] bg-[#121212]/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/10 relative group"
+                                onClick={(e) => e.stopPropagation()}
+                                initial={{ scale: 0.95, y: 20, opacity: 0 }}
+                                animate={{ scale: 1, y: 0, opacity: 1 }}
+                                exit={{ scale: 0.95, y: 20, opacity: 0 }}
+                                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                            >
+                                {/* Liquid/Glass Gradient Background */}
+                                <div className="absolute inset-x-0 top-0 h-[200px] bg-gradient-to-b from-purple-500/10 via-blue-500/5 to-transparent pointer-events-none" />
+                                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-transparent to-blue-500/5 opacity-50" />
+
+                                <div className="relative p-5 flex flex-col gap-4">
+                                    <div className="flex items-start gap-4">
+                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/20 shrink-0 animate-pulse">
+                                            <span className="text-xl text-white">✨</span>
+                                        </div>
+                                        <div className="flex-1">
+                                            <textarea
+                                                id="vibe-modal-input"
+                                                autoFocus
+                                                placeholder="Describe the changes you want..."
+                                                className="w-full bg-transparent border-none focus:ring-0 text-lg text-white placeholder-white/20 resize-none min-h-[48px] py-1 leading-relaxed font-light"
+                                                value={aiPrompt}
+                                                onChange={(e) => {
+                                                    setAiPrompt(e.target.value);
+                                                    e.target.style.height = 'auto';
+                                                    e.target.style.height = e.target.scrollHeight + 'px';
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        handleAiEdit();
+                                                    }
+                                                    if (e.key === 'Escape') setShowVibeModal(false);
+                                                }}
+                                                style={{ maxHeight: '200px' }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-between items-center pt-2 border-t border-white/5">
+                                        <div className="flex gap-2 text-[10px] text-white/30 font-medium uppercase tracking-wider">
+                                            <span className="bg-white/5 px-2 py-1 rounded">Enter to Generate</span>
+                                            <span className="bg-white/5 px-2 py-1 rounded">Esc to Cancel</span>
+                                        </div>
+                                        <button
+                                            onClick={handleAiEdit}
+                                            disabled={isAiProcessing || !aiPrompt.trim()}
+                                            className={`px-6 py-2 rounded-xl text-sm font-bold text-white transition-all transform active:scale-95 flex items-center gap-2
+                                            ${isAiProcessing
+                                                    ? 'bg-white/5 cursor-not-allowed opacity-50'
+                                                    : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-lg shadow-purple-900/40 hover:shadow-purple-700/60'
+                                                }`}
+                                        >
+                                            {isAiProcessing ? (
+                                                <>
+                                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                    <span>Thinking...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span>Generate</span>
+                                                    <span className="text-lg">✨</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {message && (
+                                    <div className="px-5 py-2 bg-purple-900/20 border-t border-purple-500/20 text-purple-200 text-xs font-medium animate-in slide-in-from-top-1">
+                                        {message}
+                                    </div>
+                                )}
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
 
             {/* File/Folder Picker Modal - Spotlight Style */}
