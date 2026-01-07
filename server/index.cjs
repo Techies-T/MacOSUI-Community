@@ -379,7 +379,9 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         let ragFiles = [];
         if (mode === 'rag') {
             ragFiles = await new Promise((resolve, reject) => {
-                db.all("SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files", (err, rows) => {
+                // Only use files synced within the last 40 hours (Gemini File API limit is 48h)
+                const expirationLimit = new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString();
+                db.all("SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files WHERE last_synced_at > ?", [expirationLimit], (err, rows) => {
                     if (err) resolve([]);
                     else resolve(rows || []);
                 });
@@ -679,6 +681,7 @@ async function performRagSync(drive, ragFolderId, apiKey) {
         ragSyncStatus.total = files.length;
         console.log(`Found ${files.length} files to sync.`);
 
+        const currentDriveFileIds = files.map(f => f.id);
         const syncedFiles = [];
 
         for (let i = 0; i < files.length; i++) {
@@ -749,6 +752,29 @@ async function performRagSync(drive, ragFolderId, apiKey) {
 
         // Store last sync time
         await db.setSetting('LAST_RAG_SYNC_TIME', new Date().toISOString());
+
+        // 3. Clean up obsolete files from DB (files that are no longer in the Drive folder)
+        if (currentDriveFileIds.length > 0) {
+            const placeholders = currentDriveFileIds.map(() => '?').join(',');
+            await new Promise((resolve, reject) => {
+                db.run(`DELETE FROM rag_files WHERE drive_file_id NOT IN (${placeholders})`, currentDriveFileIds, (err) => {
+                    if (err) {
+                        console.error("Failed to cleanup obsolete RAG files:", err);
+                        resolve(); // Non-fatal
+                    } else {
+                        console.log("Cleaned up obsolete RAG files from database.");
+                        resolve();
+                    }
+                });
+            });
+        } else {
+            // If drive folder is empty, clear the table
+            await new Promise((resolve, reject) => {
+                db.run("DELETE FROM rag_files", (err) => {
+                    resolve();
+                });
+            });
+        }
 
         ragSyncStatus.state = 'completed';
         ragSyncStatus.currentFile = 'Sync Complete';
