@@ -74,6 +74,9 @@ const Desktop = ({ user, onLogout }) => {
       if (type === 'gemini') {
         width = 400;
         height = 650;
+      } else if (type === 'deep-research') {
+        width = 500;
+        height = 700;
       } else if (type === 'browser') {
         width = 800;
         height = 600;
@@ -168,6 +171,7 @@ const Desktop = ({ user, onLogout }) => {
             notes: 'Notes',
             finder: 'Finder',
             gemini: 'Gemini AI',
+            'deep-research': 'Deep Research',
             settings: 'System Settings',
             browser: 'Safari',
             'html-editor': 'HTML Editor'

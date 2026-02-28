@@ -56,6 +56,7 @@ app.get('/api/config', async (req, res) => {
         }
 
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
+        const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -64,7 +65,8 @@ app.get('/api/config', async (req, res) => {
             geminiModel,
             googleDriveRootId: googleDriveRootId || '',
             googleDriveRagFolderId: googleDriveRagFolderId || '',
-            lastRagSyncTime: lastRagSyncTime || null
+            lastRagSyncTime: lastRagSyncTime || null,
+            geminiResearchFolderId: geminiResearchFolderId || ''
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -74,7 +76,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId } = req.body;
 
     try {
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
@@ -83,6 +85,7 @@ app.post('/api/config', async (req, res) => {
         if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
         if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
         if (googleDriveRagFolderId !== undefined) await db.setSetting('GOOGLE_DRIVE_RAG_FOLDER_ID', googleDriveRagFolderId);
+        if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
 
         res.json({ success: true });
     } catch (error) {
@@ -328,31 +331,20 @@ app.post('/api/gemini', async (req, res) => {
         const crypto = require('crypto');
         const jobId = crypto.randomUUID();
 
-        // Get Access Token for Drive Tools
+        // Get user's Google ID for Drive Save
         const token = req.cookies.token;
-        let accessToken = null;
+        let googleId = null;
         if (token) {
-            // Decode JWT to find if we stored access token?
-            // Current auth implementation stores user info in JWT but maybe not access token.
-            // Let's check /api/auth/google/callback logic or just rely on 'req.user'?
-            // Standard generic auth usually doesn't put long access tokens in JWT.
-            // BUT, for this app, we need delegation. 
-            // See 'getDriveClient' helper? It extracts token from 'req.cookies.token' if it IS the access token?
-            // Let's look at 'getDriveClient' implementation if possible.
-            // Assuming we pass the raw value of cookie 'token' if that's what we use for Drive.
-
-            // In typical setup here: 
-            // req.cookies.token is the JWT.
-            // We need the GOOGLE ACCESS TOKEN.
-            // If the app is simple, maybe the cookie IS the access token?
-            // "res.cookie('token', token ...)" in auth callback.
-            // If we can't get it, 'save_to_drive' will fail.
-            // I'll pass the whole cookie token and try to use it.
-            accessToken = token;
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+                googleId = decoded.googleId;
+            } catch (e) {
+                console.error("JWT Verify Error:", e.message);
+            }
         }
 
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, modelName, config, accessToken);
+        processGeminiJob(jobId, message, history, apiKey, modelName, config, googleId);
 
         res.json({ jobId, status: 'processing' });
 
@@ -365,7 +357,7 @@ app.post('/api/gemini', async (req, res) => {
 // ...
 
 // Background Gemini Job Processor
-async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, accessToken) {
+async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId) {
     geminiJobs[jobId] = { state: 'processing', reply: null, error: null };
     console.log(`Starting Gemini Job ${jobId}...`);
     console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
@@ -373,11 +365,17 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
     try {
         const client = new GoogleGenAI({ apiKey });
 
-        const mode = customConfig?.mode || 'rag'; // Default to RAG
+        let mode = customConfig?.mode || 'rag'; // Default to RAG
 
-        // Get RAG files (ONLY if mode is 'rag')
+        // Deep Research: Force Custom Tools model
+        if (mode === 'research') {
+            modelName = 'gemini-3.1-pro-preview-customtools';
+            console.log(`Research Mode Activated: Enforcing model ${modelName}`);
+        }
+
+        // Get RAG files (if mode is 'rag' or 'research')
         let ragFiles = [];
-        if (mode === 'rag') {
+        if (mode === 'rag' || mode === 'research') {
             ragFiles = await new Promise((resolve, reject) => {
                 // Only use files synced within the last 40 hours (Gemini File API limit is 48h)
                 const expirationLimit = new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString();
@@ -421,11 +419,15 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             systemInstruction = {
                 parts: [{ text: "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge." }]
             };
+        } else if (mode === 'research') {
+            systemInstruction = {
+                parts: [{ text: "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案内の文言は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。" }]
+            };
         }
 
         // Configure Tools based on mode
         const tools = [];
-        if (mode === 'search' || (mode === 'chat' && customConfig?.grounding)) {
+        if (mode === 'search' || mode === 'research' || (mode === 'chat' && customConfig?.grounding)) {
             // SDK expects camelCase googleSearch
             tools.push({ googleSearch: {} });
         }
@@ -468,7 +470,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         };
 
         // Add thinkingConfig for Gemini 3.0 Flash to improve grounding and reasoning
-        if (mode === 'chat' && customConfig?.grounding) {
+        if (mode === 'research' || (mode === 'chat' && customConfig?.grounding)) {
             config.thinkingConfig = { thinkingLevel: 'HIGH' };
         }
 
@@ -634,6 +636,89 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                 if (responseText) {
                     geminiJobs[jobId] = { state: 'completed', reply: responseText, error: null };
                     console.log(`Gemini Job ${jobId} completed.`);
+
+                    // Deep Research Auto-Save to Drive
+                    if (mode === 'research') {
+                        try {
+                            const folderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
+                            if (folderId && googleId) {
+                                // Fetch OAuth tokens from DB
+                                const userRow = await new Promise((resolve, reject) => {
+                                    db.get("SELECT access_token, refresh_token FROM users WHERE google_id = ?", [googleId], (err, row) => {
+                                        if (err) reject(err);
+                                        else resolve(row);
+                                    });
+                                });
+
+                                if (!userRow || !userRow.access_token) {
+                                    throw new Error("Google Drive access token not found. Please log in again from the settings menu.");
+                                }
+
+                                const { google } = require('googleapis');
+                                const oAuth2Client = await getOAuthClient();
+                                oAuth2Client.setCredentials({
+                                    access_token: userRow.access_token,
+                                    refresh_token: userRow.refresh_token
+                                });
+
+                                // Listen for token refreshes to keep DB updated
+                                oAuth2Client.on('tokens', (tokens) => {
+                                    if (tokens.access_token) {
+                                        const updateSql = `UPDATE users SET access_token = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
+                                        const params = [tokens.access_token];
+                                        if (tokens.refresh_token) params.push(tokens.refresh_token);
+                                        params.push(googleId);
+                                        db.run(updateSql, params, (err) => {
+                                            if (err) console.error("Failed to update refreshed tokens in DB during Deep Research:", err);
+                                        });
+                                    }
+                                });
+
+                                const drive = google.drive({ version: 'v3', auth: oAuth2Client });
+
+                                const dateStr = new Date().toISOString().split('T')[0];
+                                const filename = `DeepResearch_Report_${dateStr}_${Date.now()}.md`;
+
+                                try {
+                                    // 1st attempt: Save to the specified folder
+                                    await drive.files.create({
+                                        requestBody: {
+                                            name: filename,
+                                            parents: [folderId],
+                                            mimeType: 'text/markdown'
+                                        },
+                                        media: {
+                                            mimeType: 'text/markdown',
+                                            body: responseText
+                                        },
+                                        supportsAllDrives: true
+                                    });
+                                    console.log(`Auto-saved research result to Drive folder ${folderId} as ${filename}`);
+                                    geminiJobs[jobId].reply += `\n\n---\n✅ **System Notification:** \nResearch report has been successfully saved to your Google Drive folder as \`${filename}\`.`;
+                                } catch (folderErr) {
+                                    // Fallback: Save to root if the folder is not found or inaccessible (e.g. 404 error)
+                                    console.warn(`Failed to save to specific folder ${folderId}. Falling back to root directory. Error:`, folderErr.message);
+
+                                    await drive.files.create({
+                                        requestBody: {
+                                            name: filename,
+                                            mimeType: 'text/markdown'
+                                        },
+                                        media: {
+                                            mimeType: 'text/markdown',
+                                            body: responseText
+                                        }
+                                    });
+                                    console.log(`Auto-saved research result to Drive root as ${filename}`);
+                                    geminiJobs[jobId].reply += `\n\n---\n⚠️ **System Notification:** \nCould not access the specified folder (ID: ${folderId}). The research report was saved to the root of your Google Drive as \`${filename}\`.`;
+                                }
+                            }
+                        } catch (err) {
+                            console.error("Failed to auto-save research to drive:", err);
+                            geminiJobs[jobId].reply += `\n\n---\n⚠️ **System Notification:** \nCould not save the research report to Google Drive. Error: ${err.message}`;
+                        }
+                    }
+
                     return;
                 } else {
                     geminiJobs[jobId] = { state: 'completed', reply: "No content generated.", error: null };
