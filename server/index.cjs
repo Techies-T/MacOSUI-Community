@@ -371,6 +371,9 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         if (mode === 'research') {
             modelName = 'gemini-3.1-pro-preview-customtools';
             console.log(`Research Mode Activated: Enforcing model ${modelName}`);
+        } else if (mode === 'nanobanana') {
+            modelName = 'gemini-3-pro-image-preview';
+            console.log(`Nano Banana Mode Activated: Enforcing model ${modelName}`);
         }
 
         // Get RAG files (if mode is 'rag' or 'research')
@@ -486,29 +489,60 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             let response = null;
 
             try {
-                console.log("Sending request to Gemini (Stream)...");
-                const streamResult = await client.models.generateContentStream({
-                    model: modelName,
-                    contents: contents,
-                    systemInstruction: systemInstruction,
-                    config: config
-                });
+                if (mode === 'nanobanana') {
+                    console.log("Sending request to Gemini for Image Generation...");
+                    const result = await client.models.generateContent({
+                        model: modelName,
+                        contents: contents,
+                        config: {
+                            numberOfImages: 1,
+                            outputMimeType: "image/png",
+                            aspectRatio: "16:9" // A4横長・スライド向けアスペクト比
+                        }
+                    });
 
-                for await (const chunk of streamResult) {
-                    if (chunk.text) {
-                        responseText += (typeof chunk.text === 'function' ? chunk.text() : chunk.text);
+                    const parts = result.candidates?.[0]?.content?.parts;
+                    if (!parts) throw new Error("No candidates in Gemini response");
+
+                    const imagePart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('image/'));
+                    if (imagePart) {
+                        const base64Data = imagePart.inlineData.data;
+                        const mimeType = imagePart.inlineData.mimeType;
+                        geminiJobs[jobId] = {
+                            state: 'completed',
+                            reply: JSON.stringify({ type: 'image', mimeType, data: base64Data }),
+                            error: null
+                        };
+                        console.log(`Gemini Job ${jobId} completed. (Image generated)`);
+                        return; // Successfully finished
+                    } else {
+                        throw new Error("No image data returned from model.");
                     }
-                    fullResult = chunk; // Last chunk usually has metadata
-                }
+                } else {
+                    console.log("Sending request to Gemini (Stream)...");
+                    const streamResult = await client.models.generateContentStream({
+                        model: modelName,
+                        contents: contents,
+                        systemInstruction: systemInstruction,
+                        config: config
+                    });
 
-                if (!fullResult) {
-                    throw new Error("Empty response from Gemini stream");
-                }
+                    for await (const chunk of streamResult) {
+                        if (chunk.text) {
+                            responseText += (typeof chunk.text === 'function' ? chunk.text() : chunk.text);
+                        }
+                        fullResult = chunk; // Last chunk usually has metadata
+                    }
 
-                response = fullResult.response || fullResult;
+                    if (!fullResult) {
+                        throw new Error("Empty response from Gemini stream");
+                    }
 
-                if (!response || !response.candidates) {
-                    throw new Error("No candidates in Gemini response");
+                    response = fullResult.response || fullResult;
+
+                    if (!response || !response.candidates) {
+                        throw new Error("No candidates in Gemini response");
+                    }
                 }
 
                 // Logging for verification

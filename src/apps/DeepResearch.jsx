@@ -1,11 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import WindowManager from '../components/WindowManager'; // Optional if we need to open files (not strictly needed for just chatting)
 
+const IMAGE_STYLES = [
+    { id: 'default', label: 'Default (Professional)', prompt: 'プロフェッショナルでモダンなインフォグラフィック（またはアイキャッチ画像）' },
+    { id: 'manga', label: 'Japanese Color Manga', prompt: '日本の高品質なカラー漫画風のイラスト' },
+    { id: 'bw_manga', label: 'Black & White Manga', prompt: '日本の白黒漫画・ペン画風のイラスト' },
+    { id: 'cyberpunk', label: 'Cyberpunk Art', prompt: 'サイバーパンク・近未来SF風のデジタルアート' },
+    { id: 'watercolor', label: 'Watercolor', prompt: '優しく美しい水彩画風のイラスト' }
+];
+
 const DeepResearch = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [filename, setFilename] = useState('');
     const [thinkingLevel, setThinkingLevel] = useState('HIGH');
+    const [imageStyle, setImageStyle] = useState('default');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef(null);
 
@@ -98,6 +107,90 @@ const DeepResearch = () => {
         }
     };
 
+    const handleGenerateInfographic = async (reportText) => {
+        // Add a system loading message for the infographic
+        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '🎨 Nano Banana 2 is designing your infographic. Please wait...' }]);
+
+        try {
+            const selectedStylePrompt = IMAGE_STYLES.find(s => s.id === imageStyle)?.prompt || IMAGE_STYLES[0].prompt;
+            const prompt = `以下のブログ・リサーチ記事内容を完璧に表現した、${selectedStylePrompt}を1枚生成してください。
+
+=== レポート内容 ===
+
+${reportText.substring(0, 3000)}`;
+
+            const requestBody = {
+                message: prompt,
+                history: [],
+                config: { mode: 'nanobanana' }
+            };
+
+            const response = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Failed to start infographic request");
+            }
+
+            const jobId = data.jobId;
+            let attempts = 0;
+            const maxAttempts = 120; // 3 minutes
+
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                try {
+                    const jobRes = await fetch(`/api/gemini/job/${jobId}`);
+                    const jobData = await jobRes.json();
+
+                    if (jobData.state === 'completed') {
+                        clearInterval(pollInterval);
+                        let isImage = false;
+                        let imageData = null;
+
+                        try {
+                            const parsed = JSON.parse(jobData.reply);
+                            if (parsed && parsed.type === 'image') {
+                                isImage = true;
+                                imageData = `data:${parsed.mimeType};base64,${parsed.data}`;
+                            }
+                        } catch (e) {
+                            // ignore parse error text
+                        }
+
+                        setMessages(prev => {
+                            const newMsgs = prev.filter(m => m.type !== 'system');
+                            if (isImage) {
+                                return [...newMsgs, { role: 'model', type: 'image', text: imageData }];
+                            } else {
+                                return [...newMsgs, { role: 'model', type: 'error', text: `⚠️ The model did not generate an image. It returned:\n\n${jobData.reply}` }];
+                            }
+                        });
+                    } else if (jobData.state === 'error') {
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "Infographic Error: " + jobData.error }]);
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "Infographic request timed out." }]);
+                    }
+                } catch (err) {
+                    console.error("Polling Error:", err);
+                    clearInterval(pollInterval);
+                    setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "Network error during polling." }]);
+                }
+            }, 1000);
+
+        } catch (error) {
+            console.error("Infographic Error:", error);
+            setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "Sorry, I couldn't reach the server." }]);
+        }
+    };
+
+
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
@@ -185,8 +278,65 @@ const DeepResearch = () => {
                                     </div>
                                 ) : (
                                     <div className="prose prose-invert prose-sm max-w-none text-[14px] text-slate-200 leading-relaxed marker:text-indigo-400 prose-a:text-indigo-300 hover:prose-a:text-indigo-200 prose-headings:text-indigo-100 prose-strong:text-white prose-blockquote:border-l-indigo-500 prose-blockquote:bg-white/5 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:rounded-r-lg">
-                                        {/* Simple markdown rendering block, ideally use ReactMarkdown but plain text mapping for now if component missing */}
-                                        <div className="whitespace-pre-wrap">{msg.text}</div>
+                                        {msg.type === 'image' ? (
+                                            <div className="flex flex-col gap-2">
+                                                <div className="bg-white/5 rounded-xl border border-white/10 overflow-hidden my-4 w-full flex justify-center items-center p-4">
+                                                    <img
+                                                        src={msg.text}
+                                                        alt="Generated Infographic"
+                                                        className="max-w-full h-auto object-contain rounded-lg shadow-lg"
+                                                        style={{ maxHeight: '600px' }}
+                                                    />
+                                                </div>
+                                                <div className="flex justify-end mt-1">
+                                                    <button
+                                                        onClick={() => {
+                                                            const a = document.createElement('a');
+                                                            a.href = msg.text;
+                                                            a.download = `Infographic_${new Date().getTime()}.png`;
+                                                            document.body.appendChild(a);
+                                                            a.click();
+                                                            document.body.removeChild(a);
+                                                        }}
+                                                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-[11px] text-indigo-100 rounded-lg transition border border-white/20 flex items-center gap-1.5"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                                            <path fillRule="evenodd" d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z" clipRule="evenodd" />
+                                                        </svg>
+                                                        Download Image
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : msg.type === 'error' ? (
+                                            <div className="bg-red-900/30 border border-red-500/50 text-red-200 rounded-xl p-4 my-4 whitespace-pre-wrap">
+                                                {msg.text}
+                                            </div>
+                                        ) : (
+                                            <div className={`whitespace-pre-wrap ${msg.type === 'system' ? 'text-indigo-300 italic animate-pulse py-2' : ''}`}>{msg.text}</div>
+                                        )}
+                                        {/* Add Infographic Button if this is the latest report */}
+                                        {msg.role === 'model' && !msg.type && index === messages.length - 1 && !isLoading && !messages.some(m => m.type === 'system') && (
+                                            <div className="mt-6 pt-4 border-t border-white/10 flex justify-end items-center gap-3">
+                                                <select
+                                                    value={imageStyle}
+                                                    onChange={(e) => setImageStyle(e.target.value)}
+                                                    className="bg-slate-900/50 border border-fuchsia-500/30 rounded-lg px-3 py-2 text-[12px] text-fuchsia-200 focus:outline-none focus:border-fuchsia-400 cursor-pointer"
+                                                >
+                                                    {IMAGE_STYLES.map(style => (
+                                                        <option key={style.id} value={style.id}>{style.label}</option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    onClick={() => handleGenerateInfographic(msg.text)}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white rounded-full text-[12px] font-medium transition shadow-lg shadow-fuchsia-500/20"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                                                        <path fillRule="evenodd" d="M1.5 6a2.25 2.25 0 012.25-2.25h16.5A2.25 2.25 0 0122.5 6v12a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18V6zM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0021 18v-1.94l-2.69-2.689a1.5 1.5 0 00-2.12 0l-.88.879.97.97a.75.75 0 11-1.06 1.06l-5.16-5.159a1.5 1.5 0 00-2.12 0L3 16.061zm10.125-7.81a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0z" clipRule="evenodd" />
+                                                    </svg>
+                                                    Generate Infographic (Nano Banana 2)
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
