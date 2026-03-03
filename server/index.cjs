@@ -489,17 +489,23 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             let response = null;
 
             try {
+                const timeoutMs = 60000; // 60s timeout
+                const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (60s)")), timeoutMs));
+
                 if (mode === 'nanobanana') {
                     console.log("Sending request to Gemini for Image Generation...");
-                    const result = await client.models.generateContent({
-                        model: modelName,
-                        contents: contents,
-                        config: {
-                            numberOfImages: 1,
-                            outputMimeType: "image/png",
-                            aspectRatio: "16:9" // A4横長・スライド向けアスペクト比
-                        }
-                    });
+                    const result = await Promise.race([
+                        client.models.generateContent({
+                            model: modelName,
+                            contents: contents,
+                            config: {
+                                numberOfImages: 1,
+                                outputMimeType: "image/png",
+                                aspectRatio: "16:9" // A4横長・スライド向けアスペクト比
+                            }
+                        }),
+                        createTimeout()
+                    ]);
 
                     const parts = result.candidates?.[0]?.content?.parts;
                     if (!parts) throw new Error("No candidates in Gemini response");
@@ -520,19 +526,26 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                     }
                 } else {
                     console.log("Sending request to Gemini (Stream)...");
-                    const streamResult = await client.models.generateContentStream({
-                        model: modelName,
-                        contents: contents,
-                        systemInstruction: systemInstruction,
-                        config: config
-                    });
+                    const streamResult = await Promise.race([
+                        client.models.generateContentStream({
+                            model: modelName,
+                            contents: contents,
+                            systemInstruction: systemInstruction,
+                            config: config
+                        }),
+                        createTimeout()
+                    ]);
 
-                    for await (const chunk of streamResult) {
-                        if (chunk.text) {
-                            responseText += (typeof chunk.text === 'function' ? chunk.text() : chunk.text);
+                    const consumeStream = async () => {
+                        for await (const chunk of streamResult) {
+                            if (chunk.text) {
+                                responseText += (typeof chunk.text === 'function' ? chunk.text() : chunk.text);
+                            }
+                            fullResult = chunk; // Last chunk usually has metadata
                         }
-                        fullResult = chunk; // Last chunk usually has metadata
-                    }
+                    };
+
+                    await Promise.race([consumeStream(), createTimeout()]);
 
                     if (!fullResult) {
                         throw new Error("Empty response from Gemini stream");
@@ -557,10 +570,14 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                 }
             } catch (apiError) {
                 console.error(`Gemini API Error (Retries left: ${currentRetries - 1}):`, apiError);
-                if (currentRetries > 0 && (apiError.status === 503 || apiError.message?.includes('Overloaded'))) {
+
+                const isTimeout = apiError.message && apiError.message.includes('Timeout');
+                const isOverloaded = apiError.status === 503 || (apiError.message && apiError.message.includes('Overloaded'));
+
+                if (currentRetries > 0 && (isTimeout || isOverloaded)) {
                     currentRetries--;
                     maxTurns++; // Don't count retry as a turn
-                    await new Promise(res => setTimeout(res, 2000));
+                    await new Promise(res => setTimeout(res, 3000)); // Wait a bit longer before retry
                     continue;
                 } else {
                     throw apiError;
