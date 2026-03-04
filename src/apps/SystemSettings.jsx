@@ -4,6 +4,7 @@ const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
     const [models, setModels] = useState([]);
     const [currentModel, setCurrentModel] = useState('');
+    const [currentNanoBananaModel, setCurrentNanoBananaModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolderId, setRagFolderId] = useState('');
     const [researchFolderId, setResearchFolderId] = useState(''); // New state
@@ -48,6 +49,11 @@ const SystemSettings = ({ user }) => {
                 if (data.geminiResearchFolderId) {
                     setResearchFolderId(data.geminiResearchFolderId);
                 }
+                if (data.nanoBananaModel) {
+                    setCurrentNanoBananaModel(data.nanoBananaModel);
+                } else {
+                    setCurrentNanoBananaModel('gemini-3-pro-image-preview');
+                }
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
@@ -62,6 +68,19 @@ const SystemSettings = ({ user }) => {
             });
         } catch (err) {
             console.error("Failed to save model selection", err);
+        }
+    };
+
+    const handleNanoBananaModelChange = async (modelName) => {
+        setCurrentNanoBananaModel(modelName);
+        try {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nanoBananaModel: modelName })
+            });
+        } catch (err) {
+            console.error("Failed to save nano banana model selection", err);
         }
     };
 
@@ -175,6 +194,7 @@ const SystemSettings = ({ user }) => {
         { id: 'Appearance', icon: '🎨', label: 'Appearance' },
         { id: 'System', icon: '🔒', label: 'System' },
         { id: 'Gemini', icon: '✨', label: 'Gemini' },
+        { id: 'Image Generation', icon: '🖼️', label: 'Image Gen' },
         {
             id: 'Personal RAG', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '1em', height: '1em', verticalAlign: 'middle', color: '#6366f1' }}>
@@ -470,6 +490,76 @@ const SystemSettings = ({ user }) => {
                                                         />
                                                     </td>
                                                     <td className="px-4 py-2 font-medium break-words" title={model.displayName}>{model.displayName}</td>
+                                                </tr>
+                                            ))}
+                                            {filteredModels.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
+                                                        {models.length === 0 ? 'Loading models...' : 'No models found'}
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'Image Generation' && (
+                    <div className="space-y-6">
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                            <h2 className="font-semibold mb-3">Nano Banana Model Selection</h2>
+                            <p className="text-xs text-gray-500 mb-4">
+                                Select the Gemini model to use for image generation tasks.
+                            </p>
+
+                            {/* Selected Model Details */}
+                            {currentNanoBananaModel && models.find(m => m.name === currentNanoBananaModel) && (
+                                <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-100 p-4 text-xs mb-6">
+                                    <h3 className="font-semibold mb-2 text-purple-900">Configured Image Model</h3>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <span className="block text-purple-600 mb-1">Description</span>
+                                            <p className="text-purple-900">{models.find(m => m.name === currentNanoBananaModel).description || 'No description available'}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-medium text-sm">Available Models</h3>
+                                <input
+                                    type="text"
+                                    placeholder="Filter models..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="px-2 py-1 text-xs border border-gray-200 rounded bg-gray-50 focus:outline-none focus:border-purple-500 w-40"
+                                />
+                            </div>
+                            <div className="overflow-hidden border border-gray-200 rounded-lg mb-4">
+                                <div className="max-h-[300px] overflow-y-auto">
+                                    <table className="w-full text-left text-xs table-fixed">
+                                        <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
+                                            <tr>
+                                                <th className="w-10 px-4 py-2 font-medium text-gray-500"></th>
+                                                <th className="px-4 py-2 font-medium text-gray-500">Name</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {filteredModels.map((model) => (
+                                                <tr key={`nano-${model.name}`} className={`hover:bg-purple-50 ${currentNanoBananaModel === model.name ? 'bg-purple-100' : ''} cursor-pointer`} onClick={() => handleNanoBananaModelChange(model.name)}>
+                                                    <td className="px-4 py-2 text-center">
+                                                        <input
+                                                            type="radio"
+                                                            name="nanoBananaModel"
+                                                            checked={currentNanoBananaModel === model.name}
+                                                            onChange={() => handleNanoBananaModelChange(model.name)}
+                                                            className="text-purple-600 focus:ring-purple-500 pointer-events-none"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-2 font-medium break-words text-gray-800" title={model.displayName}>{model.displayName}</td>
                                                 </tr>
                                             ))}
                                             {filteredModels.length === 0 && (

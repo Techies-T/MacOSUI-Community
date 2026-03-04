@@ -57,6 +57,7 @@ app.get('/api/config', async (req, res) => {
 
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
+        const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3-pro-image-preview';
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -66,7 +67,8 @@ app.get('/api/config', async (req, res) => {
             googleDriveRootId: googleDriveRootId || '',
             googleDriveRagFolderId: googleDriveRagFolderId || '',
             lastRagSyncTime: lastRagSyncTime || null,
-            geminiResearchFolderId: geminiResearchFolderId || ''
+            geminiResearchFolderId: geminiResearchFolderId || '',
+            nanoBananaModel
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -76,7 +78,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel } = req.body;
 
     try {
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
@@ -86,6 +88,7 @@ app.post('/api/config', async (req, res) => {
         if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
         if (googleDriveRagFolderId !== undefined) await db.setSetting('GOOGLE_DRIVE_RAG_FOLDER_ID', googleDriveRagFolderId);
         if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
+        if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
 
         res.json({ success: true });
     } catch (error) {
@@ -372,7 +375,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             modelName = 'gemini-3.1-pro-preview-customtools';
             console.log(`Research Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'nanobanana') {
-            modelName = 'gemini-3-pro-image-preview';
+            const configuredNanoModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL');
+            modelName = configuredNanoModel || 'gemini-3-pro-image-preview';
             console.log(`Nano Banana Mode Activated: Enforcing model ${modelName}`);
         }
 
