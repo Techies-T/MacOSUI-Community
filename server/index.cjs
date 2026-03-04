@@ -472,9 +472,11 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             tools: tools.length > 0 ? tools : undefined
         };
 
-        // Add thinkingConfig for Gemini 3.0 Flash to improve grounding and reasoning
+        // Add thinkingConfig for Gemini 3.1 Pro to improve grounding and reasoning
         if (mode === 'research' || (mode === 'chat' && customConfig?.grounding)) {
-            config.thinkingConfig = { thinkingLevel: 'HIGH' };
+            let level = customConfig?.thinkingLevel || 'HIGH';
+            if (level === 'DEFAULT') level = 'STANDARD'; // Backwards compatibility
+            config.thinkingConfig = { thinkingLevel: level };
         }
 
         let maxTurns = 5; // Prevent infinite loops

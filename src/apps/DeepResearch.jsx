@@ -394,7 +394,8 @@ ${reportText.substring(0, 3000)}`;
                                 onChange={(e) => setThinkingLevel(e.target.value)}
                                 className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400"
                             >
-                                <option value="DEFAULT">Standard</option>
+                                <option value="LOW">Fast (Low)</option>
+                                <option value="STANDARD">Standard</option>
                                 <option value="HIGH">Deep (High)</option>
                             </select>
                         </div>
