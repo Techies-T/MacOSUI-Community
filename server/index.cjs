@@ -479,7 +479,10 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         // Add thinkingConfig for Gemini 3.1 Pro to improve grounding and reasoning
         if (mode === 'research' || (mode === 'chat' && customConfig?.grounding)) {
             let level = customConfig?.thinkingLevel || 'HIGH';
-            if (level === 'DEFAULT') level = 'STANDARD'; // Backwards compatibility
+            if (level === 'DEFAULT' || level === 'STANDARD') level = 'MEDIUM'; // 'STANDARD' is invalid for 3.1 Pro, use 'MEDIUM'
+
+            // Note: The officially supported strings for Gemini 3.1 Pro are: "LOW", "MEDIUM", "HIGH"
+            console.log("Setting thinking level to", level);
             config.thinkingConfig = { thinkingLevel: level };
         }
 
