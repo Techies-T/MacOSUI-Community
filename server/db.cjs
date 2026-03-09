@@ -73,12 +73,21 @@ function initDb() {
     )`);
 }
 
+const { encrypt, decrypt } = require('./crypto.cjs');
+
 // Helper to get a setting
 db.getSetting = (key) => {
     return new Promise((resolve, reject) => {
         db.get("SELECT value FROM settings WHERE key = ?", [key], (err, row) => {
-            if (err) reject(err);
-            else resolve(row ? row.value : null);
+            if (err) return reject(err);
+            if (!row) return resolve(null);
+
+            // Decrypt sensible fields
+            if (key === 'GOOGLE_CLIENT_SECRET' || key === 'GEMINI_API_KEY') {
+                resolve(decrypt(row.value));
+            } else {
+                resolve(row.value);
+            }
         });
     });
 };
@@ -86,11 +95,43 @@ db.getSetting = (key) => {
 // Helper to set a setting
 db.setSetting = (key, value) => {
     return new Promise((resolve, reject) => {
-        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [key, value], (err) => {
+        // Encrypt sensible fields
+        let finalValue = value;
+        if (key === 'GOOGLE_CLIENT_SECRET' || key === 'GEMINI_API_KEY') {
+            finalValue = encrypt(value);
+        }
+
+        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [key, finalValue], (err) => {
             if (err) reject(err);
             else resolve();
         });
     });
 };
+
+// Auto-Activation Logic
+async function autoActivate() {
+    try {
+        const existingClientId = await db.getSetting('GOOGLE_CLIENT_ID');
+        const envClientId = process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+        const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+        // Automatically configure DB if credentials are provided in env but not in DB
+        if (!existingClientId && envClientId && envClientSecret) {
+            console.log('DEBUG: Auto-activating system based on Environment Variables...');
+            await db.setSetting('GOOGLE_CLIENT_ID', envClientId);
+            await db.setSetting('GOOGLE_CLIENT_SECRET', envClientSecret);
+
+            if (process.env.GEMINI_API_KEY) {
+                await db.setSetting('GEMINI_API_KEY', process.env.GEMINI_API_KEY);
+            }
+            console.log('DEBUG: Auto-activation complete.');
+        }
+    } catch (error) {
+        console.error('Error during auto-activation:', error);
+    }
+}
+
+// Call autoActivate immediately after initialization (since setting getter/setters are promises)
+setTimeout(() => autoActivate(), 1000);
 
 module.exports = db;

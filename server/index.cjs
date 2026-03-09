@@ -6,6 +6,7 @@ const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const db = require('./db.cjs');
+const { encrypt, decrypt } = require('./crypto.cjs');
 
 dotenv.config();
 
@@ -132,8 +133,8 @@ app.post('/api/auth/google', async (req, res) => {
         const email = payload.email;
         const name = payload.name;
         const avatarUrl = payload.picture;
-        const accessToken = tokens.access_token;
-        const refreshToken = tokens.refresh_token;
+        const accessToken = encrypt(tokens.access_token);
+        const refreshToken = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
 
         // Upsert user
         console.log(`Login: Upserting user ${googleId}. Has Refresh Token: ${!!refreshToken}`);
@@ -642,7 +643,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
                             // Create Drive Client
                             const auth = new google.auth.OAuth2();
-                            auth.setCredentials({ access_token: accessToken });
+                            auth.setCredentials({ access_token: decrypt(accessToken) });
                             const drive = google.drive({ version: 'v3', auth });
 
                             const res = await drive.files.create({
@@ -1181,8 +1182,8 @@ async function getDriveClient(req, res) {
 
                 const oAuth2Client = await getOAuthClient();
                 oAuth2Client.setCredentials({
-                    access_token: row.access_token,
-                    refresh_token: row.refresh_token
+                    access_token: decrypt(row.access_token),
+                    refresh_token: row.refresh_token ? decrypt(row.refresh_token) : undefined
                 });
 
                 // Listen for new tokens and update DB
@@ -1190,8 +1191,8 @@ async function getDriveClient(req, res) {
                     console.log("OAuth Client: Received new tokens");
                     if (tokens.access_token) {
                         const updateSql = `UPDATE users SET access_token = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
-                        const params = [tokens.access_token];
-                        if (tokens.refresh_token) params.push(tokens.refresh_token);
+                        const params = [encrypt(tokens.access_token)];
+                        if (tokens.refresh_token) params.push(encrypt(tokens.refresh_token));
                         params.push(decoded.googleId);
 
                         db.run(updateSql, params, (err) => {
@@ -1324,17 +1325,19 @@ async function getCalendarClient(req, res) {
 
                 const oAuth2Client = await getOAuthClient();
                 oAuth2Client.setCredentials({
-                    access_token: row.access_token,
-                    refresh_token: row.refresh_token
+                    access_token: decrypt(row.access_token),
+                    refresh_token: row.refresh_token ? decrypt(row.refresh_token) : undefined
                 });
 
                 oAuth2Client.on('tokens', (tokens) => {
                     if (tokens.access_token) {
                         const updateSql = `UPDATE users SET access_token = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
-                        const params = [tokens.access_token];
-                        if (tokens.refresh_token) params.push(tokens.refresh_token);
+                        const params = [encrypt(tokens.access_token)];
+                        if (tokens.refresh_token) params.push(encrypt(tokens.refresh_token));
                         params.push(decoded.googleId);
-                        db.run(updateSql, params);
+                        db.run(updateSql, params, (err) => {
+                            if (err) console.error("Failed to update tokens during API call:", err);
+                        });
                     }
                 });
 
@@ -1500,6 +1503,52 @@ app.delete('/api/memos/:id', authenticateToken, (req, res) => {
     db.run("DELETE FROM memos WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
+    });
+});
+
+// ==========================================
+// Static File Serving & Runtime Env Injection
+// ==========================================
+const path = require('path');
+const fs = require('fs');
+
+// Serve static assets from Vite build output
+app.use(express.static(path.join(__dirname, '../dist'), { index: false }));
+
+// Fallback route for SPA - inject runtime environment variables into index.html
+app.use((req, res, next) => {
+    // Exclude API routes from this fallback
+    if (req.path.startsWith('/api/')) {
+        return next();
+    }
+
+    const indexFile = path.join(__dirname, '../dist/index.html');
+
+    fs.readFile(indexFile, 'utf8', async (err, data) => {
+        if (err) {
+            console.error('Error reading index.html:', err);
+            return res.status(500).send('Error loading application. Please ensure the frontend has been built.');
+        }
+
+        // Get the Client ID from DB or Env, falling back to empty string
+        const clientId = await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID || '';
+        const apiUrl = process.env.VITE_API_URL || '';
+        const gaMeasurementId = process.env.VITE_GA_MEASUREMENT_ID || '';
+
+        // Prepare the environment object to inject
+        const envConfig = {
+            VITE_GOOGLE_CLIENT_ID: clientId,
+            VITE_API_URL: apiUrl,
+            VITE_GA_MEASUREMENT_ID: gaMeasurementId
+        };
+
+        // Inject the configuration into the <head> of index.html
+        const injectedData = data.replace(
+            '<head>',
+            `<head><script>window.ENV = ${JSON.stringify(envConfig)};</script>`
+        );
+
+        res.send(injectedData);
     });
 });
 
