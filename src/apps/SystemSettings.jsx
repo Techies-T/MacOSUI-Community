@@ -5,6 +5,7 @@ const SystemSettings = ({ user }) => {
     const [models, setModels] = useState([]);
     const [currentModel, setCurrentModel] = useState('');
     const [currentNanoBananaModel, setCurrentNanoBananaModel] = useState('');
+    const [currentResearchModel, setCurrentResearchModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolderId, setRagFolderId] = useState('');
     const [researchFolderId, setResearchFolderId] = useState(''); // New state
@@ -29,7 +30,7 @@ const SystemSettings = ({ user }) => {
                 if (data.geminiModel) {
                     setCurrentModel(data.geminiModel);
                 } else {
-                    setCurrentModel('models/gemini-2.5-flash-preview-09-2025');
+                    setCurrentModel('gemini-3.1-flash-lite-preview');
                 }
                 if (data.googleDriveRootId) {
                     setDriveRootId(data.googleDriveRootId);
@@ -52,7 +53,12 @@ const SystemSettings = ({ user }) => {
                 if (data.nanoBananaModel) {
                     setCurrentNanoBananaModel(data.nanoBananaModel);
                 } else {
-                    setCurrentNanoBananaModel('gemini-3-pro-image-preview');
+                    setCurrentNanoBananaModel('gemini-3.1-pro-preview');
+                }
+                if (data.geminiResearchModel) {
+                    setCurrentResearchModel(data.geminiResearchModel);
+                } else {
+                    setCurrentResearchModel('gemini-3.1-pro-preview-customtools');
                 }
             })
             .catch(err => console.error("Failed to fetch config", err));
@@ -81,6 +87,19 @@ const SystemSettings = ({ user }) => {
             });
         } catch (err) {
             console.error("Failed to save nano banana model selection", err);
+        }
+    };
+
+    const handleResearchModelChange = async (modelName) => {
+        setCurrentResearchModel(modelName);
+        try {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ geminiResearchModel: modelName })
+            });
+        } catch (err) {
+            console.error("Failed to save research model selection", err);
         }
     };
 
@@ -436,7 +455,7 @@ const SystemSettings = ({ user }) => {
                         </div>
 
                         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">Model Selection</h2>
+                            <h2 className="font-semibold mb-3">Model Selection <span className="text-gray-400 font-normal text-xs">(General Chat & Personal RAG)</span></h2>
 
                             {/* Selected Model Details */}
                             {currentModel && models.find(m => m.name === currentModel) && (
@@ -510,9 +529,9 @@ const SystemSettings = ({ user }) => {
                 {activeTab === 'Image Generation' && (
                     <div className="space-y-6">
                         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">Nano Banana Model Selection</h2>
+                            <h2 className="font-semibold mb-3">Nano Banana Model <span className="text-gray-400 font-normal text-xs">(AI Image Analysis)</span></h2>
                             <p className="text-xs text-gray-500 mb-4">
-                                Select the Gemini model to use for image generation tasks.
+                                Select the Gemini model to use for image generation and visual tasks.
                             </p>
 
                             {/* Selected Model Details */}
@@ -557,6 +576,53 @@ const SystemSettings = ({ user }) => {
                                                             checked={currentNanoBananaModel === model.name}
                                                             onChange={() => handleNanoBananaModelChange(model.name)}
                                                             className="text-purple-600 focus:ring-purple-500 pointer-events-none"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-2 font-medium break-words text-gray-800" title={model.displayName}>{model.displayName}</td>
+                                                </tr>
+                                            ))}
+                                            {filteredModels.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
+                                                        {models.length === 0 ? 'Loading models...' : 'No models found'}
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Deep Research Model Selection */}
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mt-6">
+                            <h2 className="font-semibold mb-3">Deep Research Model <span className="text-gray-400 font-normal text-xs">(Advanced Reasoning)</span></h2>
+                            <p className="text-xs text-gray-500 mb-4">
+                                Select the Gemini model to use for the Deep Research feature. Typically, a pro-level model with custom tools is recommended.
+                                <br />
+                                Currently Selected: <span className="font-mono text-blue-600 bg-blue-50 px-1 rounded">{currentResearchModel}</span>
+                            </p>
+
+                            <div className="overflow-x-auto border border-gray-100 rounded">
+                                <div className="max-h-64 overflow-y-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-xs text-gray-600 bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
+                                            <tr>
+                                                <th className="px-4 py-2 w-12 text-center">Select</th>
+                                                <th className="px-4 py-2">Model Name</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredModels.map((model) => (
+                                                <tr key={`dr-${model.name}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                                                    <td className="px-4 py-2 text-center">
+                                                        <input
+                                                            type="radio"
+                                                            name="researchModelSelect"
+                                                            value={model.name}
+                                                            checked={currentResearchModel === model.name}
+                                                            onChange={() => handleResearchModelChange(model.name)}
+                                                            className="w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
                                                         />
                                                     </td>
                                                     <td className="px-4 py-2 font-medium break-words text-gray-800" title={model.displayName}>{model.displayName}</td>
