@@ -422,12 +422,30 @@
 
     <script>
         // --- GEMINI API LOGIC ---
-        const apiKey = ""; // System provided environment key
+        // Gemini API calls now use the backend proxy `/api/gemini/proxy`
+        // and fetch the current model dynamically from `/api/config`.
+        let geminiModel = 'gemini-3.1-flash-lite-preview';
+
+        async function initConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const config = await res.json();
+                if (config.geminiModel) {
+                    geminiModel = config.geminiModel;
+                }
+            } catch (e) {
+                console.error("Failed to fetch config, using default model.", e);
+            }
+        }
+
+        // Initialize config on load
+        initConfig();
 
         async function callGemini(prompt, systemInstruction = "") {
             // REMOVED VALIDATION: Allow execution environment to handle key injection
 
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`;
+            const targetUrl = encodeURIComponent(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`);
+            const url = `/api/gemini/proxy?target=${targetUrl}`;
 
             const payload = {
                 contents: [{ parts: [{ text: prompt }] }],
