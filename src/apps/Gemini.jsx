@@ -6,6 +6,8 @@ const Gemini = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
+    const [hasWarnedExpiry, setHasWarnedExpiry] = useState(false);
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -15,6 +17,49 @@ const Gemini = () => {
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    // Fetch config on mount
+    useEffect(() => {
+        const fetchConfig = async () => {
+            try {
+                const res = await fetch('/api/config');
+                const data = await res.json();
+                if (data.lastRagSyncTime) {
+                    setLastRagSyncTime(data.lastRagSyncTime);
+                }
+            } catch (err) {
+                console.error("Failed to fetch config for RAG expiry check:", err);
+            }
+        };
+        fetchConfig();
+    }, []);
+
+    // Check RAG expiry when mode changes to 'rag'
+    useEffect(() => {
+        if (mode === 'rag' && !hasWarnedExpiry) {
+            let shouldWarn = false;
+            if (!lastRagSyncTime) {
+                // Not synced yet
+                shouldWarn = true;
+            } else {
+                // Check if 24 hours have passed
+                const syncTime = new Date(lastRagSyncTime).getTime();
+                const now = new Date().getTime();
+                const diffHours = (now - syncTime) / (1000 * 60 * 60);
+                if (diffHours >= 24) {
+                    shouldWarn = true;
+                }
+            }
+
+            if (shouldWarn) {
+                setMessages(prev => [...prev, {
+                    role: 'model',
+                    text: '⚠️ **RAGデータの有効期限切れ（または未同期）**\n\nベクトルの同期から24時間以上経過しているか、まだ同期されていません。最新のデータを元に回答を得るには、**System Settings** アプリから「Sync RAG DB」を実行してください。'
+                }]);
+                setHasWarnedExpiry(true);
+            }
+        }
+    }, [mode, lastRagSyncTime, hasWarnedExpiry]);
 
     const handleInputChange = (e) => {
         setInput(e.target.value);
