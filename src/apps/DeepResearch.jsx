@@ -16,6 +16,18 @@ const DeepResearch = () => {
     const [thinkingLevel, setThinkingLevel] = useState('HIGH');
     const [imageStyle, setImageStyle] = useState('default');
     const [isLoading, setIsLoading] = useState(false);
+    
+    // Mode State (deep-research or custom-tools)
+    const [appMode, setAppMode] = useState('deep-research');
+    const [config, setConfig] = useState(null);
+    const [nanoBananaPrompt, setNanoBananaPrompt] = useState(''); // Custom Nano Banana 2 prompt
+    
+    // Master Prompt & Warning states
+    const defaultMasterPrompt = "検索クエリは合計で最大10回までとする。\n報告書は簡潔にまとめ、出力は3000トークン未満に抑えること。\n不要に深く探索しすぎず、規定回数に達したらそこまでの情報で回答を生成すること。";
+    const [masterPrompt, setMasterPrompt] = useState(defaultMasterPrompt);
+    const [showWarning, setShowWarning] = useState(false);
+    const [isPromptExpanded, setIsPromptExpanded] = useState(false);
+
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -23,11 +35,31 @@ const DeepResearch = () => {
     };
 
     useEffect(() => {
+        // Fetch config to get the current research model name and prompts
+        fetch('/api/config')
+            .then(res => res.json())
+            .then(data => {
+                setConfig(data);
+                if (data.nanoBananaPrompt) {
+                    setNanoBananaPrompt(data.nanoBananaPrompt);
+                }
+            })
+            .catch(err => console.error("Failed to fetch config", err));
+    }, []);
+
+    useEffect(() => {
         scrollToBottom();
     }, [messages]);
 
     const handleInputChange = (e) => {
         setInput(e.target.value);
+    };
+
+    const handlePromptChange = (e) => {
+        setMasterPrompt(e.target.value);
+        if (!showWarning && e.target.value !== defaultMasterPrompt) {
+            setShowWarning(true);
+        }
     };
 
     const handleSend = async () => {
@@ -39,71 +71,165 @@ const DeepResearch = () => {
         setIsLoading(true);
 
         try {
-            const history = messages.map(m => ({
-                role: m.role,
-                parts: [{ text: m.text }]
-            }));
+            if (appMode === 'deep-research') {
+                const requestBody = {
+                    query: userMessage.text,
+                    systemInstruction: masterPrompt
+                };
 
-            // Start Job directly in research mode
-            const requestBody = {
-                message: userMessage.text,
-                history: history,
-                config: {
-                    mode: 'research',
-                    grounding: true,
-                    filename: filename.trim(),
-                    thinkingLevel: thinkingLevel
+                const response = await fetch('/api/research/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (response.status === 429) {
+                    setMessages(prev => [...prev, { role: 'model', type: 'error', text: data.error }]);
+                    setIsLoading(false);
+                    return;
                 }
-            };
 
-            const response = await fetch('/api/gemini', {
+                if (!response.ok) {
+                    throw new Error(data.error || "Failed to start research request");
+                }
+
+                const jobId = data.interaction_id;
+                let attempts = 0;
+                const maxAttempts = 600; // 600 * 1.5s = ~15 minutes timeout
+
+                const pollInterval = setInterval(async () => {
+                    attempts++;
+                    try {
+                        const jobRes = await fetch(`/api/research/status/${jobId}`);
+                        const jobData = await jobRes.json();
+
+                        if (jobData.status === 'completed') {
+                            clearInterval(pollInterval);
+                            setMessages(prev => [...prev, { role: 'model', text: jobData.result }]);
+                            setIsLoading(false);
+                        } else if (jobData.status === 'failed') {
+                            clearInterval(pollInterval);
+                            setMessages(prev => [...prev, { role: 'model', type: 'error', text: "Research Error: " + jobData.error }]);
+                            setIsLoading(false);
+                        } else if (attempts >= maxAttempts) {
+                            clearInterval(pollInterval);
+                            setMessages(prev => [...prev, { role: 'model', type: 'error', text: "Request timed out. Research may be too complex." }]);
+                            setIsLoading(false);
+                        }
+                    } catch (err) {
+                        console.error("Polling Error:", err);
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev, { role: 'model', type: 'error', text: "Network error during polling." }]);
+                        setIsLoading(false);
+                    }
+                }, 1500);
+
+            } else {
+                // Custom Tools Mode (Legacy Deep Research)
+                const requestBody = {
+                    message: userMessage.text,
+                    history: [],
+                    config: { mode: 'search', thinkingLevel: thinkingLevel }
+                };
+                
+                if (filename) requestBody.config.filename = filename;
+
+                const response = await fetch('/api/gemini', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || "Failed to start request");
+
+                const jobId = data.jobId;
+                let attempts = 0;
+                const maxAttempts = 120; // 2 minutes with 1s poll
+                
+                const pollInterval = setInterval(async () => {
+                    attempts++;
+                    try {
+                        const jobRes = await fetch(`/api/gemini/job/${jobId}`);
+                        const jobData = await jobRes.json();
+                        
+                        if (jobData.state === 'completed') {
+                            clearInterval(pollInterval);
+                            setMessages(prev => [...prev, { role: 'model', text: jobData.reply }]);
+                            setIsLoading(false);
+                            if (filename) setFilename('');
+                        } else if (jobData.state === 'error') {
+                            clearInterval(pollInterval);
+                            setMessages(prev => [...prev, { role: 'model', type: 'error', text: "Error: " + jobData.error }]);
+                            setIsLoading(false);
+                        } else if (attempts >= maxAttempts) {
+                            clearInterval(pollInterval);
+                            setMessages(prev => [...prev, { role: 'model', type: 'error', text: "Request timed out." }]);
+                            setIsLoading(false);
+                        }
+                    } catch (err) {
+                        console.error("Polling Error:", err);
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev, { role: 'model', type: 'error', text: "Network error during polling." }]);
+                        setIsLoading(false);
+                    }
+                }, 1000);
+            }
+        } catch (error) {
+            console.error("Request Error:", error);
+            setMessages(prev => [...prev, { role: 'model', type: 'error', text: "Sorry, I couldn't reach the server. Please check your connection." }]);
+            setIsLoading(false);
+        }
+    };
+
+    const handleSaveToDocs = async (reportText) => {
+        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '📄 Saving report to Google Docs...' }]);
+        
+        try {
+            // Extract title from the first Markdown heading (# Heading)
+            const headingMatch = reportText.match(/^#\s+(.+)$/m);
+            let documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${input.substring(0, 30)}${input.length > 30 ? '...' : ''}`;
+            
+            // Limit title length just in case the heading is too long
+            if (documentTitle.length > 100) {
+                documentTitle = documentTitle.substring(0, 97) + '...';
+            }
+
+            const requestBody = {
+                name: documentTitle,
+                content: reportText,
+                isDoc: true
+            };
+            
+            const response = await fetch('/api/drive/upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
             });
-
+            
             const data = await response.json();
-
+            
             if (!response.ok) {
-                throw new Error(data.error || "Failed to start research request");
+                 throw new Error(data.error || "Failed to save to Google Docs");
             }
-
-            const jobId = data.jobId;
-            let attempts = 0;
-            const maxAttempts = 120; // 120 * 1.5s = ~3 minutes timeout (Deep Research takes long)
-
-            // Poll for result
-            const pollInterval = setInterval(async () => {
-                attempts++;
-                try {
-                    const jobRes = await fetch(`/api/gemini/job/${jobId}`);
-                    const jobData = await jobRes.json();
-
-                    if (jobData.state === 'completed') {
-                        clearInterval(pollInterval);
-                        setMessages(prev => [...prev, { role: 'model', text: jobData.reply }]);
-                        setIsLoading(false);
-                    } else if (jobData.state === 'error') {
-                        clearInterval(pollInterval);
-                        setMessages(prev => [...prev, { role: 'model', text: "Research Error: " + jobData.error }]);
-                        setIsLoading(false);
-                    } else if (attempts >= maxAttempts) {
-                        clearInterval(pollInterval);
-                        setMessages(prev => [...prev, { role: 'model', text: "Request timed out. Research may be too complex." }]);
-                        setIsLoading(false);
-                    }
-                } catch (err) {
-                    console.error("Polling Error:", err);
-                    clearInterval(pollInterval);
-                    setMessages(prev => [...prev, { role: 'model', text: "Network error during polling." }]);
-                    setIsLoading(false);
-                }
-            }, 1500); // 1.5 second polling for research
-
+            
+            setMessages(prev => {
+                const newMsgs = prev.filter(m => m.type !== 'system');
+                return [...newMsgs, { 
+                    role: 'model', 
+                    type: 'system', 
+                    text: `✅ Report successfully saved to Google Docs!\n[Open Document](${data.webViewLink})` 
+                }];
+            });
+            
         } catch (error) {
-            console.error("Research Error:", error);
-            setMessages(prev => [...prev, { role: 'model', text: "Sorry, I couldn't reach the server. Please check your connection." }]);
-            setIsLoading(false);
+            console.error("Docs Save Error:", error);
+            setMessages(prev => {
+                const newMsgs = prev.filter(m => m.type !== 'system');
+                return [...newMsgs, { role: 'model', type: 'error', text: `Failed to save to Google Docs: ${error.message}` }];
+            });
         }
     };
 
@@ -113,11 +239,14 @@ const DeepResearch = () => {
 
         try {
             const selectedStylePrompt = IMAGE_STYLES.find(s => s.id === imageStyle)?.prompt || IMAGE_STYLES[0].prompt;
-            const prompt = `以下のブログ・リサーチ記事内容を完璧に表現した、${selectedStylePrompt}を1枚生成してください。
+            const fallbackPrompt = `以下のブログ・リサーチ記事内容を完璧に表現した、{{style}}を1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}`;
+            
+            const template = nanoBananaPrompt ? nanoBananaPrompt : fallbackPrompt;
+            
+            const prompt = template
+                .replace(/{{style}}/g, selectedStylePrompt)
+                .replace(/{{report}}/g, reportText.substring(0, 3000));
 
-=== レポート内容 ===
-
-${reportText.substring(0, 3000)}`;
 
             const requestBody = {
                 message: prompt,
@@ -157,6 +286,42 @@ ${reportText.substring(0, 3000)}`;
                             if (parsed && parsed.type === 'image') {
                                 isImage = true;
                                 imageData = `data:${parsed.mimeType};base64,${parsed.data}`;
+                                
+                                // Automatically save to Google Docs/Drive
+                                try {
+                                    // Extract title from the first Markdown heading (# Heading)
+                                    const headingMatch = reportText.match(/^#\s+(.+)$/m);
+                                    let documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${input.substring(0, 30)}${input.length > 30 ? '...' : ''}`;
+                                    if (documentTitle.length > 80) documentTitle = documentTitle.substring(0, 77) + '...';
+                                    
+                                    const driveName = `${documentTitle}_infographic`;
+                                    
+                                    const requestBody = {
+                                        name: driveName,
+                                        content: parsed.data, // Base64 data expected by backend for images if we tweak it, but upload endpoint supports text... Wait, the upload endpoint needs to handle base64. Let's send the base64 string.
+                                        mimeType: parsed.mimeType,
+                                        isDoc: false
+                                    };
+                                    
+                                    // We'll update the upload logic later if needed, but for now we try to push it
+                                    setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', type: 'system', text: `⏳ Uploading infographic to Google Drive...` }]);
+                                    
+                                    const uploadRes = await fetch('/api/drive/upload', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(requestBody)
+                                    });
+                                    
+                                    if (uploadRes.ok) {
+                                      const uploadData = await uploadRes.json();
+                                      setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', type: 'system', text: `✅ Infographic saved to Google Drive!\n[Open Image](${uploadData.webViewLink})` }]);
+                                    } else {
+                                      setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', type: 'system', text: `⚠️ Image generated, but failed to save to Drive.` }]);
+                                    }
+                                } catch (e) {
+                                    console.error("Failed to auto-save image:", e);
+                                    setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', type: 'system', text: `⚠️ Image generated, but save failed: ${e.message}` }]);
+                                }
                             }
                         } catch (e) {
                             // ignore parse error text
@@ -217,23 +382,76 @@ ${reportText.substring(0, 3000)}`;
                             </svg>
                         </div>
                         <div>
-                            <h1 className="text-sm font-semibold tracking-wide flex items-center gap-2">
-                                Deep Research
+                            <div className="flex items-center gap-2">
+                                <select 
+                                    value={appMode} 
+                                    onChange={(e) => setAppMode(e.target.value)}
+                                    className="bg-transparent border-none text-white text-sm font-semibold tracking-wide outline-none cursor-pointer appearance-none focus:ring-0 shadow-none p-0 pr-4"
+                                    style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23ffffff'%3e%3cpath fill-rule='evenodd' d='M8 11.5l-5-5 1.5-1.5L8 8.5l3.5-3.5 1.5 1.5-5 5z'/%3e%3c/svg%3e")`, backgroundPosition: 'right center', backgroundRepeat: 'no-repeat', backgroundSize: '16px 16px' }}
+                                >
+                                    <option value="deep-research" className="text-gray-900">Deep Research</option>
+                                    <option value="custom-tools" className="text-gray-900">Custom Tools</option>
+                                </select>
                                 {isLoading && <span className="flex w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>}
-                            </h1>
-                            <p className="text-[10px] text-indigo-300/80 uppercase tracking-widest font-mono">Gemini 3.1 Custom Tools</p>
+                            </div>
+                            <p className="text-[10px] text-indigo-300/80 uppercase tracking-widest font-mono">
+                                {appMode === 'deep-research' ? 'deep-research-pro-preview-12-2025' : (config?.geminiResearchModel || 'gemini-3.1-pro-preview-customtools')}
+                            </p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <div className="px-2.5 py-1 rounded-md bg-white/10 border border-white/10 text-[11px] font-medium text-white/80 flex items-center gap-1.5 shadow-inner">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span> Web Search
-                        </div>
-                        <div className="px-2.5 py-1 rounded-md bg-white/10 border border-white/10 text-[11px] font-medium text-white/80 flex items-center gap-1.5 shadow-inner">
-                            <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400"></span> Company RAG
-                        </div>
+                    <div className="flex items-center gap-4">
+                        {appMode === 'deep-research' && (
+                            <button 
+                                onClick={() => setIsPromptExpanded(!isPromptExpanded)}
+                                className={`px-2.5 py-1.5 rounded-md border text-[11px] font-medium transition-colors flex items-center gap-1.5 ${isPromptExpanded ? 'bg-indigo-500/30 border-indigo-400/50 text-white' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:text-white'}`}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                                </svg>
+                                Master Prompt Settings
+                            </button>
+                        )}
                     </div>
                 </div>
+
+                {/* Master Prompt Settings Panel */}
+                {isPromptExpanded && (
+                    <div className="bg-slate-900/80 border-b border-indigo-500/30 p-4 shadow-inner backdrop-blur-md animate-fadeIn z-20">
+                        <div className="flex justify-between items-start mb-2">
+                            <label className="text-[12px] text-indigo-200 font-semibold flex items-center gap-2">
+                                System / Master Prompt
+                                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-mono">Steerability</span>
+                            </label>
+                            <button onClick={() => setMasterPrompt(defaultMasterPrompt)} className="text-[10px] text-indigo-400 hover:text-indigo-200 underline">
+                                Reset to Default
+                            </button>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mb-3 leading-relaxed">
+                            Instructions here guide the Agent's behavior (e.g., domain focus, strict limits). 
+                        </p>
+                        <textarea
+                            value={masterPrompt}
+                            onChange={handlePromptChange}
+                            placeholder="Enter specific domains or limits (e.g., 'Focus solely on the Healthcare sector...')"
+                            className="w-full bg-slate-950/50 border border-indigo-500/20 rounded-lg p-3 text-[13px] text-slate-200 font-mono focus:border-indigo-400 focus:outline-none transition-colors"
+                            rows={4}
+                        />
+                        {showWarning && (
+                            <div className="mt-3 p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg flex items-start gap-3 animate-fadeIn">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-amber-500 shrink-0 mt-0.5">
+                                    <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
+                                </svg>
+                                <div>
+                                    <h4 className="text-[12px] font-bold text-amber-400">Warning: High API Cost Potential</h4>
+                                    <p className="text-[11px] text-amber-200/80 leading-relaxed mt-1">
+                                        Modifying or removing limits on search iterations and output tokens can lead to significantly high API billing charges (e.g., thousands of dollars per query). Proceed with extreme caution.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Messages Area */}
                 <div className="flex-1 overflow-y-auto p-6 pt-8 space-y-8 scrollbar-hide">
@@ -314,27 +532,42 @@ ${reportText.substring(0, 3000)}`;
                                         ) : (
                                             <div className={`whitespace-pre-wrap ${msg.type === 'system' ? 'text-indigo-300 italic animate-pulse py-2' : ''}`}>{msg.text}</div>
                                         )}
-                                        {/* Add Infographic Button if this is the latest report */}
-                                        {msg.role === 'model' && !msg.type && index === messages.length - 1 && !isLoading && !messages.some(m => m.type === 'system') && (
-                                            <div className="mt-6 pt-4 border-t border-white/10 flex justify-end items-center gap-3">
-                                                <select
-                                                    value={imageStyle}
-                                                    onChange={(e) => setImageStyle(e.target.value)}
-                                                    className="bg-slate-900/50 border border-fuchsia-500/30 rounded-lg px-3 py-2 text-[12px] text-fuchsia-200 focus:outline-none focus:border-fuchsia-400 cursor-pointer"
-                                                >
-                                                    {IMAGE_STYLES.map(style => (
-                                                        <option key={style.id} value={style.id}>{style.label}</option>
-                                                    ))}
-                                                </select>
+                                        {/* Action Buttons for the latest report */}
+                                        {msg.role === 'model' && 
+                                         // Show buttons if this is the last "content" message (ignoring system/image types for the index check, or just taking the last purely text model msg)
+                                         (msg.text && !msg.type && index === messages.findLastIndex(m => m.role === 'model' && !m.type)) && 
+                                         !isLoading && (
+                                            <div className="mt-6 pt-4 border-t border-white/10 flex flex-col sm:flex-row justify-end items-end sm:items-center gap-3">
                                                 <button
-                                                    onClick={() => handleGenerateInfographic(msg.text)}
-                                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white rounded-full text-[12px] font-medium transition shadow-lg shadow-fuchsia-500/20"
+                                                    onClick={() => handleSaveToDocs(msg.text)}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-100 border border-indigo-500/30 rounded-full text-[12px] font-medium transition"
                                                 >
                                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                                                        <path fillRule="evenodd" d="M1.5 6a2.25 2.25 0 012.25-2.25h16.5A2.25 2.25 0 0122.5 6v12a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18V6zM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0021 18v-1.94l-2.69-2.689a1.5 1.5 0 00-2.12 0l-.88.879.97.97a.75.75 0 11-1.06 1.06l-5.16-5.159a1.5 1.5 0 00-2.12 0L3 16.061zm10.125-7.81a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0z" clipRule="evenodd" />
+                                                        <path fillRule="evenodd" d="M5.625 1.5H9a3.75 3.75 0 013.75 3.75v1.875c0 1.036.84 1.875 1.875 1.875H16.5a3.75 3.75 0 013.75 3.75v7.875c0 1.035-.84 1.875-1.875 1.875H5.625a1.875 1.875 0 01-1.875-1.875V3.375c0-1.036.84-1.875 1.875-1.875zM12.75 12a.75.75 0 00-1.5 0v2.25a.75.75 0 001.5 0V12zM7.5 9.75a.75.75 0 000 1.5h9a.75.75 0 000-1.5h-9zM7.5 15.75a.75.75 0 000 1.5h9a.75.75 0 000-1.5h-9z" clipRule="evenodd" />
                                                     </svg>
-                                                    Generate Infographic (Nano Banana 2)
+                                                    Save to Google Docs
                                                 </button>
+                                                
+                                                <div className="flex items-center gap-3">
+                                                    <select
+                                                        value={imageStyle}
+                                                        onChange={(e) => setImageStyle(e.target.value)}
+                                                        className="bg-slate-900/50 border border-fuchsia-500/30 rounded-lg px-3 py-2 text-[12px] text-fuchsia-200 focus:outline-none focus:border-fuchsia-400 cursor-pointer"
+                                                    >
+                                                        {IMAGE_STYLES.map(style => (
+                                                            <option key={style.id} value={style.id}>{style.label}</option>
+                                                        ))}
+                                                    </select>
+                                                    <button
+                                                        onClick={() => handleGenerateInfographic(msg.text)}
+                                                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white rounded-full text-[12px] font-medium transition shadow-lg shadow-fuchsia-500/20"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                                                            <path fillRule="evenodd" d="M1.5 6a2.25 2.25 0 012.25-2.25h16.5A2.25 2.25 0 0122.5 6v12a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18V6zM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0021 18v-1.94l-2.69-2.689a1.5 1.5 0 00-2.12 0l-.88.879.97.97a.75.75 0 11-1.06 1.06l-5.16-5.159a1.5 1.5 0 00-2.12 0L3 16.061zm10.125-7.81a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0z" clipRule="evenodd" />
+                                                        </svg>
+                                                        Generate Infographic (Nano Banana 2)
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -376,29 +609,40 @@ ${reportText.substring(0, 3000)}`;
                 <div className="p-5 pt-0">
                     {/* Options Row */}
                     <div className="flex gap-4 mb-3 px-1 items-center">
-                        <div className="flex items-center gap-2">
-                            <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Save As:</label>
-                            <input
-                                type="text"
-                                value={filename}
-                                onChange={(e) => setFilename(e.target.value)}
-                                placeholder="Auto-generated"
-                                className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400 placeholder-indigo-400/50 w-36"
-                            />
-                            <span className="text-[10px] text-indigo-400/50">.md</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Thinking Mode:</label>
-                            <select
-                                value={thinkingLevel}
-                                onChange={(e) => setThinkingLevel(e.target.value)}
-                                className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400"
-                            >
-                                <option value="LOW">Fast (Low)</option>
-                                <option value="MEDIUM">Standard</option>
-                                <option value="HIGH">Deep (High)</option>
-                            </select>
-                        </div>
+                        {appMode === 'custom-tools' ? (
+                            <>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Save As:</label>
+                                    <input
+                                        type="text"
+                                        value={filename}
+                                        onChange={(e) => setFilename(e.target.value)}
+                                        placeholder="Auto-generated"
+                                        className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400 placeholder-indigo-400/50 w-36"
+                                    />
+                                    <span className="text-[10px] text-indigo-400/50">.md</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Thinking Mode:</label>
+                                    <select
+                                        value={thinkingLevel}
+                                        onChange={(e) => setThinkingLevel(e.target.value)}
+                                        className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400"
+                                    >
+                                        <option value="LOW">Fast (Low)</option>
+                                        <option value="MEDIUM">Standard</option>
+                                        <option value="HIGH">Deep (High)</option>
+                                    </select>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="flex items-center text-xs font-medium text-indigo-200 bg-indigo-500/10 px-3 py-1.5 rounded-full border border-indigo-400/20 shadow-inner">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 mr-1.5">
+                                    <path d="M11.983 7.09a.75.75 0 00-1.292-.656l-4.285 5.464a.75.75 0 00.584 1.216h3.693v3.796a.75.75 0 001.292.656l4.285-5.464a.75.75 0 00-.584-1.216h-3.693V7.09z" />
+                                </svg>
+                                Autonomous Agent Active
+                            </div>
+                        )}
                     </div>
 
                     <div className="relative backdrop-blur-xl bg-slate-900/60 rounded-[24px] border border-white/10 shadow-xl p-2 flex gap-3 transition-all focus-within:bg-slate-900/80 focus-within:border-indigo-400/50">

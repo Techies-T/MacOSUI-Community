@@ -8,7 +8,15 @@ const cookieParser = require('cookie-parser');
 const db = require('./db.cjs');
 const { encrypt, decrypt } = require('./crypto.cjs');
 
-dotenv.config();
+// .env と development.env (Docker等でマウントされる名前) の両方をサポート
+const fs = require('fs');
+const path = require('path');
+if (fs.existsSync(path.resolve(__dirname, 'development.env'))) {
+    console.log("Loading environment variables from development.env");
+    dotenv.config({ path: path.resolve(__dirname, 'development.env') });
+} else {
+    dotenv.config(); // fallback to default .env
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -60,6 +68,7 @@ app.get('/api/config', async (req, res) => {
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
         const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
+        const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -71,7 +80,8 @@ app.get('/api/config', async (req, res) => {
             lastRagSyncTime: lastRagSyncTime || null,
             geminiResearchFolderId: geminiResearchFolderId || '',
             nanoBananaModel,
-            geminiResearchModel
+            geminiResearchModel,
+            nanoBananaPrompt
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -81,7 +91,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt } = req.body;
 
     try {
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
@@ -93,6 +103,7 @@ app.post('/api/config', async (req, res) => {
         if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
         if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
         if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
+        if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
 
         res.json({ success: true });
     } catch (error) {
@@ -110,6 +121,9 @@ app.post('/api/config', async (req, res) => {
 // Google Drive API endpoints are defined later in the file
 const { google } = require('googleapis');
 
+// Import new Deep Research route
+const deepResearchModule = require('./routes/deepResearch.cjs');
+app.use('/api/research', deepResearchModule.router);
 
 // Auth: Exchange code for token
 app.post('/api/auth/google', async (req, res) => {
@@ -977,8 +991,8 @@ app.get('/api/rag/status', (req, res) => {
 // Google Drive: Upload/Update file
 app.post('/api/drive/upload', async (req, res) => {
     try {
-        const { name, content, mimeType, folderId, fileId } = req.body;
-        console.log('Upload Request Body:', JSON.stringify({ name, mimeType, folderId, fileId }, null, 2));
+        const { name, content, mimeType, folderId, fileId, isDoc } = req.body;
+        console.log('Upload Request Body:', JSON.stringify({ name, mimeType, folderId, fileId, isDoc }, null, 2));
 
         if (!content) return res.status(400).json({ error: 'Content is required' });
 
@@ -992,19 +1006,36 @@ app.post('/api/drive/upload', async (req, res) => {
             resolvedFolderId = configuredRoot || null;
         }
 
-        // Create a Readable stream from the content string
+        // Create a Readable stream from the content string or buffer
         const { Readable } = require('stream');
 
         // Helper to create fresh media object with new stream for each attempt
-        const createMedia = () => ({
-            mimeType: mimeType || 'text/plain',
-            body: Readable.from([content])
-        });
+        const createMedia = () => {
+            let bodyStream;
+            
+            // Check if the content is base64 (like from image generation)
+            if (mimeType && mimeType.startsWith('image/') && typeof content === 'string' && !content.startsWith('http')) {
+                // Remove the data:image/png;base64, prefix if present
+                const base64Data = content.replace(/^data:image\/\w+;base64,/, '');
+                const buffer = Buffer.from(base64Data, 'base64');
+                bodyStream = Readable.from(buffer);
+            } else {
+                bodyStream = Readable.from([content]);
+            }
+
+            return {
+                mimeType: mimeType || 'text/plain',
+                body: bodyStream
+            };
+        };
 
         let response;
 
         // Helper to safely create file, falling back to root if folder not found
         const safeCreate = async (metadata) => {
+            if (isDoc) {
+                 metadata.mimeType = 'application/vnd.google-apps.document';
+            }
             try {
                 return await drive.files.create({
                     resource: metadata,
@@ -1040,8 +1071,15 @@ app.post('/api/drive/upload', async (req, res) => {
             try {
                 // Update existing file
                 console.log(`Updating file ${fileId}...`);
+                
+                const updateMetadata = {};
+                if (isDoc) {
+                    updateMetadata.mimeType = 'application/vnd.google-apps.document';
+                }
+                
                 response = await drive.files.update({
                     fileId: fileId,
+                    resource: updateMetadata,
                     media: createMedia(),
                     fields: 'id, name, webViewLink, webContentLink',
                     supportsAllDrives: true
@@ -1513,8 +1551,7 @@ app.delete('/api/memos/:id', authenticateToken, (req, res) => {
 // ==========================================
 // Static File Serving & Runtime Env Injection
 // ==========================================
-const path = require('path');
-const fs = require('fs');
+// path and fs are already required at the top of the file
 
 // Serve static assets from Vite build output
 app.use(express.static(path.join(__dirname, '../dist'), { index: false }));
@@ -1556,7 +1593,39 @@ app.use((req, res, next) => {
     });
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
     console.log("Gemini API endpoint configured with @google/genai");
 });
+
+// Graceful shutdown
+async function gracefulShutdown(signal) {
+    console.log(`\n${signal} signal received. Cancelling background jobs and shutting down...`);
+    try {
+        await deepResearchModule.cancelInProgressJobs();
+    } catch (e) {
+        console.error('Error during graceful shutdown:', e);
+    }
+    server.close(() => {
+        console.log('HTTP server closed');
+        try {
+            // Check if db object has close method 
+            if (db && typeof db.close === 'function') {
+                db.close();
+                console.log('Database connection closed');
+            }
+        } catch(err) {
+            console.error('Error closing DB:', err.message);
+        }
+        process.exit(0);
+    });
+    
+    // Fallback if server doesn't close after 10s
+    setTimeout(() => {
+        console.error('Forcing shutdown after 10s timeout');
+        process.exit(1);
+    }, 10000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

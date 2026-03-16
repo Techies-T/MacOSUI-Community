@@ -21,6 +21,7 @@ function initDb() {
     avatar_url TEXT,
     access_token TEXT,
     refresh_token TEXT,
+    last_deep_research_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -29,6 +30,9 @@ function initDb() {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE users ADD COLUMN refresh_token TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN last_deep_research_at DATETIME", (err) => {
         // Ignore error if column exists
     });
 
