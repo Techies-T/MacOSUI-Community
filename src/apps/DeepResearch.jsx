@@ -28,6 +28,11 @@ const DeepResearch = () => {
     const [showWarning, setShowWarning] = useState(false);
     const [isPromptExpanded, setIsPromptExpanded] = useState(false);
 
+    // Confirmation & History states
+    const [isConfirming, setIsConfirming] = useState(false);
+    const [promptHistory, setPromptHistory] = useState([]);
+    const [showHistory, setShowHistory] = useState(false);
+
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -35,6 +40,12 @@ const DeepResearch = () => {
     };
 
     useEffect(() => {
+        // Load prompt history
+        const savedHistory = localStorage.getItem('deepResearchPromptHistory');
+        if (savedHistory) {
+            try { setPromptHistory(JSON.parse(savedHistory)); } catch (e) {}
+        }
+
         // Fetch config to get the current research model name and prompts
         fetch('/api/config')
             .then(res => res.json())
@@ -53,6 +64,7 @@ const DeepResearch = () => {
 
     const handleInputChange = (e) => {
         setInput(e.target.value);
+        if (isConfirming) setIsConfirming(false);
     };
 
     const handlePromptChange = (e) => {
@@ -64,6 +76,17 @@ const DeepResearch = () => {
 
     const handleSend = async () => {
         if (!input.trim()) return;
+
+        if (!isConfirming) {
+            setIsConfirming(true);
+            return;
+        }
+        setIsConfirming(false);
+
+        // Save to history
+        const newHistory = [input.trim(), ...promptHistory.filter(h => h !== input.trim())].slice(0, 10);
+        setPromptHistory(newHistory);
+        localStorage.setItem('deepResearchPromptHistory', JSON.stringify(newHistory));
 
         const userMessage = { role: 'user', text: input };
         setMessages(prev => [...prev, userMessage]);
@@ -238,14 +261,25 @@ const DeepResearch = () => {
         setMessages(prev => [...prev, { role: 'model', type: 'system', text: '🎨 Nano Banana 2 is designing your infographic. Please wait...' }]);
 
         try {
+            // Extract title to provide context to the Image Generation model
+            const headingMatch = reportText.match(/^#\s+(.+)$/m);
+            let documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${input.substring(0, 30)}${input.length > 30 ? '...' : ''}`;
+            if (documentTitle.length > 80) documentTitle = documentTitle.substring(0, 77) + '...';
+
             const selectedStylePrompt = IMAGE_STYLES.find(s => s.id === imageStyle)?.prompt || IMAGE_STYLES[0].prompt;
-            const fallbackPrompt = `以下のブログ・リサーチ記事内容を完璧に表現した、{{style}}を1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}`;
+            const fallbackPrompt = `以下のブログ・リサーチ記事内容を完璧に表現した、{{style}}を1枚生成してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}`;
             
-            const template = nanoBananaPrompt ? nanoBananaPrompt : fallbackPrompt;
+            let template = nanoBananaPrompt ? nanoBananaPrompt : fallbackPrompt;
+
+            // If the user's custom prompt is missing the {{report}} placeholder, automatically append the context
+            if (!template.includes('{{report}}')) {
+                template += `\n\n=== テーマ: {{title}} ===\n\n{{report}}`;
+            }
             
             const prompt = template
+                .replace(/{{title}}/g, documentTitle)
                 .replace(/{{style}}/g, selectedStylePrompt)
-                .replace(/{{report}}/g, reportText.substring(0, 3000));
+                .replace(/{{report}}/g, reportText.substring(0, 2000)); // Truncate to 2000 chars to avoid model limits
 
 
             const requestBody = {
@@ -608,42 +642,98 @@ const DeepResearch = () => {
                 {/* Input Area */}
                 <div className="p-5 pt-0">
                     {/* Options Row */}
-                    <div className="flex gap-4 mb-3 px-1 items-center">
-                        {appMode === 'custom-tools' ? (
-                            <>
-                                <div className="flex items-center gap-2">
-                                    <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Save As:</label>
-                                    <input
-                                        type="text"
-                                        value={filename}
-                                        onChange={(e) => setFilename(e.target.value)}
-                                        placeholder="Auto-generated"
-                                        className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400 placeholder-indigo-400/50 w-36"
-                                    />
-                                    <span className="text-[10px] text-indigo-400/50">.md</span>
+                    <div className="flex gap-4 mb-3 px-1 items-center justify-between">
+                        <div className="flex gap-4 items-center">
+                            {appMode === 'custom-tools' ? (
+                                <>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Save As:</label>
+                                        <input
+                                            type="text"
+                                            value={filename}
+                                            onChange={(e) => setFilename(e.target.value)}
+                                            placeholder="Auto-generated"
+                                            className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400 placeholder-indigo-400/50 w-36"
+                                        />
+                                        <span className="text-[10px] text-indigo-400/50">.md</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Thinking Mode:</label>
+                                        <select
+                                            value={thinkingLevel}
+                                            onChange={(e) => setThinkingLevel(e.target.value)}
+                                            className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400"
+                                        >
+                                            <option value="LOW">Fast (Low)</option>
+                                            <option value="MEDIUM">Standard</option>
+                                            <option value="HIGH">Deep (High)</option>
+                                        </select>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="flex items-center text-xs font-medium text-indigo-200 bg-indigo-500/10 px-3 py-1.5 rounded-full border border-indigo-400/20 shadow-inner">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 mr-1.5">
+                                        <path d="M11.983 7.09a.75.75 0 00-1.292-.656l-4.285 5.464a.75.75 0 00.584 1.216h3.693v3.796a.75.75 0 001.292.656l4.285-5.464a.75.75 0 00-.584-1.216h-3.693V7.09z" />
+                                    </svg>
+                                    Autonomous Agent Active
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <label className="text-[10px] text-indigo-300 font-medium uppercase tracking-wider">Thinking Mode:</label>
-                                    <select
-                                        value={thinkingLevel}
-                                        onChange={(e) => setThinkingLevel(e.target.value)}
-                                        className="bg-slate-900/50 border border-indigo-500/30 rounded px-2 py-1 text-[11px] text-indigo-200 focus:outline-none focus:border-indigo-400"
-                                    >
-                                        <option value="LOW">Fast (Low)</option>
-                                        <option value="MEDIUM">Standard</option>
-                                        <option value="HIGH">Deep (High)</option>
-                                    </select>
-                                </div>
-                            </>
-                        ) : (
-                            <div className="flex items-center text-xs font-medium text-indigo-200 bg-indigo-500/10 px-3 py-1.5 rounded-full border border-indigo-400/20 shadow-inner">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 mr-1.5">
-                                    <path d="M11.983 7.09a.75.75 0 00-1.292-.656l-4.285 5.464a.75.75 0 00.584 1.216h3.693v3.796a.75.75 0 001.292.656l4.285-5.464a.75.75 0 00-.584-1.216h-3.693V7.09z" />
+                            )}
+                        </div>
+                        
+                        {/* History Dropdown */}
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowHistory(!showHistory)}
+                                className="text-[11px] text-indigo-300 hover:text-white flex items-center gap-1 transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z" clipRule="evenodd" />
                                 </svg>
-                                Autonomous Agent Active
-                            </div>
-                        )}
+                                Prompt History
+                            </button>
+                            {showHistory && promptHistory.length > 0 && (
+                                <div className="absolute bottom-full right-0 mb-2 w-72 bg-slate-800 border border-indigo-500/30 rounded-xl shadow-2xl overflow-hidden z-50">
+                                    <div className="p-2 border-b border-indigo-500/20 text-[10px] text-indigo-200 font-bold uppercase">Recent Prompts</div>
+                                    <div className="max-h-60 overflow-y-auto">
+                                        {promptHistory.map((h, i) => (
+                                            <div 
+                                                key={i}
+                                                onClick={() => {
+                                                    setInput(h);
+                                                    setShowHistory(false);
+                                                    setIsConfirming(false);
+                                                }}
+                                                className="p-3 text-[12px] text-slate-300 hover:bg-indigo-500/20 hover:text-white cursor-pointer border-b border-indigo-500/10 truncate"
+                                                title={h}
+                                            >
+                                                {h}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
+
+                    {isConfirming && (
+                        <div className="animate-fadeIn mb-2 mx-1 px-3 py-2 bg-amber-900/40 border border-amber-500/50 rounded-lg flex items-center justify-between gap-3 text-[12px] text-amber-200 shadow-inner">
+                            <div className="flex items-start gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0 mt-0.5">
+                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                                </svg>
+                                <div>
+                                    <strong className="block mb-0.5 text-amber-500 text-[11px] uppercase tracking-wider">Confirmation Required</strong>
+                                    Deep Research may incur high costs. Click the send button to confirm.
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setIsConfirming(false)}
+                                className="shrink-0 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/50 rounded text-amber-100 font-medium transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    )}
 
                     <div className="relative backdrop-blur-xl bg-slate-900/60 rounded-[24px] border border-white/10 shadow-xl p-2 flex gap-3 transition-all focus-within:bg-slate-900/80 focus-within:border-indigo-400/50">
                         <textarea
@@ -659,11 +749,17 @@ const DeepResearch = () => {
                             <button
                                 onClick={handleSend}
                                 disabled={!input.trim() || isLoading}
-                                className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed flex items-center justify-center transition-all duration-200 shadow-lg active:scale-95"
+                                className={`w-10 h-10 rounded-full ${isConfirming ? 'bg-amber-500 hover:bg-amber-400' : 'bg-indigo-600 hover:bg-indigo-500'} disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed flex items-center justify-center transition-all duration-200 shadow-lg active:scale-95`}
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                                    <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-                                </svg>
+                                {isConfirming ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-amber-900">
+                                        <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                    </svg>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                                        <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+                                    </svg>
+                                )}
                             </button>
                         </div>
                     </div>
