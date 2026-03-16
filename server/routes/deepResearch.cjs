@@ -155,11 +155,20 @@ async function startDeepResearch(jobId, query, apiKey, customInstruction = null)
                 } else {
                      finalReply = JSON.stringify(interaction, null, 2);
                 }
-                
-                researchJobs[jobId].status = 'completed';
-                researchJobs[jobId].result = finalReply;
-                console.log(`Deep Research Job ${jobId} completed successfully.`);
-                break;
+                    if (interaction.usage) {
+                        const u = interaction.usage;
+                        finalReply += `\n\n---\n**Deep Research Usage Summary**\n`;
+                        finalReply += `| Metric | Tokens |\n|---|---|\n`;
+                        if (u.total_tool_use_tokens) finalReply += `| ツール使用・検索 (Tool Use) | ${u.total_tool_use_tokens} |\n`;
+                        if (u.total_thought_tokens) finalReply += `| 自律思考 (Thought) | ${u.total_thought_tokens} |\n`;
+                        if (u.total_output_tokens) finalReply += `| レポート出力 (Output) | ${u.total_output_tokens} |\n`;
+                        if (u.total_tokens) finalReply += `| 総消費トークン (Total) | ${u.total_tokens} |\n`;
+                    }
+                    
+                    researchJobs[jobId].status = 'completed';
+                    researchJobs[jobId].result = finalReply;
+                    console.log(`Deep Research Job ${jobId} completed successfully.`);
+                    break;
             } else if (['failed', 'cancelled'].includes(interaction.status)) {
                 researchJobs[jobId].status = 'failed';
                 researchJobs[jobId].error = `Interaction terminated with status: ${interaction.status}`;
