@@ -9,6 +9,7 @@ import SystemSettings from '../apps/SystemSettings';
 import Browser from '../apps/Browser';
 import HtmlEditor from '../apps/HtmlEditor';
 import DeepResearch from '../apps/DeepResearch';
+import AppRunnerDashboard from '../apps/AppRunnerDashboard';
 
 const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate, user }) => {
     const renderApp = (win) => {
@@ -24,6 +25,7 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'browser': return <Browser {...win.props} />;
             case 'html-editor': return <HtmlEditor onOpen={onOpen} {...win.props} />;
             case 'deep-research': return <DeepResearch />;
+            case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
             default: return null;
         }
     };

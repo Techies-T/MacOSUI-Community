@@ -16,6 +16,8 @@ const SystemSettings = ({ user }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
     const [nanoBananaPrompt, setNanoBananaPrompt] = useState(''); // New state for Nano Banana 2 prompt
+    const [mcpServerEndpoint, setMcpServerEndpoint] = useState('');
+    const [mcpTokenUrl, setMcpTokenUrl] = useState('');
 
     useEffect(() => {
         // Fetch models
@@ -63,6 +65,12 @@ const SystemSettings = ({ user }) => {
                 }
                 if (data.nanoBananaPrompt) {
                     setNanoBananaPrompt(data.nanoBananaPrompt);
+                }
+                if (data.mcpServerEndpoint) {
+                    setMcpServerEndpoint(data.mcpServerEndpoint);
+                }
+                if (data.mcpTokenUrl) {
+                    setMcpTokenUrl(data.mcpTokenUrl);
                 }
             })
             .catch(err => console.error("Failed to fetch config", err));
@@ -226,6 +234,20 @@ const SystemSettings = ({ user }) => {
         }
     };
 
+    const handleSaveMcpConfig = async () => {
+        try {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mcpServerEndpoint, mcpTokenUrl })
+            });
+            alert('MCP Configuration saved!');
+        } catch (err) {
+            console.error("Failed to save MCP config", err);
+            alert('Failed to save.');
+        }
+    };
+
     const sidebarItems = [
         { id: 'General', icon: '⚙️', label: 'General' },
         { id: 'Appearance', icon: '🎨', label: 'Appearance' },
@@ -253,6 +275,15 @@ const SystemSettings = ({ user }) => {
                     <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 100 13.5 6.75 6.75 0 000-13.5zM2.25 10.5a8.25 8.25 0 1114.59 5.28l4.69 4.69a.75.75 0 11-1.06 1.06l-4.69-4.69A8.25 8.25 0 012.25 10.5z" clipRule="evenodd" />
                 </svg>
             ), label: 'Deep Research'
+        },
+        {
+            id: 'Server Monitor', icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-emerald-500">
+                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+                    <path d="M12 12v9"></path>
+                    <path d="m8 17 4 4 4-4"></path>
+                </svg>
+            ), label: 'Server Monitor'
         },
         { id: 'Finder', icon: '📁', label: 'Finder' },
         { id: 'Users', icon: '👥', label: 'Users & Groups' },
@@ -759,6 +790,56 @@ const SystemSettings = ({ user }) => {
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'Server Monitor' && (
+                    <div className="space-y-6">
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                            <h2 className="font-semibold mb-3">Server Monitor Configuration</h2>
+                            <p className="text-xs text-gray-500 mb-4">
+                                Settings for the MCP Client Server Monitor (App Runner Dashboard).
+                            </p>
+                            
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Server Endpoint URL</label>
+                                    <input
+                                        type="text"
+                                        value={mcpServerEndpoint}
+                                        onChange={(e) => setMcpServerEndpoint(e.target.value)}
+                                        placeholder="SSE Endpoint URL (e.g. https://api.example.com/sse)"
+                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
+                                    />
+                                    <p className="text-[10px] text-gray-400 mt-1">
+                                        The SSE endpoint provided by the MCP server.
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">OAuth Token URL</label>
+                                    <input
+                                        type="text"
+                                        value={mcpTokenUrl}
+                                        onChange={(e) => setMcpTokenUrl(e.target.value)}
+                                        placeholder="OAuth Token URL (e.g. https://api.example.com/oauth/token)"
+                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
+                                    />
+                                     <p className="text-[10px] text-gray-400 mt-1">
+                                        Client ID and Secret are configured securely on the backend.
+                                    </p>
+                                </div>
+
+                                <div className="pt-4 border-t border-gray-100 flex justify-end">
+                                    <button
+                                        onClick={handleSaveMcpConfig}
+                                        className="px-4 py-2 bg-emerald-500 text-white rounded text-xs font-medium hover:bg-emerald-600 transition-colors"
+                                    >
+                                        Save Configuration
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

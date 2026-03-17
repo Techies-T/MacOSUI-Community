@@ -69,6 +69,8 @@ app.get('/api/config', async (req, res) => {
         const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
+        const mcpServerEndpoint = await db.getSetting('MCP_SERVER_ENDPOINT') || '';
+        const mcpTokenUrl = await db.getSetting('MCP_TOKEN_URL') || '';
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -81,7 +83,9 @@ app.get('/api/config', async (req, res) => {
             geminiResearchFolderId: geminiResearchFolderId || '',
             nanoBananaModel,
             geminiResearchModel,
-            nanoBananaPrompt
+            nanoBananaPrompt,
+            mcpServerEndpoint,
+            mcpTokenUrl
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -91,7 +95,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt, mcpServerEndpoint, mcpTokenUrl } = req.body;
 
     try {
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
@@ -104,6 +108,8 @@ app.post('/api/config', async (req, res) => {
         if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
         if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
         if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
+        if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
+        if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
 
         res.json({ success: true });
     } catch (error) {
@@ -124,6 +130,25 @@ const { google } = require('googleapis');
 // Import new Deep Research route
 const deepResearchModule = require('./routes/deepResearch.cjs');
 app.use('/api/research', deepResearchModule.router);
+
+// MCP Tool Execution Route
+const { callMcpTool } = require('./mcpClient.cjs');
+
+app.post('/api/mcp/tool', async (req, res) => {
+    const { name, args } = req.body;
+    
+    if (!name) {
+        return res.status(400).json({ error: 'Tool name is required' });
+    }
+
+    try {
+        const result = await callMcpTool(name, args);
+        res.json(result);
+    } catch (error) {
+        console.error(`MCP Proxy Error for tool ${name}:`, error);
+        res.status(500).json({ error: error.message || 'Failed to execute MCP tool' });
+    }
+});
 
 // Auth: Exchange code for token
 app.post('/api/auth/google', async (req, res) => {
