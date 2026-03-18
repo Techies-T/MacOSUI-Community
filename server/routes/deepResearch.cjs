@@ -47,38 +47,30 @@ router.post('/start', async (req, res) => {
 
         // --- Configurable Rate Limit check ---
         const maxPerDayStr = process.env.MAX_DEEP_RESEARCH_PER_DAY;
-        const maxPerDay = maxPerDayStr !== undefined ? parseInt(maxPerDayStr, 10) : 1; // Default: 1 
+        const maxPerDay = maxPerDayStr !== undefined ? parseInt(maxPerDayStr, 10) : 1; // Default: 1
 
         const now = new Date();
-        if (maxPerDay > 0 && user.last_deep_research_at) {
-            const lastDate = new Date(user.last_deep_research_at);
-            const isSameDay = lastDate.getFullYear() === now.getFullYear() &&
-                lastDate.getMonth() === now.getMonth() &&
-                lastDate.getDate() === now.getDate();
-            
-            // Simplified check: since we only store last_deep_research_at, 
-            // if maxPerDay is 1, a single record on the same day blocks it. 
-            // If we want >1 per day, we need to track count, but for now 
-            // any value > 0 means "use rate limit tracker". 
-            // Wait, we only have a timestamp column right now, not a usage count.
-            // If maxPerDay == 0, we disable the limit entirely.
-            // For now, assume if maxPerDay > 0, it behaves as 1 per day because we only store the timestamp.
-            if (isSameDay && maxPerDay === 1) {
-                return res.status(429).json({ error: `Daily limit reached. You can only perform ${maxPerDay} deep research per day.` });
-            } else if (isSameDay && maxPerDay > 1) {
-                console.warn(`Note: MAX_DEEP_RESEARCH_PER_DAY is set to ${maxPerDay}, but tracking >1 requires schema changes. Currently allowing it without strict count.`);
-            }
-        }
+        const today = now.toISOString().slice(0, 10); // YYYY-MM-DD
 
-        // Update last used timestamp
         if (maxPerDay > 0) {
+            const isSameDay = user.deep_research_date === today;
+            const usedToday = isSameDay ? (user.deep_research_count || 0) : 0;
+
+            if (usedToday >= maxPerDay) {
+                return res.status(429).json({ error: `Daily limit reached. You can only perform ${maxPerDay} deep research per day. (Used: ${usedToday})` });
+            }
+
+            // Update count and date
+            const newCount = isSameDay ? usedToday + 1 : 1;
             await new Promise((resolve, reject) => {
-                db.run("UPDATE users SET last_deep_research_at = ? WHERE google_id = ?", [now.toISOString(), googleId], (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
+                db.run(
+                    "UPDATE users SET last_deep_research_at = ?, deep_research_date = ?, deep_research_count = ? WHERE google_id = ?",
+                    [now.toISOString(), today, newCount, googleId],
+                    (err) => { if (err) reject(err); else resolve(); }
+                );
             });
         }
+
 
         const crypto = require('crypto');
         const jobId = crypto.randomUUID();

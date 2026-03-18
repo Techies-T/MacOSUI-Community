@@ -35,6 +35,12 @@ function initDb() {
     db.run("ALTER TABLE users ADD COLUMN last_deep_research_at DATETIME", (err) => {
         // Ignore error if column exists
     });
+    db.run("ALTER TABLE users ADD COLUMN deep_research_date TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN deep_research_count INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
 
     db.run(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,

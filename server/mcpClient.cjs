@@ -88,9 +88,16 @@ async function ensureConnection() {
     if (!mcpClientInstance || !mcpTransport) {
         console.log(`Connecting to MCP Server at ${endpoint}...`);
         
-        mcpTransport = new SSEClientTransport(new URL(endpoint), {
-            headers: {
-                'Authorization': `Bearer ${token}`
+        // SDK internally uses `requestInit.headers` to inject headers into SSE fetch calls.
+        // Also pass the token as ?access_token= as a fallback (some servers may prefer it).
+        const sseUrl = new URL(endpoint);
+        sseUrl.searchParams.set('access_token', token);
+
+        mcpTransport = new SSEClientTransport(sseUrl, {
+            requestInit: {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
             }
         });
 
