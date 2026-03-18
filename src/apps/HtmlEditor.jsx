@@ -82,8 +82,8 @@ const DiffViewer = ({ oldCode, newCode, onApply, onDiscard }) => {
     );
 };
 
-const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, folderId: initialFolderId }) => {
-    const [content, setContent] = useState('<!DOCTYPE html>\n<html>\n<head>\n<title>Page Title</title>\n</head>\n<body>\n\n<h1>This is a Heading</h1>\n<p>This is a paragraph.</p>\n\n</body>\n</html>');
+const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, folderId: initialFolderId, initialContent }) => {
+    const [content, setContent] = useState(initialContent || '<!DOCTYPE html>\n<html>\n<head>\n<title>Page Title</title>\n</head>\n<body>\n\n<h1>This is a Heading</h1>\n<p>This is a paragraph.</p>\n\n</body>\n</html>');
     const [fileName, setFileName] = useState(initialFileName || 'untitled.html');
     const [fileId, setFileId] = useState(initialFileId || null);
     const [loading, setLoading] = useState(false);

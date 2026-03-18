@@ -24,7 +24,7 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'settings': return <SystemSettings user={user} />;
             case 'browser': return <Browser {...win.props} />;
             case 'html-editor': return <HtmlEditor onOpen={onOpen} {...win.props} />;
-            case 'deep-research': return <DeepResearch />;
+            case 'deep-research': return <DeepResearch onOpen={onOpen} />;
             case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
             default: return null;
         }

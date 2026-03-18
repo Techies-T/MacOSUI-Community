@@ -9,7 +9,7 @@ const IMAGE_STYLES = [
     { id: 'watercolor', label: 'Watercolor', prompt: '優しく美しい水彩画風のイラスト' }
 ];
 
-const DeepResearch = () => {
+const DeepResearch = ({ onOpen }) => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [filename, setFilename] = useState('');
@@ -253,6 +253,93 @@ const DeepResearch = () => {
                 const newMsgs = prev.filter(m => m.type !== 'system');
                 return [...newMsgs, { role: 'model', type: 'error', text: `Failed to save to Google Docs: ${error.message}` }];
             });
+        }
+    };
+
+    const handleGenerateHtmlGraph = async (reportText) => {
+        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '📊 Generating HTML & SVG Graph. Please wait...' }]);
+
+        try {
+            const headingMatch = reportText.match(/^#\s+(.+)$/m);
+            let documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${input.substring(0, 30)}${input.length > 30 ? '...' : ''}`;
+            if (documentTitle.length > 80) documentTitle = documentTitle.substring(0, 77) + '...';
+
+            const prompt = `以下のリサーチ記事内容と含まれるJSONデータ（または数値データ）を分析し、**1つの完全なHTMLファイル**を作成してください。
+指示:
+1. HTML内には、データの推移や内訳を視覚的に分かりやすく表現する**美しいSVGグラフ**を必ず含めてください。
+2. SVGグラフだけでなく、元のリサーチテキスト部分（概要や考察）も美しくレイアウトして配置してください。
+3. Tailwind CSSのCDN (<script src="https://cdn.tailwindcss.com"></script>) を利用して、モダンで洗練された（Glassmorphismやダークトーンなどの）美しいデザインにしてください。
+4. HTMLは \`<!DOCTYPE html>\` から始まる形式で、そのままブラウザで表示できる完全なコードを出力してください。
+5. **重要**: 出力はマークダウンのコードブロック（\`\`\`html ... \`\`\`）などを一切付けず、**純粋なHTML文字列のみ**を返してください。不要な前置きや後書きも禁止です。
+
+=== テーマ: ${documentTitle} ===
+
+${reportText.substring(0, 3000)}`;
+
+            const requestBody = {
+                message: prompt,
+                history: [],
+                config: { mode: 'chat', systemInstruction: 'あなたはプロフェッショナルなフロントエンドエンジニアであり、データビジュアライザーです。要求されたHTMLコードのみを正確に出力します。マークダウン修飾は一切使用しないでください。' }
+            };
+
+            const response = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Failed to start HTML graph generation");
+            }
+
+            const jobId = data.jobId;
+            let attempts = 0;
+            const maxAttempts = 120; // 2 minutes
+
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                try {
+                    const jobRes = await fetch(`/api/gemini/job/${jobId}`);
+                    const jobData = await jobRes.json();
+
+                    if (jobData.state === 'completed') {
+                        clearInterval(pollInterval);
+                        
+                        let generatedHtml = jobData.reply;
+                        // Clean up markdown markers if AI ignores instructions
+                        generatedHtml = generatedHtml.replace(/^\s*```html\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+                        setMessages(prev => {
+                            const newMsgs = prev.filter(m => m.type !== 'system');
+                            return [...newMsgs, { role: 'model', type: 'system', text: `✅ HTML & SVG Graph generated successfully! Opening in HTML Editor...` }];
+                        });
+
+                        if (typeof onOpen === 'function') {
+                            const windowId = `html-graph-${Date.now()}`;
+                            onOpen(windowId, 'html-editor', documentTitle || 'Generated Graph', {
+                                initialFileName: documentTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.html',
+                                initialContent: generatedHtml
+                            });
+                        }
+                    } else if (jobData.state === 'error') {
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "HTML Graph Error: " + jobData.error }]);
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(pollInterval);
+                        setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "HTML Graph request timed out." }]);
+                    }
+                } catch (err) {
+                    console.error("Polling Error:", err);
+                    clearInterval(pollInterval);
+                    setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "Network error during polling." }]);
+                }
+            }, 1000);
+
+        } catch (error) {
+            console.error("HTML Graph Error:", error);
+            setMessages(prev => [...prev.filter(m => m.type !== 'system'), { role: 'model', text: "Sorry, I couldn't reach the server." }]);
         }
     };
 
@@ -592,6 +679,15 @@ const DeepResearch = () => {
                                                             <option key={style.id} value={style.id}>{style.label}</option>
                                                         ))}
                                                     </select>
+                                                    <button
+                                                        onClick={() => handleGenerateHtmlGraph(msg.text)}
+                                                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-full text-[12px] font-medium transition shadow-lg shadow-emerald-500/20"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                                                            <path d="M18.375 2.25c-1.035 0-1.875.84-1.875 1.875v15.75c0 1.035.84 1.875 1.875 1.875h.375c1.036 0 1.875-.84 1.875-1.875V4.125c0-1.036-.84-1.875-1.875-1.875h-.375zM9.75 8.625c0-1.036.84-1.875 1.875-1.875h.375c1.036 0 1.875.84 1.875 1.875v11.25c0 1.035-.84 1.875-1.875 1.875h-.375a1.875 1.875 0 01-1.875-1.875V8.625zM3 13.125c0-1.036.84-1.875 1.875-1.875h.375c1.036 0 1.875.84 1.875 1.875v6.75c0 1.035-.84 1.875-1.875 1.875h-.375A1.875 1.875 0 013 19.875v-6.75z" />
+                                                        </svg>
+                                                        HTML & SVG Graph
+                                                    </button>
                                                     <button
                                                         onClick={() => handleGenerateInfographic(msg.text)}
                                                         className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white rounded-full text-[12px] font-medium transition shadow-lg shadow-fuchsia-500/20"
