@@ -71,6 +71,9 @@ app.get('/api/config', async (req, res) => {
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
         const mcpServerEndpoint = await db.getSetting('MCP_SERVER_ENDPOINT') || '';
         const mcpTokenUrl = await db.getSetting('MCP_TOKEN_URL') || '';
+        const mcpClientId = await db.getSetting('MCP_CLIENT_ID') || '';
+        const mcpClientSecret = await db.getSetting('MCP_CLIENT_SECRET');
+        const isMcpSecretConfigured = !!mcpClientSecret;
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -85,7 +88,9 @@ app.get('/api/config', async (req, res) => {
             geminiResearchModel,
             nanoBananaPrompt,
             mcpServerEndpoint,
-            mcpTokenUrl
+            mcpTokenUrl,
+            mcpClientId,
+            isMcpSecretConfigured
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -95,7 +100,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt, mcpServerEndpoint, mcpTokenUrl } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret } = req.body;
 
     try {
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
@@ -110,6 +115,8 @@ app.post('/api/config', async (req, res) => {
         if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
         if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
         if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
+        if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
+        if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
 
         res.json({ success: true });
     } catch (error) {

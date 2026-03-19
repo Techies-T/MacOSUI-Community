@@ -19,11 +19,11 @@ async function getOAuthToken() {
         throw new Error("MCP_TOKEN_URL is not configured.");
     }
     
-    const clientId = 'employee-agent'; // Requirement specific
-    const clientSecret = process.env.JWT_SECRET;
+    const clientId = await db.getSetting('MCP_CLIENT_ID');
+    const clientSecret = await db.getSetting('MCP_CLIENT_SECRET');
 
-    if (!clientSecret) {
-        throw new Error("JWT_SECRET environment variable is missing (used for MCP OAuth client secret).");
+    if (!clientId || !clientSecret) {
+        throw new Error("MCP Client credentials are missing. Please configure them in System Settings.");
     }
 
     try {

@@ -29,10 +29,16 @@ const AppRunnerDashboard = ({ windowId }) => {
         
         // Handle MCP Text Content format
         let servicesData = [];
-        if (data.content && data.content[0] && data.content[0].text) {
-             servicesData = JSON.parse(data.content[0].text);
+        if (data.isError) {
+            throw new Error(data.content?.[0]?.text || 'MCP Server Error');
+        } else if (data.content && data.content[0] && data.content[0].text) {
+            try {
+                servicesData = JSON.parse(data.content[0].text);
+            } catch (e) {
+                throw new Error("Invalid format from MCP Server: " + data.content[0].text.substring(0, 100));
+            }
         } else {
-             servicesData = data;
+            servicesData = data;
         }
 
         setServices(servicesData);
@@ -56,36 +62,63 @@ const AppRunnerDashboard = ({ windowId }) => {
 
     const fetchMetrics = async () => {
       try {
-        const res = await fetch('/api/mcp/tool', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-              name: 'get_apprunner_metrics',
-              args: { serviceArn: selectedServiceArn }
-          })
-        });
+        const arnParts = selectedServiceArn.split('/');
+        // Extract from "arn:aws:apprunner:region:account:service/serviceName/serviceId"
+        const serviceName = arnParts[arnParts.length - 2] || arnParts[0];
+        const serviceId = arnParts[arnParts.length - 1] || '';
+
+        const metricNames = ["CPUUtilization", "MemoryUtilization", "Requests", "5xxStatusResponses"];
         
-        if (!res.ok) {
-           throw new Error(`Failed to fetch metrics: ${res.status}`);
-        }
+        const fetchSingleMetric = async (metricName) => {
+          const res = await fetch('/api/mcp/tool', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                name: 'get_apprunner_metrics',
+                args: { serviceName, serviceId, metricName, minutesAgo: 30 }
+            })
+          });
+          
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          
+          const data = await res.json();
+          if (data.isError) throw new Error(data.content?.[0]?.text || 'MCP Server Error');
+          
+          let parsed = null;
+          if (data.content && data.content[0] && data.content[0].text) {
+              try { parsed = JSON.parse(data.content[0].text); } catch (e) {}
+          } else {
+              parsed = data;
+          }
+
+          if (parsed && parsed.Datapoints && Array.isArray(parsed.Datapoints)) {
+              if (parsed.Datapoints.length === 0) return 0;
+              const sorted = parsed.Datapoints.sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
+              const last = sorted[sorted.length - 1];
+              return last.Average ?? last.Sum ?? last.Maximum ?? 0;
+          }
+          return 0;
+        };
+
+        const results = await Promise.allSettled(metricNames.map(fetchSingleMetric));
         
-        const data = await res.json();
-        
-         // Handle MCP Text Content format
-        let metricsData = null;
-        if (data.content && data.content[0] && data.content[0].text) {
-             metricsData = JSON.parse(data.content[0].text);
-        } else {
-             metricsData = data;
+        const newMetrics = {
+            cpuUtilization: results[0].status === 'fulfilled' ? results[0].value : null,
+            memoryUtilization: results[1].status === 'fulfilled' ? results[1].value : null,
+            requests: results[2].status === 'fulfilled' ? results[2].value : null,
+            errors5xx: results[3].status === 'fulfilled' ? results[3].value : null,
+        };
+
+        // If all requests failed, surface the first error
+        if (results.every(r => r.status === 'rejected')) {
+             throw new Error(results[0].reason?.message || "All metric requests failed");
         }
 
-        setMetrics(metricsData);
+        setMetrics(newMetrics);
         setLastUpdated(new Date());
         setError(''); // clear error if successful
       } catch (err) {
         console.error("Error fetching metrics:", err);
-        // We don't necessarily want to blow away the UI on a single failed poll, 
-        // but we should show a warning indicator.
         setError(err.message);
       }
     };

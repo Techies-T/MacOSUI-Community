@@ -18,6 +18,9 @@ const SystemSettings = ({ user }) => {
     const [nanoBananaPrompt, setNanoBananaPrompt] = useState(''); // New state for Nano Banana 2 prompt
     const [mcpServerEndpoint, setMcpServerEndpoint] = useState('');
     const [mcpTokenUrl, setMcpTokenUrl] = useState('');
+    const [mcpClientId, setMcpClientId] = useState('');
+    const [mcpClientSecret, setMcpClientSecret] = useState('');
+    const [isMcpSecretConfigured, setIsMcpSecretConfigured] = useState(false);
 
     useEffect(() => {
         // Fetch models
@@ -71,6 +74,12 @@ const SystemSettings = ({ user }) => {
                 }
                 if (data.mcpTokenUrl) {
                     setMcpTokenUrl(data.mcpTokenUrl);
+                }
+                if (data.mcpClientId) {
+                    setMcpClientId(data.mcpClientId);
+                }
+                if (data.isMcpSecretConfigured !== undefined) {
+                    setIsMcpSecretConfigured(data.isMcpSecretConfigured);
                 }
             })
             .catch(err => console.error("Failed to fetch config", err));
@@ -236,12 +245,18 @@ const SystemSettings = ({ user }) => {
 
     const handleSaveMcpConfig = async () => {
         try {
+            const payload = { mcpServerEndpoint, mcpTokenUrl, mcpClientId };
+            if (mcpClientSecret) {
+                payload.mcpClientSecret = mcpClientSecret;
+            }
             await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mcpServerEndpoint, mcpTokenUrl })
+                body: JSON.stringify(payload)
             });
             alert('MCP Configuration saved!');
+            setMcpClientSecret(''); // Clear the field after secure save
+            setIsMcpSecretConfigured(true);
         } catch (err) {
             console.error("Failed to save MCP config", err);
             alert('Failed to save.');
@@ -826,8 +841,30 @@ const SystemSettings = ({ user }) => {
                                         placeholder="OAuth Token URL (e.g. https://api.example.com/oauth/token)"
                                         className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
                                     />
-                                     <p className="text-[10px] text-gray-400 mt-1">
-                                        Client ID and Secret are configured securely on the backend.
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client ID</label>
+                                    <input
+                                        type="text"
+                                        value={mcpClientId}
+                                        onChange={(e) => setMcpClientId(e.target.value)}
+                                        placeholder="OAuth Client ID"
+                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client Secret</label>
+                                    <input
+                                        type="password"
+                                        value={mcpClientSecret}
+                                        onChange={(e) => setMcpClientSecret(e.target.value)}
+                                        placeholder={isMcpSecretConfigured ? "******** (Configured)" : "OAuth Client Secret"}
+                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
+                                    />
+                                    <p className="text-[10px] text-gray-400 mt-1">
+                                        Enter a new secret to update. Leave empty to keep existing.
                                     </p>
                                 </div>
 
