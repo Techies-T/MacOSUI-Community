@@ -185,36 +185,73 @@ app.post('/api/auth/google', async (req, res) => {
         const accessToken = encrypt(tokens.access_token);
         const refreshToken = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
 
-        // Upsert user
-        console.log(`Login: Upserting user ${googleId}. Has Refresh Token: ${!!refreshToken}`);
+        // 1. Check if user already exists
+        db.get("SELECT * FROM users WHERE google_id = ? OR email = ?", [googleId, email], (err, existingUser) => {
+            if (err) return res.status(500).json({ error: 'Database error' });
 
-        db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token) 
-            VALUES (?, ?, ?, ?, ?, ?) 
-            ON CONFLICT(google_id) DO UPDATE SET 
-            email=excluded.email, name=excluded.name, avatar_url=excluded.avatar_url, access_token=excluded.access_token` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
-            [googleId, email, name, avatarUrl, accessToken, refreshToken || null],
-            function (err) {
-                if (err) {
-                    console.error("DB Upsert Error:", err);
-                    return res.status(500).json({ error: 'Database error' });
-                }
+            const proceedWithLogin = (role) => {
+                db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?) 
+                    ON CONFLICT(google_id) DO UPDATE SET 
+                    email=excluded.email, name=excluded.name, avatar_url=excluded.avatar_url, access_token=excluded.access_token` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
+                    [googleId, email, name, avatarUrl, accessToken, refreshToken || null, role],
+                    function (err) {
+                        if (err) {
+                            console.error("DB Upsert Error:", err);
+                            return res.status(500).json({ error: 'Database error' });
+                        }
+                        
+                        // ID could be from existing user or newly generated
+                        const userId = existingUser ? existingUser.id : this.lastID;
 
-                // Create Session JWT
-                const token = jwt.sign(
-                    { id: this.lastID || 0, googleId, email, name, avatarUrl }, // simplified
-                    process.env.JWT_SECRET || 'secret',
-                    { expiresIn: '7d' }
+                        // Delete from invitations if they just joined via an invite
+                        db.run("DELETE FROM invitations WHERE email = ?", [email]);
+
+                        // Create Session JWT
+                        const token = jwt.sign(
+                            { id: userId, googleId, email, name, avatarUrl, role },
+                            process.env.JWT_SECRET || 'secret',
+                            { expiresIn: '7d' }
+                        );
+
+                        res.cookie('token', token, {
+                            httpOnly: true,
+                            secure: process.env.NODE_ENV === 'production',
+                            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+                        });
+
+                        res.json({ user: { id: userId, googleId, email, name, avatarUrl, role } });
+                    }
                 );
+            };
 
-                res.cookie('token', token, {
-                    httpOnly: true,
-                    secure: process.env.NODE_ENV === 'production',
-                    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            if (existingUser) {
+                // User already exists, proceed. Maintain role.
+                proceedWithLogin(existingUser.role || 'user');
+            } else {
+                // Check if this is the very first user
+                db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
+                    if (err) return res.status(500).json({ error: 'Database error' });
+                    
+                    if (result.count === 0) {
+                        // First user gets admin privileges
+                        proceedWithLogin('admin');
+                    } else {
+                        // Not the first user. Check if they are invited.
+                        db.get("SELECT email FROM invitations WHERE email = ?", [email], (err, invite) => {
+                            if (err) return res.status(500).json({ error: 'Database error' });
+                            
+                            if (invite) {
+                                proceedWithLogin('user');
+                            } else {
+                                console.log(`Login Rejected: ${email} is not invited.`);
+                                res.status(403).json({ error: 'You are not invited to use this system.' });
+                            }
+                        });
+                    }
                 });
-
-                res.json({ user: { googleId, email, name, avatarUrl } });
             }
-        );
+        });
     } catch (error) {
         console.error('Auth Error:', error);
         res.status(500).json({ error: 'Authentication failed' });
@@ -236,6 +273,66 @@ app.get('/api/auth/me', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('token');
     res.json({ message: 'Logged out' });
+});
+
+// Middleware to check admin role
+const requireAdmin = (req, res, next) => {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+        if (err || decoded.role !== 'admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+        req.user = decoded;
+        next();
+    });
+};
+
+// --- Users & Invitations API ---
+app.get('/api/users', requireAdmin, (req, res) => {
+    db.all("SELECT id, email, name, avatar_url, role, created_at FROM users", (err, rows) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json(rows);
+    });
+});
+
+app.get('/api/invitations', requireAdmin, (req, res) => {
+    db.all("SELECT email, invited_by, created_at FROM invitations", (err, rows) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json(rows);
+    });
+});
+
+app.post('/api/invitations', requireAdmin, (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    
+    // Check if already user or invited
+    db.get("SELECT email FROM users WHERE email = ?", [email], (err, user) => {
+        if (user) return res.status(400).json({ error: 'User already exists' });
+        
+        db.run("INSERT INTO invitations (email, invited_by) VALUES (?, ?)", [email, req.user.id], function(err) {
+            if (err) return res.status(500).json({ error: 'Email already invited or DB error' });
+            res.json({ success: true, email });
+        });
+    });
+});
+
+app.delete('/api/invitations/:email', requireAdmin, (req, res) => {
+    db.run("DELETE FROM invitations WHERE email = ?", [req.params.email], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json({ success: true });
+    });
+});
+
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
+    if (parseInt(req.params.id) === req.user.id) {
+        return res.status(400).json({ error: 'Cannot delete yourself' });
+    }
+    db.run("DELETE FROM users WHERE id = ?", [req.params.id], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json({ success: true });
+    });
 });
 
 

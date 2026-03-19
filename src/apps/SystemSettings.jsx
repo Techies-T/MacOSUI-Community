@@ -21,6 +21,11 @@ const SystemSettings = ({ user }) => {
     const [mcpClientId, setMcpClientId] = useState('');
     const [mcpClientSecret, setMcpClientSecret] = useState('');
     const [isMcpSecretConfigured, setIsMcpSecretConfigured] = useState(false);
+    
+    // User Invitation State
+    const [usersList, setUsersList] = useState([]);
+    const [invitations, setInvitations] = useState([]);
+    const [inviteEmail, setInviteEmail] = useState('');
 
     useEffect(() => {
         // Fetch models
@@ -84,6 +89,71 @@ const SystemSettings = ({ user }) => {
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
+
+    // Fetch users and invitations when Users tab is active
+    useEffect(() => {
+        if (activeTab === 'Users' && user?.role === 'admin') {
+            fetchUsersList();
+            fetchInvitations();
+        }
+    }, [activeTab, user?.role]);
+
+    const fetchUsersList = async () => {
+        try {
+            const res = await fetch('/api/users');
+            if (res.ok) setUsersList(await res.json());
+        } catch (e) { console.error(e); }
+    };
+
+    const fetchInvitations = async () => {
+        try {
+            const res = await fetch('/api/invitations');
+            if (res.ok) setInvitations(await res.json());
+        } catch (e) { console.error(e); }
+    };
+
+    const handleInviteUser = async () => {
+        if (!inviteEmail) return;
+        try {
+            const res = await fetch('/api/invitations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: inviteEmail })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setInviteEmail('');
+                fetchInvitations();
+                alert('User invited successfully!');
+            } else {
+                alert(data.error || 'Failed to invite user');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to invite user');
+        }
+    };
+
+    const handleCancelInvite = async (email) => {
+        if (!confirm(`Cancel invitation for ${email}?`)) return;
+        try {
+            const res = await fetch(`/api/invitations/${encodeURIComponent(email)}`, { method: 'DELETE' });
+            if (res.ok) fetchInvitations();
+        } catch (e) { console.error(e); }
+    };
+
+    const handleRemoveUser = async (id, email) => {
+        if (!confirm(`Are you sure you want to remove user ${email}?`)) return;
+        try {
+            const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                fetchUsersList();
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to remove user');
+            }
+        } catch (e) { console.error(e); }
+    };
 
     const handleModelChange = async (modelName) => {
         setCurrentModel(modelName);
@@ -349,15 +419,100 @@ const SystemSettings = ({ user }) => {
                 <h1 className="text-2xl font-bold mb-6">{activeTab}</h1>
 
                 {activeTab === 'Users' && (
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-                        <div className="w-16 h-16 bg-gray-200 rounded-full overflow-hidden">
-                            <img src={user?.avatarUrl || "https://github.com/shadcn.png"} alt="User" className="w-full h-full object-cover" />
+                    <div className="space-y-6">
+                        {/* Current User Card */}
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
+                            <div className="w-16 h-16 bg-gray-200 rounded-full overflow-hidden">
+                                <img src={user?.avatarUrl || "https://github.com/shadcn.png"} alt="User" className="w-full h-full object-cover" />
+                            </div>
+                            <div>
+                                <div className="font-semibold text-lg">{user?.name || 'User'}</div>
+                                <div className="text-gray-500">{user?.email || 'user@example.com'}</div>
+                                <div className="mt-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded inline-block font-medium">
+                                    {user?.role === 'admin' ? 'Admin' : 'User'}
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <div className="font-semibold text-lg">{user?.name || 'User'}</div>
-                            <div className="text-gray-500">{user?.email || 'user@example.com'}</div>
-                            <div className="mt-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded inline-block">Admin</div>
-                        </div>
+
+                        {/* Admin Only Sections */}
+                        {user?.role === 'admin' && (
+                            <>
+                                {/* Invite User */}
+                                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                                    <h2 className="font-semibold mb-3">Invite User (ドメイン外ユーザーも可能)</h2>
+                                    <p className="text-xs text-gray-500 mb-4">
+                                        新しいユーザーを招待します。ここに登録されたメールアドレスの持ち主だけがログイン可能になります（ホワイトリスト方式）。
+                                    </p>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="email"
+                                            value={inviteEmail}
+                                            onChange={(e) => setInviteEmail(e.target.value)}
+                                            placeholder="Enter email address"
+                                            className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm text-gray-900 focus:outline-none focus:border-blue-500"
+                                        />
+                                        <button
+                                            onClick={handleInviteUser}
+                                            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm font-medium transition-colors"
+                                        >
+                                            Send Invite
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Pending Invitations */}
+                                {invitations.length > 0 && (
+                                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                                        <h2 className="font-semibold mb-3">Pending Invitations</h2>
+                                        <div className="space-y-2">
+                                            {invitations.map(inv => (
+                                                <div key={inv.email} className="flex items-center justify-between p-2 border border-orange-200 bg-orange-50/50 rounded">
+                                                    <div>
+                                                        <div className="text-sm font-medium text-gray-800">{inv.email}</div>
+                                                        <div className="text-[10px] text-gray-500">Invited: {new Date(inv.created_at).toLocaleDateString()}</div>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleCancelInvite(inv.email)}
+                                                        className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded border border-red-200 transition-colors"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Registered Users List */}
+                                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                                    <h2 className="font-semibold mb-3">Registered Users ({usersList.length})</h2>
+                                    <div className="space-y-3">
+                                        {usersList.map(u => (
+                                            <div key={u.id} className="flex items-center gap-3 p-2 border-b border-gray-100 last:border-0">
+                                                <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden flex-shrink-0">
+                                                    <img src={u.avatar_url || "https://github.com/shadcn.png"} alt={u.name} className="w-full h-full object-cover" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-sm font-medium text-gray-800 flex items-center gap-2">
+                                                        {u.name}
+                                                        {u.role === 'admin' && <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Admin</span>}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 truncate">{u.email}</div>
+                                                </div>
+                                                {u.id !== user?.id && (
+                                                    <button 
+                                                        onClick={() => handleRemoveUser(u.id, u.email)}
+                                                        className="text-xs text-red-500 hover:underline flex-shrink-0"
+                                                    >
+                                                        Remove User
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 

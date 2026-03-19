@@ -41,6 +41,15 @@ function initDb() {
     db.run("ALTER TABLE users ADD COLUMN deep_research_count INTEGER DEFAULT 0", (err) => {
         // Ignore error if column exists
     });
+    db.run("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'", (err) => {
+        // Ignore error if column exists
+    });
+
+    db.run(`CREATE TABLE IF NOT EXISTS invitations (
+        email TEXT PRIMARY KEY,
+        invited_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
