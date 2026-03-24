@@ -9,11 +9,7 @@ if (fs.existsSync(devEnvPath)) {
     dotenv.config({ path: devEnvPath });
 }
 
-// Ensure an encryption key is available
-const ENCRYPTION_KEY = process.env.DB_ENCRYPTION_KEY;
-if (!ENCRYPTION_KEY) {
-    console.warn("WARNING: DB_ENCRYPTION_KEY is not set. Database secrets will NOT be encrypted properly.");
-}
+// The key will be read dynamically from process.env.DB_ENCRYPTION_KEY
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -24,10 +20,11 @@ const ALGORITHM = 'aes-256-gcm';
  */
 function encrypt(text) {
     if (!text) return text;
-    if (!ENCRYPTION_KEY) return text; // Fallback if no key is provided (unsecure, but prevents crashing)
+    const currentKey = process.env.DB_ENCRYPTION_KEY;
+    if (!currentKey) return text; // Fallback if no key is provided (unsecure, but prevents crashing)
 
     try {
-        const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+        const keyBuffer = Buffer.from(currentKey, 'hex');
         if (keyBuffer.length !== 32) {
             throw new Error('Invalid encryption key length. Key must be 32 bytes (64 hex characters).');
         }
@@ -53,7 +50,8 @@ function encrypt(text) {
  */
 function decrypt(hash) {
     if (!hash) return hash;
-    if (!ENCRYPTION_KEY) return hash;
+    const currentKey = process.env.DB_ENCRYPTION_KEY;
+    if (!currentKey) return hash;
 
     // Check if it's actually encrypted (contains the expected separators)
     const parts = hash.split(':');
@@ -62,7 +60,7 @@ function decrypt(hash) {
     }
 
     try {
-        const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+        const keyBuffer = Buffer.from(currentKey, 'hex');
         if (keyBuffer.length !== 32) {
             throw new Error('Invalid encryption key length. Key must be 32 bytes (64 hex characters).');
         }

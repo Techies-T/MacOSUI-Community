@@ -94,6 +94,11 @@ function initDb() {
 
 const { encrypt, decrypt } = require('./crypto.cjs');
 
+// Helper to check if a setting key is sensitive
+const isSensitiveKey = (key) => {
+    return key.includes('SECRET') || key.includes('KEY') || key.includes('TOKEN');
+};
+
 // Helper to get a setting
 db.getSetting = (key) => {
     return new Promise((resolve, reject) => {
@@ -102,8 +107,13 @@ db.getSetting = (key) => {
             if (!row) return resolve(null);
 
             // Decrypt sensible fields
-            if (key === 'GOOGLE_CLIENT_SECRET' || key === 'GEMINI_API_KEY') {
-                resolve(decrypt(row.value));
+            if (isSensitiveKey(key) && row.value) {
+                try {
+                    resolve(decrypt(row.value));
+                } catch (e) {
+                    console.error(`Failed to decrypt ${key}, returning raw value`);
+                    resolve(row.value);
+                }
             } else {
                 resolve(row.value);
             }
@@ -116,7 +126,7 @@ db.setSetting = (key, value) => {
     return new Promise((resolve, reject) => {
         // Encrypt sensible fields
         let finalValue = value;
-        if (key === 'GOOGLE_CLIENT_SECRET' || key === 'GEMINI_API_KEY') {
+        if (value && isSensitiveKey(key)) {
             finalValue = encrypt(value);
         }
 

@@ -21,6 +21,8 @@ const DeepResearch = ({ onOpen }) => {
     const [appMode, setAppMode] = useState('deep-research');
     const [config, setConfig] = useState(null);
     const [nanoBananaPrompt, setNanoBananaPrompt] = useState(''); // Custom Nano Banana 2 prompt
+    const [htmlSvgPrompt, setHtmlSvgPrompt] = useState('');
+    const [researchFolderId, setResearchFolderId] = useState('');
     
     // Master Prompt & Warning states
     const defaultMasterPrompt = "検索クエリは合計で最大10回までとする。\n報告書は簡潔にまとめ、出力は3000トークン未満に抑えること。\n不要に深く探索しすぎず、規定回数に達したらそこまでの情報で回答を生成すること。";
@@ -53,6 +55,15 @@ const DeepResearch = ({ onOpen }) => {
                 setConfig(data);
                 if (data.nanoBananaPrompt) {
                     setNanoBananaPrompt(data.nanoBananaPrompt);
+                }
+                if (data.deepResearchPrompt) {
+                    setMasterPrompt(data.deepResearchPrompt);
+                }
+                if (data.htmlSvgPrompt) {
+                    setHtmlSvgPrompt(data.htmlSvgPrompt);
+                }
+                if (data.geminiResearchFolderId) {
+                    setResearchFolderId(data.geminiResearchFolderId);
                 }
             })
             .catch(err => console.error("Failed to fetch config", err));
@@ -223,7 +234,8 @@ const DeepResearch = ({ onOpen }) => {
             const requestBody = {
                 name: documentTitle,
                 content: reportText,
-                isDoc: true
+                isDoc: true,
+                folderId: researchFolderId || null
             };
             
             const response = await fetch('/api/drive/upload', {
@@ -264,7 +276,7 @@ const DeepResearch = ({ onOpen }) => {
             let documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${input.substring(0, 30)}${input.length > 30 ? '...' : ''}`;
             if (documentTitle.length > 80) documentTitle = documentTitle.substring(0, 77) + '...';
 
-            const prompt = `以下のリサーチ記事内容と含まれるJSONデータ（または数値データ）を分析し、**1つの完全なHTMLファイル**を作成してください。
+            const defaultHtmlPrompt = `以下のリサーチ記事内容と含まれるJSONデータ（または数値データ）を分析し、**1つの完全なHTMLファイル**を作成してください。
 指示:
 1. HTML内には、データの推移や内訳を視覚的に分かりやすく表現する**美しいSVGグラフ**を必ず含めてください。
 2. SVGグラフだけでなく、元のリサーチテキスト部分（概要や考察）も美しくレイアウトして配置してください。
@@ -272,9 +284,16 @@ const DeepResearch = ({ onOpen }) => {
 4. HTMLは \`<!DOCTYPE html>\` から始まる形式で、そのままブラウザで表示できる完全なコードを出力してください。
 5. **重要**: 出力はマークダウンのコードブロック（\`\`\`html ... \`\`\`）などを一切付けず、**純粋なHTML文字列のみ**を返してください。不要な前置きや後書きも禁止です。
 
-=== テーマ: ${documentTitle} ===
+=== テーマ: {{title}} ===
 
-${reportText.substring(0, 3000)}`;
+{{report}}`;
+
+            let template = htmlSvgPrompt ? htmlSvgPrompt : defaultHtmlPrompt;
+            if (!template.includes('{{report}}')) template += `\n\n=== テーマ: {{title}} ===\n\n{{report}}`;
+
+            const prompt = template
+                .replace(/{{title}}/g, documentTitle)
+                .replace(/{{report}}/g, reportText.substring(0, 3000));
 
             const requestBody = {
                 message: prompt,
@@ -419,9 +438,10 @@ ${reportText.substring(0, 3000)}`;
                                     
                                     const requestBody = {
                                         name: driveName,
-                                        content: parsed.data, // Base64 data expected by backend for images if we tweak it, but upload endpoint supports text... Wait, the upload endpoint needs to handle base64. Let's send the base64 string.
+                                        content: parsed.data, // Base64 data expected by backend for images
                                         mimeType: parsed.mimeType,
-                                        isDoc: false
+                                        isDoc: false,
+                                        folderId: researchFolderId || null
                                     };
                                     
                                     // We'll update the upload logic later if needed, but for now we try to push it
@@ -544,7 +564,7 @@ ${reportText.substring(0, 3000)}`;
                                 System / Master Prompt
                                 <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-mono">Steerability</span>
                             </label>
-                            <button onClick={() => setMasterPrompt(defaultMasterPrompt)} className="text-[10px] text-indigo-400 hover:text-indigo-200 underline">
+                            <button onClick={() => setMasterPrompt(config?.deepResearchPrompt || defaultMasterPrompt)} className="text-[10px] text-indigo-400 hover:text-indigo-200 underline">
                                 Reset to Default
                             </button>
                         </div>

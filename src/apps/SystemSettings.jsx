@@ -8,6 +8,8 @@ const SystemSettings = ({ user }) => {
     const [currentResearchModel, setCurrentResearchModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolderId, setRagFolderId] = useState('');
+    const [ragFolderName, setRagFolderName] = useState('');
+    const [isFetchingRagName, setIsFetchingRagName] = useState(false);
     const [researchFolderId, setResearchFolderId] = useState(''); // New state
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [googleClientId, setGoogleClientId] = useState('');
@@ -16,6 +18,8 @@ const SystemSettings = ({ user }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
     const [nanoBananaPrompt, setNanoBananaPrompt] = useState(''); // New state for Nano Banana 2 prompt
+    const [deepResearchPrompt, setDeepResearchPrompt] = useState('');
+    const [htmlSvgPrompt, setHtmlSvgPrompt] = useState('');
     const [mcpServerEndpoint, setMcpServerEndpoint] = useState('');
     const [mcpTokenUrl, setMcpTokenUrl] = useState('');
     const [mcpClientId, setMcpClientId] = useState('');
@@ -26,6 +30,9 @@ const SystemSettings = ({ user }) => {
     const [usersList, setUsersList] = useState([]);
     const [invitations, setInvitations] = useState([]);
     const [inviteEmail, setInviteEmail] = useState('');
+
+    // Deep Research Internal Tabs
+    const [activeDrTab, setActiveDrTab] = useState('folders');
 
     useEffect(() => {
         // Fetch models
@@ -74,6 +81,12 @@ const SystemSettings = ({ user }) => {
                 if (data.nanoBananaPrompt) {
                     setNanoBananaPrompt(data.nanoBananaPrompt);
                 }
+                if (data.deepResearchPrompt) {
+                    setDeepResearchPrompt(data.deepResearchPrompt);
+                }
+                if (data.htmlSvgPrompt) {
+                    setHtmlSvgPrompt(data.htmlSvgPrompt);
+                }
                 if (data.mcpServerEndpoint) {
                     setMcpServerEndpoint(data.mcpServerEndpoint);
                 }
@@ -89,6 +102,23 @@ const SystemSettings = ({ user }) => {
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
+
+    // Fetch Folder Name dynamically when RAG Folder ID changes
+    useEffect(() => {
+        if (!ragFolderId) {
+            setRagFolderName('');
+            return;
+        }
+        setIsFetchingRagName(true);
+        fetch(`/api/drive/folder_info?folderId=${ragFolderId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.name) setRagFolderName(data.name);
+                else setRagFolderName('Unknown or Inaccessible Folder');
+            })
+            .catch(() => setRagFolderName('Error fetching folder info'))
+            .finally(() => setIsFetchingRagName(false));
+    }, [ragFolderId]);
 
     // Fetch users and invitations when Users tab is active
     useEffect(() => {
@@ -301,16 +331,35 @@ const SystemSettings = ({ user }) => {
 
     const handleSaveNanoBananaPrompt = async () => {
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nanoBananaPrompt })
             });
-            alert('Nano Banana Prompt saved!');
-        } catch (err) {
-            console.error("Failed to save Nano Banana Prompt", err);
-            alert('Failed to save.');
-        }
+            if (res.ok) alert('Nano Banana 2 Prompt saved!');
+        } catch (err) { console.error('Failed to save prompt', err); }
+    };
+
+    const handleSaveDeepResearchPrompt = async () => {
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deepResearchPrompt })
+            });
+            if (res.ok) alert('Deep Research System Prompt saved!');
+        } catch (err) { console.error('Failed to save prompt', err); }
+    };
+
+    const handleSaveHtmlSvgPrompt = async () => {
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ htmlSvgPrompt })
+            });
+            if (res.ok) alert('HTML & SVG Graph Prompt saved!');
+        } catch (err) { console.error('Failed to save prompt', err); }
     };
 
     const handleSaveMcpConfig = async () => {
@@ -466,9 +515,12 @@ const SystemSettings = ({ user }) => {
                                         <h2 className="font-semibold mb-3">Pending Invitations</h2>
                                         <div className="space-y-2">
                                             {invitations.map(inv => (
-                                                <div key={inv.email} className="flex items-center justify-between p-2 border border-orange-200 bg-orange-50/50 rounded">
+                                                <div key={inv.email} className={`flex items-center justify-between p-2 border rounded ${inv.status === 'Expired' ? 'border-red-200 bg-red-50/50' : 'border-orange-200 bg-orange-50/50'}`}>
                                                     <div>
-                                                        <div className="text-sm font-medium text-gray-800">{inv.email}</div>
+                                                        <div className="text-sm font-medium text-gray-800 flex items-center gap-2">
+                                                            {inv.email}
+                                                            {inv.status === 'Expired' && <span className="text-[10px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded">Expired</span>}
+                                                        </div>
                                                         <div className="text-[10px] text-gray-500">Invited: {new Date(inv.created_at).toLocaleDateString()}</div>
                                                     </div>
                                                     <button 
@@ -617,6 +669,14 @@ const SystemSettings = ({ user }) => {
                                         Save
                                     </button>
                                 </div>
+                                {ragFolderName && (
+                                    <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded text-xs text-blue-700 flex items-center gap-2">
+                                        <span className="text-sm">📁</span>
+                                        <span className="font-semibold break-all">
+                                            {isFetchingRagName ? 'Fetching folder name...' : ragFolderName}
+                                        </span>
+                                    </div>
+                                )}
                                 <p className="text-[10px] text-gray-400 mt-1">
                                     ID of the folder containing PDFs/Docs to sync.
                                 </p>
@@ -665,57 +725,133 @@ const SystemSettings = ({ user }) => {
                                 Settings for the autonomous deep research agent widget.
                             </p>
                             
-                            <div className="space-y-6">
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">Outputs Folder ID</label>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={researchFolderId}
-                                            onChange={(e) => setResearchFolderId(e.target.value)}
-                                            placeholder="Folder ID to save Research Reports (e.g. Google Docs)"
-                                            className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
-                                        />
-                                        <button
-                                            onClick={handleSaveResearchFolder}
-                                            className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                        >
-                                            Save
-                                        </button>
-                                    </div>
-                                    <p className="text-[10px] text-gray-400 mt-1">
-                                        Where generated research files and Google Docs exports will be saved.
-                                    </p>
-                                </div>
+                            <div className="flex space-x-2 border-b border-gray-100 pb-4 mb-4 overflow-x-auto scrollbar-hide">
+                                <button onClick={() => setActiveDrTab('folders')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'folders' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>Outputs Folder</button>
+                                <button onClick={() => setActiveDrTab('deep-research')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'deep-research' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'}`}>Agent Prompt</button>
+                                <button onClick={() => setActiveDrTab('nano-banana')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'nano-banana' ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}>Nano Banana 2 (Image)</button>
+                                <button onClick={() => setActiveDrTab('html-svg')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'html-svg' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}>HTML/SVG Graph</button>
+                            </div>
 
-                                <div className="pt-4 border-t border-gray-100">
-                                    <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-2">
-                                        Nano Banana 2 Prompt Template
-                                        <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded text-[10px]">Image Gen</span>
-                                    </label>
-                                    <div className="mb-2">
-                                        <p className="text-[10px] text-gray-500">
-                                            このプロンプトは、Deep Researchから画像(インフォグラフィック)を生成する際に使用されます。<br/>
-                                            利用可能な変数は <code>{`{{style}}`}</code> (ユーザーが選択した画風) と <code>{`{{report}}`}</code> (レポート本文) です。
-                                        </p>
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                        <textarea
-                                            value={nanoBananaPrompt}
-                                            onChange={(e) => setNanoBananaPrompt(e.target.value)}
-                                            placeholder={`以下のブログ・リサーチ記事内容を完璧に表現した、{{style}}を1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}`}
-                                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono h-32 resize-y"
-                                        />
-                                        <div className="flex justify-end">
+                            <div className="space-y-6">
+                                {activeDrTab === 'folders' && (
+                                    <div className="animate-fadeIn">
+                                        <label className="block text-xs font-medium text-gray-500 mb-1">Outputs Folder ID</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={researchFolderId}
+                                                onChange={(e) => setResearchFolderId(e.target.value)}
+                                                placeholder="Folder ID to save Research Reports (e.g. Google Docs)"
+                                                className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
+                                            />
                                             <button
-                                                onClick={handleSaveNanoBananaPrompt}
+                                                onClick={handleSaveResearchFolder}
                                                 className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
                                             >
-                                                Save Prompt
+                                                Save
                                             </button>
                                         </div>
+                                        <p className="text-[10px] text-gray-400 mt-2">
+                                            Where generated research files and Google Docs exports will be saved autonomously by the agent.
+                                        </p>
                                     </div>
-                                </div>
+                                )}
+
+                                {activeDrTab === 'deep-research' && (
+                                    <div className="animate-fadeIn">
+                                        <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-2">
+                                            Deep Research System Prompt
+                                            <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded text-[10px]">Agent Behavior</span>
+                                        </label>
+                                        <div className="mb-2">
+                                            <p className="text-[10px] text-gray-500 leading-relaxed max-w-2xl">
+                                                自律型エージェント（Deep Research）の振る舞いを定義するプロンプトです。<br/>
+                                                探索回数の制限、出力フォーマットのルール、ペルソナ（「あなたは最高峰のリサーチャーです」など）をここで指示します。<br/>
+                                                この設定は Deep Research 画面のヘッダにも同期されます。
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-col gap-3 mt-2">
+                                            <textarea
+                                                value={deepResearchPrompt}
+                                                onChange={(e) => setDeepResearchPrompt(e.target.value)}
+                                                placeholder="あなたは世界最高峰のリサーチャーです..."
+                                                className="w-full px-4 py-3 border border-indigo-100 rounded-lg bg-indigo-50/30 text-sm focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-mono h-64 resize-y shadow-inner text-gray-800"
+                                            />
+                                            <div className="flex justify-end">
+                                                <button
+                                                    onClick={handleSaveDeepResearchPrompt}
+                                                    className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-xs font-medium hover:bg-indigo-600 transition-all shadow-sm"
+                                                >
+                                                    Save Agent Prompt
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeDrTab === 'nano-banana' && (
+                                    <div className="animate-fadeIn">
+                                        <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-2">
+                                            Nano Banana 2 Prompt Template
+                                            <span className="bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded text-[10px]">Image Generation</span>
+                                        </label>
+                                        <div className="mb-3">
+                                            <p className="text-[10px] text-gray-500 leading-relaxed max-w-2xl">
+                                                Deep Researchからインフォグラフィック等の画像を生成する際に使用されます。<br/>
+                                                【必須の変数】 <code>{`{{style}}`}</code> (ユーザーが選択した画風) / <code>{`{{report}}`}</code> (レポート本文)<br/>
+                                                レポート本体のコンテキストに合わせた高品質な描画指示をカスタマイズできます。
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-col gap-3">
+                                            <textarea
+                                                value={nanoBananaPrompt}
+                                                onChange={(e) => setNanoBananaPrompt(e.target.value)}
+                                                placeholder={`以下のブログ・リサーチ記事内容を完璧に表現した、{{style}}を1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}`}
+                                                className="w-full px-4 py-3 border border-purple-100 rounded-lg bg-purple-50/30 text-sm focus:outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400 font-mono h-48 resize-y shadow-inner text-gray-800"
+                                            />
+                                            <div className="flex justify-end">
+                                                <button
+                                                    onClick={handleSaveNanoBananaPrompt}
+                                                    className="px-4 py-2 bg-purple-500 text-white rounded-lg text-xs font-medium hover:bg-purple-600 transition-all shadow-sm"
+                                                >
+                                                    Save Image Prompt
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeDrTab === 'html-svg' && (
+                                    <div className="animate-fadeIn">
+                                        <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-2">
+                                            HTML & SVG Graph Template
+                                            <span className="bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded text-[10px]">Data Visualization</span>
+                                        </label>
+                                        <div className="mb-3">
+                                            <p className="text-[10px] text-gray-500 leading-relaxed max-w-2xl">
+                                                Deep Researchの出力結果から、HTMLとSVGグラフの1枚ペラWebレポートを生成する処理に使用されます。<br/>
+                                                【利用可能な変数】 <code>{`{{title}}`}</code> (レポートタイトル) / <code>{`{{report}}`}</code> (レポート本文)<br/>
+                                                TailwindCSSのバージョン指定や、D3.js等の外部ライブラリの利用方針をプロンプトとして記載できます。
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-col gap-3 mt-2">
+                                            <textarea
+                                                value={htmlSvgPrompt}
+                                                onChange={(e) => setHtmlSvgPrompt(e.target.value)}
+                                                placeholder={`以下のリサーチ記事内容と含まれるJSONデータ（または数値データ）を分析し、**1つの完全なHTMLファイル**を作成してください...\n\n=== テーマ: {{title}} ===\n\n{{report}}`}
+                                                className="w-full px-4 py-3 border border-emerald-100 rounded-lg bg-emerald-50/30 text-sm focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 font-mono h-64 resize-y shadow-inner text-gray-800"
+                                            />
+                                            <div className="flex justify-end">
+                                                <button
+                                                    onClick={handleSaveHtmlSvgPrompt}
+                                                    className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 transition-all shadow-sm"
+                                                >
+                                                    Save Dava Viz Prompt
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

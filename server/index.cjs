@@ -69,6 +69,8 @@ app.get('/api/config', async (req, res) => {
         const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
+        const deepResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
+        const htmlSvgPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
         const mcpServerEndpoint = await db.getSetting('MCP_SERVER_ENDPOINT') || '';
         const mcpTokenUrl = await db.getSetting('MCP_TOKEN_URL') || '';
         const mcpClientId = await db.getSetting('MCP_CLIENT_ID') || '';
@@ -87,6 +89,8 @@ app.get('/api/config', async (req, res) => {
             nanoBananaModel,
             geminiResearchModel,
             nanoBananaPrompt,
+            deepResearchPrompt,
+            htmlSvgPrompt,
             mcpServerEndpoint,
             mcpTokenUrl,
             mcpClientId,
@@ -100,9 +104,33 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret } = req.body;
 
     try {
+        // Dynamic Key Generation on Activation
+        if (!process.env.DB_ENCRYPTION_KEY) {
+            const crypto = require('crypto');
+            const fs = require('fs');
+            const path = require('path');
+            
+            const newKey = crypto.randomBytes(32).toString('hex');
+            process.env.DB_ENCRYPTION_KEY = newKey; // Set in memory
+            
+            const envPath = path.resolve(__dirname, 'development.env');
+            const envLine = `\nDB_ENCRYPTION_KEY=${newKey}\n`;
+            
+            try {
+                if (fs.existsSync(envPath)) {
+                    fs.appendFileSync(envPath, envLine);
+                } else {
+                    fs.writeFileSync(envPath, envLine);
+                }
+                console.log("Dynamically generated and saved new DB_ENCRYPTION_KEY to development.env");
+            } catch (fileErr) {
+                console.error("Failed to write DB_ENCRYPTION_KEY to env file:", fileErr);
+            }
+        }
+
         if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
         if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
         if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
@@ -113,6 +141,8 @@ app.post('/api/config', async (req, res) => {
         if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
         if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
         if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
+        if (deepResearchPrompt !== undefined) await db.setSetting('DEEP_RESEARCH_PROMPT', deepResearchPrompt);
+        if (htmlSvgPrompt !== undefined) await db.setSetting('HTML_SVG_PROMPT', htmlSvgPrompt);
         if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
         if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
         if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
@@ -238,11 +268,21 @@ app.post('/api/auth/google', async (req, res) => {
                         proceedWithLogin('admin');
                     } else {
                         // Not the first user. Check if they are invited.
-                        db.get("SELECT email FROM invitations WHERE email = ?", [email], (err, invite) => {
+                        db.get("SELECT email, created_at FROM invitations WHERE email = ?", [email], (err, invite) => {
                             if (err) return res.status(500).json({ error: 'Database error' });
                             
                             if (invite) {
-                                proceedWithLogin('user');
+                                // Enforce 3-day expiration limit
+                                const inviteDate = new Date(invite.created_at + 'Z'); // SQLite CURRENT_TIMESTAMP is UTC
+                                const now = new Date();
+                                const diffDays = (now - inviteDate) / (1000 * 60 * 60 * 24);
+                                
+                                if (diffDays <= 3) {
+                                    proceedWithLogin('user');
+                                } else {
+                                    console.log(`Login Rejected: ${email} invitation has expired.`);
+                                    res.status(403).json({ error: 'Your invitation has expired (valid for 3 days). Please ask the administrator to invite you again.' });
+                                }
                             } else {
                                 console.log(`Login Rejected: ${email} is not invited.`);
                                 res.status(403).json({ error: 'You are not invited to use this system.' });
@@ -299,7 +339,16 @@ app.get('/api/users', requireAdmin, (req, res) => {
 app.get('/api/invitations', requireAdmin, (req, res) => {
     db.all("SELECT email, invited_by, created_at FROM invitations", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
-        res.json(rows);
+        
+        const now = new Date();
+        const enrichedRows = rows.map(row => {
+            const inviteDate = new Date(row.created_at + 'Z');
+            const diffDays = (now - inviteDate) / (1000 * 60 * 60 * 24);
+            const status = diffDays > 3 ? 'Expired' : 'Pending';
+            return { ...row, status };
+        });
+        
+        res.json(enrichedRows);
     });
 });
 
@@ -575,8 +624,9 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                 parts: [{ text: "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge." }]
             };
         } else if (mode === 'research') {
-            systemInstruction = {
-                parts: [{ text: "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案内の文言は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。" }]
+             const customResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT');
+             systemInstruction = {
+                parts: [{ text: customResearchPrompt || "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案内の文言は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。" }]
             };
         }
 
@@ -1389,9 +1439,35 @@ async function getDriveClient(req, res) {
         });
     });
 }
+app.get('/api/drive/folder_info', async (req, res) => {
+    try {
+        const folderId = req.query.folderId;
+        if (!folderId) return res.status(400).json({ error: 'Missing folderId' });
 
+        const drive = await getDriveClient(req, res);
+        if (!drive) return; // Response already sent
 
+        // Extract ID if it's a URL
+        let finalFolderId = folderId;
+        if (finalFolderId.includes('drive.google.com')) {
+            const match = finalFolderId.match(/[-\w]{25,}/);
+            if (match) {
+                finalFolderId = match[0];
+            }
+        }
 
+        const fileMeta = await drive.files.get({
+            fileId: finalFolderId,
+            fields: 'id, name, webViewLink',
+            supportsAllDrives: true
+        });
+
+        res.json(fileMeta.data);
+    } catch (error) {
+        console.error('Drive Folder Info Error:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch folder info' });
+    }
+});
 app.get('/api/drive/list', async (req, res) => {
     try {
         res.set('Cache-Control', 'no-store');
