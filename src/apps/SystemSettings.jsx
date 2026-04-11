@@ -1046,60 +1046,6 @@ const SystemSettings = ({ user }) => {
                     </div>
                 )}
 
-                {activeTab === 'Personal RAG' && (
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                        <h2 className="font-semibold mb-3">Personal RAG Configuration</h2>
-                        <p className="text-xs text-gray-500 mb-4">
-                            Configure a Google Drive folder to sync documents for AI context.
-                        </p>
-                        <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Personal RAG Folder ID</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={ragFolderId}
-                                    onChange={(e) => setRagFolderId(e.target.value)}
-                                    placeholder="Drive Folder ID for RAG"
-                                    className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                                />
-                                <button
-                                    onClick={handleSaveRagFolder}
-                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                >
-                                    Save
-                                </button>
-                                <button
-                                    onClick={handleSyncRag}
-                                    disabled={isSyncing}
-                                    className={`px-3 py-2 text-white rounded text-xs font-medium transition-colors ${isSyncing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}`}
-                                >
-                                    {isSyncing ? 'Syncing...' : 'Sync Now'}
-                                </button>
-                            </div>
-                            <p className="text-[10px] text-gray-400 mt-1">Files in this folder will be synced to Gemini for Personal RAG.</p>
-                            {isSyncing && (
-                                <div className="mt-2 text-xs text-blue-600 animate-pulse">
-                                    Syncing in progress... Please wait.
-                                </div>
-                            )}
-                            {lastRagSyncTime && (
-                                <div className="mt-3 p-2 bg-gray-50 rounded border border-gray-100">
-                                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                                        <span>Last Synced:</span>
-                                        <span className="font-medium text-gray-700">{new Date(lastRagSyncTime).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between text-xs text-gray-500">
-                                        <span>Next Sync Needed:</span>
-                                        <span className="font-medium text-red-500">
-                                            {new Date(new Date(lastRagSyncTime).getTime() + 24 * 60 * 60 * 1000).toLocaleString()}
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
                 {activeTab === 'Server Monitor' && (
                     <div className="space-y-6">
                         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
