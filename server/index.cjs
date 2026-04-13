@@ -1173,6 +1173,64 @@ app.get('/api/rag/status', (req, res) => {
     res.json(ragSyncStatus);
 });
 
+// RAG: Check if Sync is Needed
+app.get('/api/rag/check-sync-needed', async (req, res) => {
+    try {
+        const ragFolderId = await db.getSetting('GOOGLE_DRIVE_RAG_FOLDER_ID');
+        if (!ragFolderId) {
+            return res.json({ syncNeeded: false, reason: 'unconfigured' });
+        }
+
+        const drive = await getDriveClient(req, res);
+        if (!drive) return; // Response is handled by helper
+
+        // List files in drive
+        const driveRes = await drive.files.list({
+            q: `'${ragFolderId}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
+            fields: 'files(id, modifiedTime)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true
+        });
+
+        const driveFiles = driveRes.data.files || [];
+        
+        // Fetch DB files
+        const dbFiles = await new Promise((resolve, reject) => {
+            db.all("SELECT drive_file_id, last_synced_at FROM rag_files", [], (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows || []);
+            });
+        });
+
+        const dbFileMap = new Map(dbFiles.map(f => [f.drive_file_id, new Date(f.last_synced_at).getTime()]));
+
+        // Check for Deleted Files (DB has IDs not in Drive)
+        if (dbFiles.length !== driveFiles.length) {
+             return res.json({ syncNeeded: true, reason: 'file_count_mismatch' });
+        }
+
+        // Check for New or Updated Files
+        for (const file of driveFiles) {
+            if (!dbFileMap.has(file.id)) {
+                return res.json({ syncNeeded: true, reason: 'new_files' });
+            }
+            const driveTime = new Date(file.modifiedTime).getTime();
+            // Allow 5 minutes of buffer for upload/parse times
+            if (driveTime > dbFileMap.get(file.id) + 300000) {
+                return res.json({ syncNeeded: true, reason: 'updated_files' });
+            }
+        }
+
+        res.json({ syncNeeded: false, reason: 'synced' });
+
+    } catch (error) {
+        console.error("Sync Check Error:", error);
+        res.status(500).json({ syncNeeded: false, error: 'Failed to verify sync' });
+    }
+});
+
+
 
 // Google Drive: Upload/Update file
 app.post('/api/drive/upload', async (req, res) => {

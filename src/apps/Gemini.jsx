@@ -7,6 +7,7 @@ const Gemini = () => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
+    const [isConfigLoaded, setIsConfigLoaded] = useState(false);
     const [hasWarnedExpiry, setHasWarnedExpiry] = useState(false);
     const messagesEndRef = useRef(null);
 
@@ -29,37 +30,61 @@ const Gemini = () => {
                 }
             } catch (err) {
                 console.error("Failed to fetch config for RAG expiry check:", err);
+            } finally {
+                setIsConfigLoaded(true);
             }
         };
         fetchConfig();
     }, []);
 
-    // Check RAG expiry when mode changes to 'rag'
+    // Check RAG expiry/sync need when mode changes to 'rag'
     useEffect(() => {
-        if (mode === 'rag' && !hasWarnedExpiry) {
-            let shouldWarn = false;
-            if (!lastRagSyncTime) {
-                // Not synced yet
-                shouldWarn = true;
-            } else {
-                // Check if 24 hours have passed
-                const syncTime = new Date(lastRagSyncTime).getTime();
-                const now = new Date().getTime();
-                const diffHours = (now - syncTime) / (1000 * 60 * 60);
-                if (diffHours >= 24) {
-                    shouldWarn = true;
+        if (!isConfigLoaded) return; // Wait for config to load
+
+        const checkRagSync = async () => {
+            if (mode === 'rag' && !hasWarnedExpiry) {
+                // 1. Check time-based expiry first locally
+                let isTimeExpired = false;
+                if (!lastRagSyncTime) {
+                    isTimeExpired = true;
+                } else {
+                    const syncTime = new Date(lastRagSyncTime).getTime();
+                    const now = new Date().getTime();
+                    const diffHours = (now - syncTime) / (1000 * 60 * 60);
+                    if (diffHours >= 24) {
+                        isTimeExpired = true;
+                    }
+                }
+
+                if (isTimeExpired) {
+                    setMessages(prev => [...prev, {
+                        role: 'model',
+                        text: '⚠️ **RAGデータの有効期限切れ（または未同期）**\n\nベクトルの同期から24時間以上経過しているか、まだ同期されていません。最新のデータを元に回答を得るには、**System Settings** アプリから「Sync RAG DB」を実行してください。'
+                    }]);
+                    setHasWarnedExpiry(true);
+                    return; // Skip explicit drive check if it's already expired by time
+                }
+
+                // 2. Perform dynamic Drive checks
+                try {
+                    const res = await fetch('/api/rag/check-sync-needed');
+                    const data = await res.json();
+                    
+                    if (data.syncNeeded) {
+                        setMessages(prev => [...prev, {
+                            role: 'model',
+                            text: '⚠️ **RAGデータの更新を検知しました（未同期）**\n\nGoogle Driveのファイルが追加・更新、または削除されています。最新の情報を元に回答を得るには、**System Settings** アプリから「Sync RAG DB」を実行してください。'
+                        }]);
+                        setHasWarnedExpiry(true);
+                    }
+                } catch (err) {
+                    console.error("Failed to check dynamic RAG sync status:", err);
                 }
             }
+        };
 
-            if (shouldWarn) {
-                setMessages(prev => [...prev, {
-                    role: 'model',
-                    text: '⚠️ **RAGデータの有効期限切れ（または未同期）**\n\nベクトルの同期から24時間以上経過しているか、まだ同期されていません。最新のデータを元に回答を得るには、**System Settings** アプリから「Sync RAG DB」を実行してください。'
-                }]);
-                setHasWarnedExpiry(true);
-            }
-        }
-    }, [mode, lastRagSyncTime, hasWarnedExpiry]);
+        checkRagSync();
+    }, [mode, lastRagSyncTime, hasWarnedExpiry, isConfigLoaded]);
 
     const handleInputChange = (e) => {
         setInput(e.target.value);
