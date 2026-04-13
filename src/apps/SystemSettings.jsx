@@ -6,6 +6,7 @@ const SystemSettings = ({ user }) => {
     const [currentModel, setCurrentModel] = useState('');
     const [currentNanoBananaModel, setCurrentNanoBananaModel] = useState('');
     const [currentResearchModel, setCurrentResearchModel] = useState('');
+    const [currentHtmlSvgModel, setCurrentHtmlSvgModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolderId, setRagFolderId] = useState('');
     const [ragFolderName, setRagFolderName] = useState('');
@@ -77,6 +78,11 @@ const SystemSettings = ({ user }) => {
                     setCurrentResearchModel(data.geminiResearchModel);
                 } else {
                     setCurrentResearchModel('gemini-3.1-pro-preview-customtools');
+                }
+                if (data.geminiHtmlSvgModel) {
+                    setCurrentHtmlSvgModel(data.geminiHtmlSvgModel);
+                } else {
+                    setCurrentHtmlSvgModel('gemini-3.1-flash-lite-preview');
                 }
                 if (data.nanoBananaPrompt) {
                     setNanoBananaPrompt(data.nanoBananaPrompt);
@@ -718,142 +724,156 @@ const SystemSettings = ({ user }) => {
                 )}
 
                 {activeTab === 'Deep Research' && (
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">Deep Research Configuration</h2>
-                            <p className="text-xs text-gray-500 mb-4">
-                                Settings for the autonomous deep research agent widget.
-                            </p>
-                            
-                            <div className="flex space-x-2 border-b border-gray-100 pb-4 mb-4 overflow-x-auto scrollbar-hide">
-                                <button onClick={() => setActiveDrTab('folders')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'folders' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>Outputs Folder</button>
-                                <button onClick={() => setActiveDrTab('deep-research')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'deep-research' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'}`}>Agent Prompt</button>
-                                <button onClick={() => setActiveDrTab('nano-banana')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'nano-banana' ? 'bg-purple-100 text-purple-700' : 'text-gray-500 hover:bg-gray-100'}`}>Nano Banana 2 (Image)</button>
-                                <button onClick={() => setActiveDrTab('html-svg')} className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${activeDrTab === 'html-svg' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}>HTML/SVG Graph</button>
+                    <div className="space-y-6 animate-fadeIn pb-20">
+                        {/* 1. Base Research Agent */}
+                        <div className="bg-white rounded-lg border border-indigo-100 shadow-sm overflow-hidden">
+                            <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-3 flex items-center gap-2">
+                                <span className="text-xl">🔍</span>
+                                <h2 className="font-semibold text-indigo-900">1. Base Research Agent</h2>
                             </div>
-
-                            <div className="space-y-6">
-                                {activeDrTab === 'folders' && (
-                                    <div className="animate-fadeIn">
-                                        <label className="block text-xs font-medium text-gray-500 mb-1">Outputs Folder ID</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={researchFolderId}
-                                                onChange={(e) => setResearchFolderId(e.target.value)}
-                                                placeholder="Folder ID to save Research Reports (e.g. Google Docs)"
-                                                className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
-                                            />
-                                            <button
-                                                onClick={handleSaveResearchFolder}
-                                                className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                            >
-                                                Save
-                                            </button>
-                                        </div>
-                                        <p className="text-[10px] text-gray-400 mt-2">
-                                            Where generated research files and Google Docs exports will be saved autonomously by the agent.
-                                        </p>
+                            <div className="p-4 space-y-4">
+                                <p className="text-xs text-gray-600">
+                                    This agent performs the autonomous Web / RAG research and generates the core report.
+                                </p>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Model Selection</label>
+                                    <select
+                                        value={currentResearchModel}
+                                        onChange={(e) => {
+                                            setCurrentResearchModel(e.target.value);
+                                            fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ geminiResearchModel: e.target.value }) });
+                                        }}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-indigo-500 font-mono"
+                                    >
+                                        <option value="">Select a model...</option>
+                                        {models.map(m => (
+                                            <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">System Prompt</label>
+                                    <textarea
+                                        value={deepResearchPrompt}
+                                        onChange={(e) => setDeepResearchPrompt(e.target.value)}
+                                        placeholder="あなたは世界最高峰のリサーチャーです..."
+                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm font-mono h-32 focus:outline-none focus:border-indigo-500"
+                                    />
+                                    <div className="mt-2 text-right">
+                                        <button onClick={handleSaveDeepResearchPrompt} className="px-4 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded text-xs font-medium transition-colors cursor-pointer">Save Prompt</button>
                                     </div>
-                                )}
-
-                                {activeDrTab === 'deep-research' && (
-                                    <div className="animate-fadeIn">
-                                        <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-2">
-                                            Deep Research System Prompt
-                                            <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded text-[10px]">Agent Behavior</span>
-                                        </label>
-                                        <div className="mb-2">
-                                            <p className="text-[10px] text-gray-500 leading-relaxed max-w-2xl">
-                                                自律型エージェント（Deep Research）の振る舞いを定義するプロンプトです。<br/>
-                                                探索回数の制限、出力フォーマットのルール、ペルソナ（「あなたは最高峰のリサーチャーです」など）をここで指示します。<br/>
-                                                この設定は Deep Research 画面のヘッダにも同期されます。
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-col gap-3 mt-2">
-                                            <textarea
-                                                value={deepResearchPrompt}
-                                                onChange={(e) => setDeepResearchPrompt(e.target.value)}
-                                                placeholder="あなたは世界最高峰のリサーチャーです..."
-                                                className="w-full px-4 py-3 border border-indigo-100 rounded-lg bg-indigo-50/30 text-sm focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-mono h-64 resize-y shadow-inner text-gray-800"
-                                            />
-                                            <div className="flex justify-end">
-                                                <button
-                                                    onClick={handleSaveDeepResearchPrompt}
-                                                    className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-xs font-medium hover:bg-indigo-600 transition-all shadow-sm"
-                                                >
-                                                    Save Agent Prompt
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeDrTab === 'nano-banana' && (
-                                    <div className="animate-fadeIn">
-                                        <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-2">
-                                            Nano Banana 2 Prompt Template
-                                            <span className="bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded text-[10px]">Image Generation</span>
-                                        </label>
-                                        <div className="mb-3">
-                                            <p className="text-[10px] text-gray-500 leading-relaxed max-w-2xl">
-                                                Deep Researchからインフォグラフィック等の画像を生成する際に使用されます。<br/>
-                                                【必須の変数】 <code>{`{{style}}`}</code> (ユーザーが選択した画風) / <code>{`{{report}}`}</code> (レポート本文)<br/>
-                                                レポート本体のコンテキストに合わせた高品質な描画指示をカスタマイズできます。
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-col gap-3">
-                                            <textarea
-                                                value={nanoBananaPrompt}
-                                                onChange={(e) => setNanoBananaPrompt(e.target.value)}
-                                                placeholder={`以下のブログ・リサーチ記事内容を完璧に表現した、{{style}}を1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}`}
-                                                className="w-full px-4 py-3 border border-purple-100 rounded-lg bg-purple-50/30 text-sm focus:outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400 font-mono h-48 resize-y shadow-inner text-gray-800"
-                                            />
-                                            <div className="flex justify-end">
-                                                <button
-                                                    onClick={handleSaveNanoBananaPrompt}
-                                                    className="px-4 py-2 bg-purple-500 text-white rounded-lg text-xs font-medium hover:bg-purple-600 transition-all shadow-sm"
-                                                >
-                                                    Save Image Prompt
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeDrTab === 'html-svg' && (
-                                    <div className="animate-fadeIn">
-                                        <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-2">
-                                            HTML & SVG Graph Template
-                                            <span className="bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded text-[10px]">Data Visualization</span>
-                                        </label>
-                                        <div className="mb-3">
-                                            <p className="text-[10px] text-gray-500 leading-relaxed max-w-2xl">
-                                                Deep Researchの出力結果から、HTMLとSVGグラフの1枚ペラWebレポートを生成する処理に使用されます。<br/>
-                                                【利用可能な変数】 <code>{`{{title}}`}</code> (レポートタイトル) / <code>{`{{report}}`}</code> (レポート本文)<br/>
-                                                TailwindCSSのバージョン指定や、D3.js等の外部ライブラリの利用方針をプロンプトとして記載できます。
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-col gap-3 mt-2">
-                                            <textarea
-                                                value={htmlSvgPrompt}
-                                                onChange={(e) => setHtmlSvgPrompt(e.target.value)}
-                                                placeholder={`以下のリサーチ記事内容と含まれるJSONデータ（または数値データ）を分析し、**1つの完全なHTMLファイル**を作成してください...\n\n=== テーマ: {{title}} ===\n\n{{report}}`}
-                                                className="w-full px-4 py-3 border border-emerald-100 rounded-lg bg-emerald-50/30 text-sm focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 font-mono h-64 resize-y shadow-inner text-gray-800"
-                                            />
-                                            <div className="flex justify-end">
-                                                <button
-                                                    onClick={handleSaveHtmlSvgPrompt}
-                                                    className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 transition-all shadow-sm"
-                                                >
-                                                    Save Dava Viz Prompt
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                </div>
                             </div>
                         </div>
+
+                        {/* 2. Infographic Output Agent */}
+                        <div className="bg-white rounded-lg border border-fuchsia-100 shadow-sm overflow-hidden">
+                            <div className="bg-fuchsia-50 border-b border-fuchsia-100 px-4 py-3 flex items-center gap-2">
+                                <span className="text-xl">🎨</span>
+                                <h2 className="font-semibold text-fuchsia-900">2. Infographic Output Agent</h2>
+                            </div>
+                            <div className="p-4 space-y-4">
+                                <p className="text-xs text-gray-600">
+                                    Generates an image from the Research Report. (e.g. Nano Banana 2)
+                                </p>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Model Selection</label>
+                                    <select
+                                        value={currentNanoBananaModel}
+                                        onChange={(e) => {
+                                            setCurrentNanoBananaModel(e.target.value);
+                                            fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nanoBananaModel: e.target.value }) });
+                                        }}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono"
+                                    >
+                                        <option value="">Select a model...</option>
+                                        {models.map(m => (
+                                            <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt Template</label>
+                                    <textarea
+                                        value={nanoBananaPrompt}
+                                        onChange={(e) => setNanoBananaPrompt(e.target.value)}
+                                        placeholder="... {{style}} ... {{report}} ..."
+                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm font-mono h-24 focus:outline-none focus:border-fuchsia-500"
+                                    />
+                                    <div className="mt-2 text-right">
+                                        <button onClick={handleSaveNanoBananaPrompt} className="px-4 py-1.5 bg-fuchsia-500 hover:bg-fuchsia-600 text-white rounded text-xs font-medium transition-colors cursor-pointer">Save Prompt</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3. HTML/SVG Output Agent */}
+                        <div className="bg-white rounded-lg border border-emerald-100 shadow-sm overflow-hidden">
+                            <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-3 flex items-center gap-2">
+                                <span className="text-xl">📊</span>
+                                <h2 className="font-semibold text-emerald-900">3. HTML/SVG Output Agent</h2>
+                            </div>
+                            <div className="p-4 space-y-4">
+                                <p className="text-xs text-gray-600">
+                                    Generates an interactive HTML/SVG single-page web report.
+                                </p>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Model Selection</label>
+                                    <select
+                                        value={currentHtmlSvgModel}
+                                        onChange={(e) => {
+                                            setCurrentHtmlSvgModel(e.target.value);
+                                            fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ geminiHtmlSvgModel: e.target.value }) });
+                                        }}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
+                                    >
+                                        <option value="">Select a model...</option>
+                                        {models.map(m => (
+                                            <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt Template</label>
+                                    <textarea
+                                        value={htmlSvgPrompt}
+                                        onChange={(e) => setHtmlSvgPrompt(e.target.value)}
+                                        placeholder="... {{title}} ... {{report}} ..."
+                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm font-mono h-32 focus:outline-none focus:border-emerald-500"
+                                    />
+                                    <div className="mt-2 text-right">
+                                        <button onClick={handleSaveHtmlSvgPrompt} className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs font-medium transition-colors cursor-pointer">Save Prompt</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 4. Output Destination */}
+                        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+                            <h2 className="font-semibold mb-3 flex items-center gap-2 text-slate-800">
+                                <span className="text-xl">💾</span> 4. Output Destination
+                            </h2>
+                            <p className="text-xs text-gray-500 mb-4">
+                                Specify the Google Drive Folder ID where all outputs will be uploaded autonomously.
+                            </p>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1">Google Drive Folder ID</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={researchFolderId}
+                                    onChange={(e) => setResearchFolderId(e.target.value)}
+                                    placeholder="e.g. 1a2b3c4d5e6f7g8h9i0j..."
+                                    className="flex-1 px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-slate-500 font-mono"
+                                />
+                                <button
+                                    onClick={handleSaveResearchFolder}
+                                    className="px-4 py-2 bg-slate-700 text-white rounded text-xs font-medium hover:bg-slate-800 transition-colors cursor-pointer"
+                                >
+                                    Save Folder ID
+                                </button>
+                            </div>
+                        </div>
+
                     </div>
                 )}
 

@@ -111,8 +111,11 @@ async function startDeepResearch(jobId, query, apiKey, customInstruction = null)
         
         // Deep Research Pro Preview specifically uses background=true.
         // It's often required to use the Interactions API.
+        const customAgent = await db.getSetting('GEMINI_RESEARCH_MODEL');
+        const agentName = customAgent ? customAgent.replace('models/', '') : 'deep-research-pro-preview-12-2025';
+        
         const interactionOptions = {
-            agent: 'deep-research-pro-preview-12-2025',
+            agent: agentName,
             input: customInstruction ? `System Instructions (priority):\n${customInstruction}\n\n--- User Query ---\n${query}` : query,
             background: true,
         };

@@ -68,6 +68,7 @@ app.get('/api/config', async (req, res) => {
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
         const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
+        const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
         const deepResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
         const htmlSvgPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
@@ -88,6 +89,7 @@ app.get('/api/config', async (req, res) => {
             geminiResearchFolderId: geminiResearchFolderId || '',
             nanoBananaModel,
             geminiResearchModel,
+            geminiHtmlSvgModel,
             nanoBananaPrompt,
             deepResearchPrompt,
             htmlSvgPrompt,
@@ -103,8 +105,8 @@ app.get('/api/config', async (req, res) => {
 });
 
 // Config: Save settings (Activation)
-app.post('/api/config', async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret } = req.body;
+app.post('/api/config', requireAdmin, async (req, res) => {
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -140,6 +142,7 @@ app.post('/api/config', async (req, res) => {
         if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
         if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
         if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
+        if (geminiHtmlSvgModel) await db.setSetting('GEMINI_HTML_SVG_MODEL', geminiHtmlSvgModel);
         if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
         if (deepResearchPrompt !== undefined) await db.setSetting('DEEP_RESEARCH_PROMPT', deepResearchPrompt);
         if (htmlSvgPrompt !== undefined) await db.setSetting('HTML_SVG_PROMPT', htmlSvgPrompt);
@@ -316,7 +319,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Middleware to check admin role
-const requireAdmin = (req, res, next) => {
+function requireAdmin(req, res, next) {
     const token = req.cookies.token;
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
@@ -575,6 +578,10 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             const configuredNanoModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL');
             modelName = configuredNanoModel || 'gemini-3.1-pro-preview';
             console.log(`Nano Banana Mode Activated: Enforcing model ${modelName}`);
+        } else if (mode === 'html_svg') {
+            const configuredHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL');
+            modelName = configuredHtmlSvgModel || 'gemini-3.1-flash-lite-preview';
+            console.log(`HTML/SVG Mode Activated: Enforcing model ${modelName}`);
         }
 
         // Get RAG files (if mode is 'rag' or 'research')
