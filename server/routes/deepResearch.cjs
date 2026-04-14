@@ -8,6 +8,39 @@ const router = express.Router();
 // Gemini Jobs Map to store in-progress and completed research tasks
 const researchJobs = {};
 
+router.get('/check-history', (req, res) => {
+    const query = req.query.q;
+    if (!query) return res.json({ matches: [] });
+
+    // Extract basic words for simple fuzzy matching (at least 2 chars)
+    let words = query.replace(/[^\w\s\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\uFF00-\uFFEF\u4E00-\u9FAF]/g, ' ')
+                     .trim().split(/\s+/).filter(w => w.length > 1).slice(0, 5);
+    
+    if (words.length === 0) {
+        words.push(query.trim()); // Fallback
+    }
+
+    try {
+        const conditions = words.map(() => "query_text LIKE ?").join(" OR ");
+        const params = words.map(w => `%${w}%`);
+
+        db.all(
+            `SELECT query_text, created_at, status FROM deep_research_history WHERE ${conditions} ORDER BY created_at DESC LIMIT 5`,
+            params,
+            (err, rows) => {
+                if (err) {
+                    console.error("DB check error:", err);
+                    return res.status(500).json({ matches: [] });
+                }
+                res.json({ matches: rows || [] });
+            }
+        );
+    } catch (e) {
+        console.error("Check history error:", e);
+        res.status(500).json({ error: "Failed to check history" });
+    }
+});
+
 router.post('/start', async (req, res) => {
     try {
         const { query } = req.body;
@@ -45,6 +78,11 @@ router.post('/start', async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
+        // --- Permission check ---
+        if (user.role !== 'admin' && user.deep_research_enabled !== 1) {
+            return res.status(403).json({ error: 'Deep Research実行権限がありません。管理者に連絡してください。' });
+        }
+
         // --- Configurable Rate Limit check ---
         const maxPerDayStr = process.env.MAX_DEEP_RESEARCH_PER_DAY;
         const maxPerDay = maxPerDayStr !== undefined ? parseInt(maxPerDayStr, 10) : 1; // Default: 1
@@ -78,6 +116,15 @@ router.post('/start', async (req, res) => {
         // 1. Kick off background Deep Research
         const systemInstruction = req.body.systemInstruction || null;
         startDeepResearch(jobId, query, apiKey, systemInstruction);
+
+        // Record history
+        await new Promise((resolve) => {
+            db.run(
+                "INSERT INTO deep_research_history (user_id, query_text, status) VALUES (?, ?, ?)",
+                [user.id, query, 'in_progress'],
+                () => resolve()
+            );
+        });
 
         res.json({ interaction_id: jobId, status: 'in_progress' });
     } catch (error) {

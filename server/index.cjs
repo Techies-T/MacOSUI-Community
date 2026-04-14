@@ -308,7 +308,13 @@ app.get('/api/auth/me', (req, res) => {
 
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
         if (err) return res.status(403).json({ error: 'Invalid token' });
-        res.json({ user: decoded });
+        db.get("SELECT * FROM users WHERE id = ?", [decoded.id], (dbErr, user) => {
+            if (user) {
+                res.json({ user });
+            } else {
+                res.json({ user: decoded }); // Fallback
+            }
+        });
     });
 });
 
@@ -333,9 +339,19 @@ function requireAdmin(req, res, next) {
 
 // --- Users & Invitations API ---
 app.get('/api/users', requireAdmin, (req, res) => {
-    db.all("SELECT id, email, name, avatar_url, role, created_at FROM users", (err, rows) => {
+    db.all("SELECT id, email, name, avatar_url, role, deep_research_enabled, created_at FROM users", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json(rows);
+    });
+});
+
+app.put('/api/users/:id/deep-research', requireAdmin, (req, res) => {
+    const { id } = req.params;
+    const { enabled } = req.body;
+    db.run("UPDATE users SET deep_research_enabled = ? WHERE id = ?", [enabled ? 1 : 0, id], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
+        res.json({ success: true, deep_research_enabled: enabled ? 1 : 0 });
     });
 });
 

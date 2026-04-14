@@ -164,11 +164,27 @@ const SystemSettings = ({ user }) => {
             } else {
                 alert(data.error || 'Failed to invite user');
             }
+        } catch (e) { console.error(e); }
+    };
+
+    const handleToggleDeepResearch = async (id, enabled) => {
+        try {
+            const res = await fetch(`/api/users/${id}/deep-research`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            if (res.ok) {
+                setUsersList(prev => prev.map(u => u.id === id ? { ...u, deep_research_enabled: enabled ? 1 : 0 } : u));
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to update user permission');
+            }
         } catch (e) {
             console.error(e);
-            alert('Failed to invite user');
         }
     };
+
 
     const handleCancelInvite = async (email) => {
         if (!confirm(`Cancel invitation for ${email}?`)) return;
@@ -557,14 +573,27 @@ const SystemSettings = ({ user }) => {
                                                     </div>
                                                     <div className="text-xs text-gray-500 truncate">{u.email}</div>
                                                 </div>
-                                                {u.id !== user?.id && (
-                                                    <button 
-                                                        onClick={() => handleRemoveUser(u.id, u.email)}
-                                                        className="text-xs text-red-500 hover:underline flex-shrink-0"
-                                                    >
-                                                        Remove User
-                                                    </button>
-                                                )}
+                                                <div className="flex items-center gap-4">
+                                                    {u.role !== 'admin' && (
+                                                        <label className="flex items-center gap-1.5 cursor-pointer">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={u.deep_research_enabled === 1}
+                                                                onChange={(e) => handleToggleDeepResearch(u.id, e.target.checked)}
+                                                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500"
+                                                            />
+                                                            <span className="text-xs text-gray-600">Deep Research 許可</span>
+                                                        </label>
+                                                    )}
+                                                    {u.id !== user?.id && (
+                                                        <button 
+                                                            onClick={() => handleRemoveUser(u.id, u.email)}
+                                                            className="text-xs text-red-500 hover:underline flex-shrink-0"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         ))}
                                     </div>

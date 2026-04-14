@@ -4,8 +4,16 @@ const DeepResearch = ({ onOpen }) => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [stage, setStage] = useState('idle'); // 'idle', 'researching', 'generating', 'saving'
+    const [stage, setStage] = useState('idle'); // 'idle', 'history_warning', 'planning', 'confirming', 'researching', 'generating', 'saving'
     
+    // For confirmation phase
+    const [pipelineType, setPipelineType] = useState('infographic');
+    const [pendingQuery, setPendingQuery] = useState('');
+
+    // Auth and Feature Flag
+    const [userAuth, setUserAuth] = useState(null);
+    const [hasAccess, setHasAccess] = useState(true);
+
     const [config, setConfig] = useState(null);
     const messagesEndRef = useRef(null);
 
@@ -18,6 +26,19 @@ const DeepResearch = ({ onOpen }) => {
             .then(res => res.json())
             .then(data => setConfig(data))
             .catch(err => console.error("Failed to fetch config", err));
+
+        fetch('/api/auth/me')
+            .then(res => res.json())
+            .then(data => {
+                if (data.user) {
+                    setUserAuth(data.user);
+                    if (data.user.role !== 'admin' && data.user.deep_research_enabled !== 1) {
+                        setHasAccess(false);
+                        setMessages([{ role: 'system', text: '🔒 Deep Researchの実行権限がありません。システム管理者にリクエストしてください。' }]);
+                    }
+                }
+            })
+            .catch(err => console.error("Failed to fetch auth", err));
     }, []);
 
     useEffect(() => {
@@ -28,15 +49,142 @@ const DeepResearch = ({ onOpen }) => {
         setInput(e.target.value);
     };
 
-    const runPipeline = async (type) => {
-        if (!input.trim() || isLoading) return;
+    // Phase 1: Planning and Confirmation
+    const requestPipeline = async (type, bypassHistory = false) => {
+        if (!hasAccess) return;
+        
+        const userQuery = bypassHistory ? pendingQuery : input.trim();
+        if (!userQuery || isLoading) return;
 
-        const userQuery = input.trim();
-        setInput('');
+        if (!bypassHistory) {
+            setInput('');
+            setPendingQuery(userQuery);
+            setMessages(prev => [...prev, { role: 'user', text: userQuery }]);
+        } else {
+            // Remove previous warning buttons
+            setMessages(prev => {
+                const newArray = [...prev];
+                const lastMessage = newArray[newArray.length - 1];
+                if (lastMessage && lastMessage.component) {
+                    lastMessage.component = undefined; 
+                }
+                return newArray;
+            });
+        }
+        
+        setPipelineType(type);
+
+        // History Check Phase
+        if (!bypassHistory) {
+            setStage('history_warning');
+            setIsLoading(true);
+            try {
+                const hRes = await fetch(`/api/research/check-history?q=${encodeURIComponent(userQuery)}`);
+                const hData = await hRes.json();
+                
+                if (hData.matches && hData.matches.length > 0) {
+                    setMessages(prev => [...prev, {
+                        role: 'model',
+                        text: `⚠️ **過去に似たテーマが調査されています:**\n${hData.matches.map(m => `・[${new Date(m.created_at).toLocaleDateString()}] ${m.query_text} (${m.status})`).join('\n')}\n\n本当に新しくリサーチを実施しますか？`,
+                        component: (
+                            <div className="mt-4 flex gap-3">
+                                <button onClick={() => requestPipeline(type, true)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                                    ▶ 無視して新規作成
+                                </button>
+                                <button onClick={cancelPipeline} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                                    ❌ キャンセル
+                                </button>
+                            </div>
+                        )
+                    }]);
+                    setIsLoading(false);
+                    return;
+                }
+            } catch (e) {
+                console.error("History check failed", e);
+            }
+        }
+
+        setStage('planning');
+        setIsLoading(true);
+
+        try {
+            setMessages(prev => [...prev, { role: 'system', text: '📋 Task 0: 調査計画を作成中...' }]);
+            
+            const prompt = `あなたは優秀なリサーチャーです。ユーザーが以下のテーマについてディープリサーチを希望しています。どのようなキーワードでWeb検索し、どのような情報を収集してまとめる予定か、3〜5点の箇条書きで簡単な『調査計画』を作成してください。\n出力は調査計画の箇条書きのみを出力してください。\n\nテーマ: ${userQuery}`;
+            
+            const req = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: prompt, history: [], config: { mode: 'chat' } })
+            });
+            const data = await req.json();
+            if (!req.ok) throw new Error(data.error || "Failed to generate plan");
+
+            const planText = await pollGeminiJob(data.jobId);
+            
+            // Show plan and confirmation options
+            setStage('confirming');
+            setIsLoading(false);
+            
+            setMessages(prev => {
+                const newMsgs = prev.filter(m => m.type !== 'system');
+                return [...newMsgs, { 
+                    role: 'model', 
+                    text: `${planText}\n\n**この計画に沿ってDeep Researchを開始しますか？**\n（※Google検索を複数回実行するため数分かかる場合があります）`,
+                    component: (
+                        <div className="mt-4 flex gap-3">
+                            <button onClick={() => executePipeline(userQuery, type)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                                ✅ この計画で調査を開始
+                            </button>
+                            <button onClick={cancelPipeline} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                                ❌ キャンセル
+                            </button>
+                        </div>
+                    )
+                }];
+            });
+
+        } catch(error) {
+            console.error("Planning Error:", error);
+            setMessages(prev => [...prev, { role: 'model', type: 'error', text: `計画作成に失敗しました: ${error.message}` }]);
+            setIsLoading(false);
+            setStage('idle');
+        }
+    };
+
+    const cancelPipeline = () => {
+        setStage('idle');
+        
+        // Remove confirmation buttons from previous message by stripping the component
+        setMessages(prev => {
+            const newArray = [...prev];
+            const lastMessage = newArray[newArray.length - 1];
+            if (lastMessage && lastMessage.component) {
+                lastMessage.component = undefined; 
+            }
+            return newArray;
+        });
+
+        setInput(pendingQuery);
+        setPendingQuery('');
+        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '調査をキャンセルしました。テーマを修正して再実行できます。' }]);
+    };
+
+    // Phase 2: Actual Execution
+    const executePipeline = async (userQuery, type) => {
         setIsLoading(true);
         setStage('researching');
-
-        setMessages(prev => [...prev, { role: 'user', text: userQuery }]);
+        
+        // Remove confirmation buttons from previous message by stripping the component
+        setMessages(prev => {
+            const newArray = [...prev];
+            const lastMessage = newArray[newArray.length - 1];
+            if (lastMessage && lastMessage.component) {
+                lastMessage.component = undefined; 
+            }
+            return newArray;
+        });
 
         try {
             // ==========================================
@@ -280,10 +428,10 @@ const DeepResearch = ({ onOpen }) => {
     };
 
     const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             // Default to Infographic pipeline if user hits Enter directly
-            runPipeline('infographic');
+            requestPipeline('infographic');
         }
     };
 
@@ -357,7 +505,8 @@ const DeepResearch = ({ onOpen }) => {
                                 <div className="w-2 h-2 rounded-full bg-fuchsia-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
                             </div>
                             <span className="text-xs font-semibold text-gray-500 tracking-wide">
-                                {stage === 'researching' ? 'Deep Research Running...' : 
+                                {stage === 'planning' ? 'Creating Research Plan...' : 
+                                 stage === 'researching' ? 'Deep Research Running...' : 
                                  stage === 'generating' ? 'Visualizing Data...' : 
                                  stage === 'saving' ? 'Saving to Drive...' : 'Processing...'}
                             </span>
@@ -374,19 +523,19 @@ const DeepResearch = ({ onOpen }) => {
                         value={input}
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
-                        placeholder="リサーチするテーマを入力してください（例：日本の少子化対策の現状と課題）"
-                        className="w-full pl-5 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-gray-50/50 resize-none h-[110px] text-sm text-gray-800 transition-all font-medium placeholder-gray-400 shadow-inner"
-                        disabled={isLoading}
+                        placeholder={hasAccess ? "リサーチするテーマを入力してください（例：日本の少子化対策の現状と課題）" : "実行権限がありません。"}
+                        className={`w-full pl-5 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-gray-50/50 resize-none h-[110px] text-sm text-gray-800 transition-all font-medium shadow-inner ${!hasAccess ? 'opacity-60 cursor-not-allowed bg-gray-100' : 'placeholder-gray-400'}`}
+                        disabled={isLoading || !hasAccess}
                     />
                 </div>
                 
                 {/* Action Buttons */}
                 <div className="flex items-center gap-3 mt-3">
                     <button
-                        onClick={() => runPipeline('infographic')}
-                        disabled={isLoading || !input.trim()}
+                        onClick={() => requestPipeline('infographic')}
+                        disabled={isLoading || !input.trim() || !hasAccess}
                         className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                ${isLoading || !input.trim() 
+                                ${isLoading || !input.trim() || !hasAccess
                                     ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
                                     : 'bg-gradient-to-b from-indigo-50 to-white text-indigo-700 border-indigo-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                     >
@@ -395,10 +544,10 @@ const DeepResearch = ({ onOpen }) => {
                     </button>
                     
                     <button
-                        onClick={() => runPipeline('html')}
-                        disabled={isLoading || !input.trim()}
+                        onClick={() => requestPipeline('html')}
+                        disabled={isLoading || !input.trim() || !hasAccess}
                         className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                ${isLoading || !input.trim() 
+                                ${isLoading || !input.trim() || !hasAccess
                                     ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
                                     : 'bg-gradient-to-b from-emerald-50 to-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                     >
