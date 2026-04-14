@@ -9,7 +9,12 @@ const Gemini = () => {
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
     const [isConfigLoaded, setIsConfigLoaded] = useState(false);
     const [hasWarnedExpiry, setHasWarnedExpiry] = useState(false);
+    const [inputHistory, setInputHistory] = useState([]);
+    const [historyIndex, setHistoryIndex] = useState(-1);
+    const [popularQueries, setPopularQueries] = useState([]);
+    const [copiedIndex, setCopiedIndex] = useState(null);
     const messagesEndRef = useRef(null);
+    const inputRef = useRef(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -35,7 +40,29 @@ const Gemini = () => {
             }
         };
         fetchConfig();
+
+        // Load local query history
+        try {
+            const savedHistory = localStorage.getItem('rag_query_history');
+            if (savedHistory) {
+                setInputHistory(JSON.parse(savedHistory));
+            }
+        } catch (e) {
+            console.error("Failed to load local query history", e);
+        }
     }, []);
+
+    // Fetch popular queries when mode changes
+    useEffect(() => {
+        if (mode === 'rag') {
+            fetch('/api/rag/popular-queries')
+                .then(res => res.json())
+                .then(data => {
+                    if (Array.isArray(data)) setPopularQueries(data);
+                })
+                .catch(err => console.error("Failed to fetch popular queries:", err));
+        }
+    }, [mode]);
 
     // Check RAG expiry/sync need when mode changes to 'rag'
     useEffect(() => {
@@ -91,9 +118,18 @@ const Gemini = () => {
     };
 
     const handleSend = async () => {
-        if (!input.trim()) return;
+        const textToSend = input.trim();
+        if (!textToSend) return;
 
-        const userMessage = { role: 'user', text: input };
+        // Save to local history (unique up to 50 items)
+        const newHistory = [textToSend, ...inputHistory.filter(q => q !== textToSend)].slice(0, 50);
+        setInputHistory(newHistory);
+        setHistoryIndex(-1);
+        try {
+            localStorage.setItem('rag_query_history', JSON.stringify(newHistory));
+        } catch(e) {}
+
+        const userMessage = { role: 'user', text: textToSend };
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
@@ -166,7 +202,36 @@ const Gemini = () => {
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             handleSend();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (inputHistory.length > 0) {
+                const nextIndex = Math.min(historyIndex + 1, inputHistory.length - 1);
+                setHistoryIndex(nextIndex);
+                setInput(inputHistory[nextIndex]);
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIndex > 0) {
+                const prevIndex = historyIndex - 1;
+                setHistoryIndex(prevIndex);
+                setInput(inputHistory[prevIndex]);
+            } else if (historyIndex === 0) {
+                setHistoryIndex(-1);
+                setInput('');
+            }
         }
+    };
+
+    const handleCopy = (text, index) => {
+        navigator.clipboard.writeText(text);
+        setCopiedIndex(index);
+        setTimeout(() => setCopiedIndex(null), 2000);
+    };
+
+    const handleEditQuery = (text) => {
+        setInput(text);
+        setHistoryIndex(-1);
+        inputRef.current?.focus();
     };
 
     return (
@@ -188,7 +253,6 @@ const Gemini = () => {
                         >
                             <option value="rag" className="text-gray-800">📚 Personal RAG</option>
                             <option value="chat" className="text-gray-800">💬 Normal Chat</option>
-                            <option value="search" className="text-gray-800">🔍 Deep Research</option>
                         </select>
                         <span className="text-white/80 text-[10px] pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 transform">▼</span>
                     </div>
@@ -219,19 +283,40 @@ const Gemini = () => {
                             <h2 className="text-2xl font-medium mb-1">Gemini AI</h2>
                             <p className="text-sm opacity-80 mb-4">How can I help you today?</p>
 
-                            <div className="bg-white/10 px-3 py-1 rounded-full text-xs font-medium border border-white/10">
+                            <div className="bg-white/10 px-3 py-1 mb-6 rounded-full text-xs font-medium border border-white/10">
                                 {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Google Search' : (useGrounding ? 'Mode: Chat (with Search)' : 'Mode: Chat')}
                             </div>
+
+                            {mode === 'rag' && popularQueries.length > 0 && (
+                                <div className="max-w-md w-full">
+                                    <div className="flex items-center justify-center gap-1.5 mb-3">
+                                        <span className="text-yellow-300">🌟</span>
+                                        <span className="text-xs font-semibold text-white/90">人気の社内FAQクエリ</span>
+                                    </div>
+                                    <div className="flex flex-wrap justify-center gap-2">
+                                        {popularQueries.map((pq, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => handleEditQuery(pq.query_text)}
+                                                className="bg-white/10 hover:bg-white/20 transition-colors border border-white/20 rounded-lg px-3 py-2 text-[13px] text-white/90 text-left max-w-full truncate shadow-sm backdrop-blur-md cursor-pointer"
+                                                title={pq.query_text}
+                                            >
+                                                {pq.query_text}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
                     {messages.map((msg, index) => (
                         <div
                             key={index}
-                            className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} animate-fadeIn`}
+                            className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} animate-fadeIn group`}
                         >
                             {/* Avatar */}
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center">
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center self-end">
                                 {msg.role === 'user' ? (
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white">
                                         <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM3.751 20.105a8.25 8.25 0 0116.498 0 .75.75 0 01-.437.695A18.683 18.683 0 0112 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 01-.437-.695z" clipRule="evenodd" />
@@ -243,14 +328,39 @@ const Gemini = () => {
                                 )}
                             </div>
 
-                            {/* Bubble */}
-                            <div
-                                className={`max-w-[75%] px-4 py-2.5 shadow-sm backdrop-blur-md text-[15px] leading-relaxed ${msg.role === 'user'
-                                    ? 'bg-[#007AFF] text-white rounded-2xl rounded-br-sm'
-                                    : 'bg-white/20 text-white border border-white/20 rounded-2xl rounded-bl-sm'
-                                    }`}
-                            >
-                                <p className="whitespace-pre-wrap">{msg.text}</p>
+                            {/* Bubble Container */}
+                            <div className={`max-w-[75%] flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                                <div
+                                    className={`px-4 py-2.5 shadow-sm backdrop-blur-md text-[15px] leading-relaxed ${msg.role === 'user'
+                                        ? 'bg-[#007AFF] text-white rounded-2xl rounded-br-sm'
+                                        : 'bg-white/20 text-white border border-white/20 rounded-2xl rounded-bl-sm'
+                                        }`}
+                                >
+                                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                                </div>
+                                {/* Actions Area */}
+                                <div className="flex gap-2 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {msg.role === 'user' && (
+                                        <button onClick={() => handleEditQuery(msg.text)} className="text-white/60 hover:text-white transition-colors" title="Edit Query">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                    {msg.role === 'model' && (
+                                        <button onClick={() => handleCopy(msg.text, index)} className="text-white/60 hover:text-white transition-colors" title="Copy to clipboard">
+                                            {copiedIndex === index ? (
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-green-400">
+                                                    <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                                </svg>
+                                            ) : (
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                                </svg>
+                                            )}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     ))}
@@ -279,6 +389,7 @@ const Gemini = () => {
                 <div className="p-4 pt-2">
                     <div className="backdrop-blur-xl bg-white/10 rounded-[20px] border border-white/20 shadow-lg p-1.5 flex items-center gap-2 transition-all focus-within:bg-white/20 focus-within:border-white/30">
                         <input
+                            ref={inputRef}
                             value={input}
                             onChange={handleInputChange}
                             onKeyDown={handleKeyDown}

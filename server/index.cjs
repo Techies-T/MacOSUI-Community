@@ -548,6 +548,18 @@ app.post('/api/gemini', async (req, res) => {
         // Start background job
         processGeminiJob(jobId, message, history, apiKey, modelName, config, googleId);
 
+        // Track RAG query usage for FAQ feature
+        if (config?.mode === 'rag' && message.trim()) {
+            db.run(
+                `INSERT INTO rag_queries (query_text) VALUES (?)
+                 ON CONFLICT(query_text) DO UPDATE SET usage_count = usage_count + 1, last_used_at = CURRENT_TIMESTAMP`,
+                [message.trim()],
+                (err) => {
+                    if (err) console.error("Failed to track RAG query:", err);
+                }
+            );
+        }
+
         res.json({ jobId, status: 'processing' });
 
     } catch (error) {
@@ -1171,6 +1183,21 @@ app.post('/api/rag/sync', async (req, res) => {
 // RAG: Get Sync Status
 app.get('/api/rag/status', (req, res) => {
     res.json(ragSyncStatus);
+});
+
+// RAG: Get Popular FAQ Queries
+app.get('/api/rag/popular-queries', (req, res) => {
+    db.all(
+        "SELECT query_text, usage_count FROM rag_queries ORDER BY usage_count DESC, last_used_at DESC LIMIT 5",
+        [],
+        (err, rows) => {
+            if (err) {
+                console.error("Failed to fetch popular queries:", err);
+                return res.status(500).json({ error: "Failed to fetch popular queries" });
+            }
+            res.json(rows || []);
+        }
+    );
 });
 
 // RAG: Check if Sync is Needed

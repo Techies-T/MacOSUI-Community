@@ -64,6 +64,14 @@ function initDb() {
     file_hash TEXT
   )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS rag_queries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query_text TEXT UNIQUE,
+    usage_count INTEGER DEFAULT 1,
+    last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+
     // Migration for rag_files
     db.run("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", (err) => {
         // Ignore error if column exists
