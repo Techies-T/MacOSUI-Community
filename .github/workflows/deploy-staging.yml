@@ -1,0 +1,46 @@
+name: Deploy to Staging (Sakura VPS)
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+
+      - name: Add VPS to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.STAGING_HOST_IP }} >> ~/.ssh/known_hosts
+
+      - name: Sync files using rsync
+        run: |
+          rsync -avz --exclude 'node_modules' \
+                     --exclude '.git' \
+                     --exclude 'dist' \
+                     --exclude 'certbot' \
+                     --exclude 'server/*.sqlite*' \
+                     ./ ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST_IP }}:~/MacOSUI/
+
+      - name: Restart Docker Compose on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST_IP }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/MacOSUI
+            
+            # Start/Restart Docker Compose using staging config
+            ENV_FILE=staging.env docker compose up -d --build

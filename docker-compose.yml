@@ -4,10 +4,11 @@ services:
   web:
     build: .
     container_name: macosui-web
-    # 本番運用時はコンテナ内のdbファイルとenvファイルだけをマウントする
+    # 本番・ステージング運用時はコンテナ内のdbファイルと、環境に合わせたenvファイルをマウントする
     volumes:
       - ./server/database.sqlite:/app/server/database.sqlite
-      - ./server/development.env:/app/server/development.env
+      # 環境変数 ENV_FILE に指定されたファイルをコンテナ内のトップレベル .env としてマウント（デフォルトは開発用）
+      - ./server/${ENV_FILE:-development.env}:/app/.env
     environment:
       - NODE_ENV=development
     # NGINXを経由しない直接アクセス用(デバッグ)に8080も公開

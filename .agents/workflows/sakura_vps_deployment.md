@@ -1,93 +1,92 @@
-# さくらのVPS ステージング環境 構築・デプロイ手順書
+# さくらのVPS ステージング環境 自動構築・自動デプロイ手順書
 
-今回構築した「完全HTTPS対応（Docker Compose + NGINX）」のシステムを、さくらのVPSにデプロイしてステージング/デモ環境を動かすための手順です。
+この手順書は、Ansibleを利用したインフラストラクチャーとしてのコード(IaC)と、GitHub Actionsを通じた自動デプロイメント(CI/CD)を活用して、さくらのVPSにデモ/ステージング環境を全自動で構築・更新するためのドキュメントです。
 
-## 1. さくらのVPSの契約・サーバー作成
-デモ用途であれば、最も安価なプラン（メモリ1GB または 2GB）で十分稼働します。
+## 前提条件
 
-- **OSの選択**: `Ubuntu 24.04 (または 22.04 / 20.04)` を強くおすすめします。Dockerのインストールなどの情報が圧倒的に多いためです。
-- **管理用パスワードの設定**: パスワード認証、または「公開鍵（SSHキー）」を設定してサーバーを作成します。
+- **OSの選択**: `Debian 12` (今回構築したベースOSです)
+- **管理用パスワード / SSH鍵**: セキュリティを高めるため「パスワードなしの公開鍵認証」を推奨します。
+- **SSHキー**: 例として `~/.ssh/id_ed25519_vps` を使用します。
 
-作成後、コントロールパネルで「サーバーのIPアドレス（例: `198.51.100.23`）」を確認します。
+---
 
-## 2. DNSの Aレコード設定（重要）
-証明書の取得と同等に重要です。取得したサーバーのIPアドレスに対し、ご契約のドメイン管理画面（Route53等）で **Aレコード** を設定します。
+## 第1部: サーバーの自動構築（Ansible - IaC）
 
-- レコード名: `macosui-stage` （あるいはそのまま `xxx` など）
-- レコードタイプ: `A`
-- 値（IPアドレス）: `さくらのVPSのIPアドレス`
+Ansibleを使って、新しく作成した(または初期化した)何もないDebianサーバーに対して、UFW(ファイアウォール)やDocker・Docker Composeなどを全自動でインストールします。
 
-## 3. サーバーへの接続とDockerの導入
-ご自身のMacのターミナルから、さくらのVPSにSSH接続します。
+### 手順
 
-```bash
-# Macのターミナルで実行
-ssh ubuntu@<さくらのVPSのIPアドレス>
-```
+1. まず、お手元のMacにAnsibleがインストールされていない場合はインストールしてください。
+   ```bash
+   brew install ansible
+   ```
 
-サーバーに入れたら、以下のコマンドを順番にコピペして「Docker」と「Docker Compose」をインストールします。
+2. `ansible/inventory.ini` ファイルを開き、新しいIPアドレスが記載されていることを確認します（今回は `133.167.105.49` が記載されています）。
 
-```bash
-# パッケージの更新
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
+3. 以下のAnsibleコマンドを実行するだけで、全ての設定が完了します！
+   ```bash
+   cd ansible
+   ansible-playbook -i inventory.ini setup-vps.yml --ask-become-pass
+   ```
+   > 実行時に聞かれる `BECOME password` は、サーバーの管理用パスワード（例: sakura等）を入力してください。
 
-# Docker公式のGPGキーを追加
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
+---
 
-# リポジトリを追加
-echo \
-  "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+## 第2部: GitHub Actionsを通じた自動デプロイ（CI/CD）
 
-# Docker本体のインストール
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+手動での `rsync` や `docker compose up` はもう不要です。
+設定を一度行えば、今後は **`staging` ブランチにプッシュするだけで数分で自動的に本番サーバーが更新** されます。
 
-# sudoなしでdockerを実行できるようにする（実行後、一度ログアウトして再接続してください）
-sudo usermod -aG docker $USER
-```
-
-## 4. プロジェクトのソースコードを配置
-サーバー上でソースコードを配置します。開発中のレポジトリがGithubのプライベートリポジトリ等の場合、VPS上で `git clone` するのが最も簡単です。
+### 1. サーバー内での環境ファイルの準備
+初回のみ、稼働させるVPSサーバーにログインし、環境変数の実体ファイルを作成します。安全のためGitHub（コードリポジトリ）には絶対に含めません。
 
 ```bash
-# （VPSサーバー上で実行）
-git clone <皆さんのGithubリポジトリURL>
-cd MacOSUI
+ssh -i ~/.ssh/id_ed25519_vps debian@<サーバーのIPアドレス>
+mkdir -p ~/MacOSUI/server
+
+# ステージング用の本番APIキー等を含んだセキュアなenvファイルを作ります
+nano ~/MacOSUI/server/staging.env
 ```
 
-## 5. ステージング用の環境変数の設定
-プロジェクトのルートディレクトリに、ステージング専用の `.env.stage` を作成します。
+### 2. GitHubへのシークレット変数の登録
+GitHub ActionsがVPSサーバーに「rsyncでのファイル転送」と「SSH実行」を行えるようにするため、ご自身のGitHubの対象リポジトリ画面から、以下の3つの秘密の環境変数を登録します。
+
+- 画面遷移: `Settings` タブ > 左メニュー `Secrets and variables` > `Actions` > **`New repository secret`**
+
+#### 登録する値
+1. **`STAGING_HOST_IP`**
+   - 値: `133.167.105.49` (さくらのVPSのIPアドレス)
+2. **`STAGING_USER`**
+   - 値: `debian` (SSH接続ユーザー名)
+3. **`STAGING_SSH_PRIVATE_KEY`**
+   - 値: Macにある `~/.ssh/id_ed25519_vps` の**中身をそのまま全コピー**したもの。
+   - `cat ~/.ssh/id_ed25519_vps` または `pbcopy < ~/.ssh/id_ed25519_vps` でコピーしてください。
+
+### 3. デプロイの実行（Git Push）
+あとは普段通りにコードを修正し、`staging` ブランチという名前でGitHubにPushするだけです！
 
 ```bash
-# （VPSサーバー上で実行）
-nano .env.stage
-```
-以下を記述して保存します。
-```env
-DOMAIN_NAME=macosui-stage.techiespod.co.jp
-# 他に必要な環境変数があればここに追記
+git checkout -b staging
+git push origin staging
 ```
 
-## 6. Let's Encrypt証明書の取得
-ローカル環境と同じ手順です！！
+GitHub上の `Actions` タブから、ロボットが自動でVPSに接続し、同期し、Dockerを再ビルドして起動してくれる様子を眺めることができます。
 
-```bash
-# （VPSサーバー上で実行）
-./scripts/get-letsencrypt.sh
-```
-プロンプトが表示されたら、指定された TXT レコード (`_acme-challenge.macosui-stage.techiespod.co.jp`) をDNS管理画面で設定し、Enterを押して証明書を発行します。
+---
 
-## 7. コンテナの起動！
-最後に、ローカルと全く同じコマンド（ただし読み込むenvファイルを変えるだけ）で起動します。
+## 3. ドメイン・証明書 (HTTPS化) の設定について
 
-```bash
-# （VPSサーバー上で実行）
-docker compose --env-file .env.stage up -d --build
-```
+ステージング環境を `macosui-staging.techiespod.co.jp` として本公開するための設定です。
 
-これで、さくらのVPS上で完全なステージング環境が稼働します。ブラウザから `https://macosui-stage.techiespod.co.jp` にアクセスし、デモや検証を思う存分行うことができます！
+1. **DNS設定:** ドメイン管理業者のコンソールにて Aレコード（`macosui-staging` -> `133.167.105.49`）を登録します。
+2. **証明書発行スクリプトの実行:** (サーバー内で1回だけ叩きます)
+   ```bash
+   cd ~/MacOSUI
+   bash scripts/get-letsencrypt.sh macosui-staging.techiespod.co.jp
+   ```
+3. **NGINXへドメイン名を教える:** (サーバー内で1回だけ叩きます)
+   ```bash
+   echo "DOMAIN_NAME=macosui-staging.techiespod.co.jp" > ~/MacOSUI/.env
+   # その後 docker compose を再起動
+   ENV_FILE=staging.env docker compose up -d
+   ```
