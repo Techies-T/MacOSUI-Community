@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: macosui-web
+    # 本番運用時はコンテナ内のdbファイルとenvファイルだけをマウントする
+    volumes:
+      - ./server/database.sqlite:/app/server/database.sqlite
+      - ./server/development.env:/app/server/development.env
+    environment:
+      - NODE_ENV=development
+    # NGINXを経由しない直接アクセス用(デバッグ)に8080も公開
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: macosui-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./server/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # get-letsencrypt.sh で取得した証明書ファイルをマウント
+      # ※ 事前に証明書を取得していないとNGINXコンテナがエラーで起動しません
+      - ./certbot/live/${DOMAIN_NAME:-xxx.techiespod.co.jp}/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      - ./certbot/live/${DOMAIN_NAME:-xxx.techiespod.co.jp}/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
+    depends_on:
+      - web
+    restart: unless-stopped

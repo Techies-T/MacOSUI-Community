@@ -1,0 +1,296 @@
+import React, { useState, useEffect } from 'react';
+
+const KnowledgeBase = () => {
+    const [articles, setArticles] = useState([]);
+    const [selectedArticleId, setSelectedArticleId] = useState(null);
+    const [selectedTag, setSelectedTag] = useState(null);
+    const [isEditing, setIsEditing] = useState(false);
+    
+    // Form state
+    const [editForm, setEditForm] = useState({ title: '', content: '', tags: '' });
+    
+    // Status
+    const [isLoading, setIsLoading] = useState(true);
+
+    const fetchArticles = async (tag = null) => {
+        setIsLoading(true);
+        try {
+            const url = tag ? `/api/knowledge?tag=${encodeURIComponent(tag)}` : '/api/knowledge';
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                setArticles(data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch articles", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchArticles(selectedTag);
+    }, [selectedTag]);
+
+    // Extract unique tags from articles for sidebar (combining with all fetched tags might be better, but doing client side for now just for currently fetched if no tag selected, or re-fetch all)
+    const [allTags, setAllTags] = useState([]);
+    
+    useEffect(() => {
+        // Fetch ALL tags once initially or when articles change WITHOUT a tag filter
+        if (!selectedTag && articles.length > 0) {
+            const tagsSet = new Set();
+            articles.forEach(a => {
+                if (Array.isArray(a.tags)) {
+                    a.tags.forEach(t => tagsSet.add(t));
+                }
+            });
+            setAllTags(Array.from(tagsSet).sort());
+        }
+    }, [articles, selectedTag]);
+
+    const handleCreateNew = () => {
+        setSelectedArticleId(null);
+        setEditForm({ title: '', content: '', tags: '' });
+        setIsEditing(true);
+    };
+
+    const handleSelectArticle = (article) => {
+        setSelectedArticleId(article.id);
+        setEditForm({
+            title: article.title,
+            content: article.content || '',
+            tags: Array.isArray(article.tags) ? article.tags.join(', ') : ''
+        });
+        setIsEditing(false);
+    };
+
+    const handleSave = async () => {
+        const payload = {
+            title: editForm.title,
+            content: editForm.content,
+            tags: editForm.tags.split(',').map(t => t.trim()).filter(t => t)
+        };
+        
+        try {
+            if (selectedArticleId) {
+                // Update
+                const res = await fetch(`/api/knowledge/${selectedArticleId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    await fetchArticles(selectedTag);
+                    setIsEditing(false);
+                }
+            } else {
+                // Create
+                const res = await fetch('/api/knowledge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setSelectedArticleId(data.id);
+                    await fetchArticles(selectedTag);
+                    setIsEditing(false);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to save article", error);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!selectedArticleId) return;
+        if (!window.confirm("このナレッジを削除してもよろしいですか？")) return;
+        
+        try {
+            const res = await fetch(`/api/knowledge/${selectedArticleId}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                setSelectedArticleId(null);
+                setIsEditing(false);
+                fetchArticles(selectedTag);
+            }
+        } catch (error) {
+            console.error("Failed to delete", error);
+        }
+    };
+
+    const selectedArticle = articles.find(a => a.id === selectedArticleId);
+
+    return (
+        <div className="w-full h-full bg-[#1e1e1e] text-[#d4d4d4] flex font-sans overflow-hidden">
+            {/* Left Sidebar: Tags */}
+            <div className="w-48 border-r border-[#333] bg-[#252526] flex flex-col justify-between">
+                <div className="overflow-y-auto p-3">
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 px-2">Tags</h3>
+                    
+                    <div 
+                        className={`px-3 py-1.5 rounded text-sm cursor-pointer mb-1 ${!selectedTag ? 'bg-[#37373d] text-white' : 'hover:bg-[#2a2d2e]'}`}
+                        onClick={() => { setSelectedTag(null); setSelectedArticleId(null); setIsEditing(false); }}
+                    >
+                        # すべての記事
+                    </div>
+
+                    {allTags.map(tag => (
+                        <div 
+                            key={tag}
+                            className={`px-3 py-1.5 rounded text-sm flex items-center cursor-pointer mb-1 ${selectedTag === tag ? 'bg-[#007acc] text-white' : 'hover:bg-[#2a2d2e]'}`}
+                            onClick={() => { setSelectedTag(tag); setSelectedArticleId(null); setIsEditing(false); }}
+                        >
+                            <span className="w-2 h-2 rounded-full bg-blue-500 mr-2 opacity-70"></span>
+                            {tag}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Middle: Article List */}
+            <div className="w-64 border-r border-[#333] bg-[#1e1e1e] flex flex-col">
+                <div className="p-3 border-b border-[#333] flex justify-between items-center bg-[#252526]">
+                    <h2 className="font-semibold text-sm">Articles</h2>
+                    <button 
+                        onClick={handleCreateNew}
+                        className="w-6 h-6 rounded bg-blue-600 hover:bg-blue-500 text-white flex justify-center items-center font-bold"
+                        title="New Article"
+                    >
+                        +
+                    </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-2">
+                    {isLoading ? (
+                        <div className="text-xs text-gray-500 text-center mt-4">Loading...</div>
+                    ) : articles.length === 0 ? (
+                        <div className="text-xs text-gray-500 text-center mt-4">記事がありません</div>
+                    ) : (
+                        articles.map(article => (
+                            <div 
+                                key={article.id}
+                                className={`p-3 border-b border-[#2d2d2d] cursor-pointer hover:bg-[#2a2d2e] rounded mb-1 transition-colors ${selectedArticleId === article.id ? 'bg-[#37373d]' : ''}`}
+                                onClick={() => handleSelectArticle(article)}
+                            >
+                                <div className="font-medium text-sm truncate">{article.title}</div>
+                                <div className="text-xs text-gray-400 mt-1 truncate">
+                                    {(article.content || 'No content').substring(0, 50)}
+                                </div>
+                                <div className="flex gap-1 mt-2 flex-wrap">
+                                    {Array.isArray(article.tags) && article.tags.slice(0,3).map(tag => (
+                                        <span key={tag} className="text-[10px] bg-[#333] px-1.5 py-0.5 rounded text-gray-300">
+                                            {tag}
+                                        </span>
+                                    ))}
+                                </div>
+                                <div className="text-[10px] text-gray-500 mt-2 text-right">
+                                    {new Date(article.updated_at).toLocaleDateString()}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+
+            {/* Right: Preview / Editor */}
+            <div className="flex-1 bg-[#1e1e1e] flex flex-col h-full relative">
+                {(selectedArticleId || isEditing) ? (
+                    isEditing ? (
+                        /* Editor View */
+                        <div className="flex flex-col h-full p-6 max-w-4xl mx-auto w-full">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-lg font-bold">{selectedArticleId ? 'Edit Article' : 'New Article'}</h2>
+                                <div className="flex gap-3">
+                                    {selectedArticleId && (
+                                        <button onClick={() => setIsEditing(false)} className="px-4 py-1.5 text-sm bg-gray-600 hover:bg-gray-500 rounded">
+                                            キャンセル
+                                        </button>
+                                    )}
+                                    <button onClick={handleSave} className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded font-medium">
+                                        保存
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <input 
+                                type="text"
+                                placeholder="記事のタイトル"
+                                value={editForm.title}
+                                onChange={(e) => setEditForm({...editForm, title: e.target.value})}
+                                className="w-full bg-[#252526] border border-[#3c3c3c] rounded p-3 mb-4 text-white text-lg focus:outline-none focus:border-blue-500"
+                            />
+                            
+                            <input 
+                                type="text"
+                                placeholder="タグ カンマ区切り (例: 開発, サーバー, トラブルシューティング)"
+                                value={editForm.tags}
+                                onChange={(e) => setEditForm({...editForm, tags: e.target.value})}
+                                className="w-full bg-[#252526] border border-[#3c3c3c] rounded p-2 mb-4 text-white text-sm focus:outline-none focus:border-blue-500"
+                            />
+                            
+                            <textarea 
+                                placeholder="Markdownで記事の内容を記述してください..."
+                                value={editForm.content}
+                                onChange={(e) => setEditForm({...editForm, content: e.target.value})}
+                                className="w-full flex-1 bg-[#1e1e1e] border border-[#3c3c3c] rounded p-4 text-[#d4d4d4] font-mono text-sm resize-none focus:outline-none focus:border-blue-500"
+                            />
+                        </div>
+                    ) : (
+                        /* Reader View */
+                        <div className="flex flex-col h-full p-8 max-w-4xl mx-auto w-full overflow-y-auto">
+                            <div className="flex justify-between items-start mb-6">
+                                <div className="flex-1">
+                                    <h1 className="text-3xl font-bold text-white mb-3 tracking-tight">{selectedArticle?.title}</h1>
+                                    <div className="flex items-center gap-3 text-xs text-gray-400">
+                                        <span>Author: {selectedArticle?.author_name || 'System'}</span>
+                                        <span>•</span>
+                                        <span>{new Date(selectedArticle?.updated_at || Date.now()).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex gap-2 mt-4 flex-wrap">
+                                        {Array.isArray(selectedArticle?.tags) && selectedArticle.tags.map(tag => (
+                                            <span key={tag} className="text-xs bg-[#2a2d2e] border border-[#3c3c3c] px-2 py-1 rounded-full text-blue-300 shadow-sm cursor-pointer hover:bg-[#333]" onClick={() => setSelectedTag(tag)}>
+                                                #{tag}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 ml-4">
+                                    <button onClick={() => setIsEditing(true)} className="px-3 py-1.5 text-sm bg-[#37373d] hover:bg-[#4d4d54] text-white rounded shadow transition-colors">
+                                        編集
+                                    </button>
+                                    <button onClick={handleDelete} className="px-3 py-1.5 text-sm bg-red-900/50 hover:bg-red-800 text-red-100 rounded border border-red-800/50 transition-colors">
+                                        削除
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <hr className="border-[#333] my-6" />
+                            
+                            <div className="prose prose-invert max-w-none text-gray-300 leading-relaxed font-sans whitespace-pre-wrap">
+                                {selectedArticle?.content || <em className="text-gray-500">No content provided.</em>}
+                            </div>
+                        </div>
+                    )
+                ) : (
+                    /* Empty State */
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-4 text-[#333]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                        <p className="text-lg font-medium">ナレッジベース</p>
+                        <p className="text-sm mt-2">左のリストから記事を選択するか、新しく作成してください。</p>
+                        <button 
+                            onClick={handleCreateNew}
+                            className="mt-6 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md font-medium text-sm transition-colors shadow-lg"
+                        >
+                            新しい記事を作成
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default KnowledgeBase;

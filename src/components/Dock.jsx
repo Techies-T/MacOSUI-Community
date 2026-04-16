@@ -11,6 +11,7 @@ const Dock = ({ onAppClick, windows = [] }) => {
         { id: 'notes', name: 'Notes', icon: '🗒️' },
         { id: 'html-editor', name: 'HTML Editor', icon: '📰' }, // Added HTML Editor
         { id: 'calendar', name: 'Calendar', icon: '📅' },
+        { id: 'knowledge-base', name: 'Knowledge', icon: '📚' },
         { id: 'gemini', name: 'Gemini', icon: '✨' },
         {
             id: 'deep-research', name: 'Deep Research', icon: (

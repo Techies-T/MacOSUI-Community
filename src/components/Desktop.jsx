@@ -91,6 +91,9 @@ const Desktop = ({ user, onLogout }) => {
       } else if (type === 'app-monitor') {
         width = 650;
         height = 450;
+      } else if (type === 'knowledge-base') {
+        width = 900;
+        height = 650;
       }
 
       return [...prev, {
@@ -179,6 +182,7 @@ const Desktop = ({ user, onLogout }) => {
             notes: 'Notes',
             finder: 'Finder',
             gemini: 'Gemini AI',
+            'knowledge-base': 'Knowledge Base',
             'deep-research': 'Deep Research',
             settings: 'System Settings',
             browser: 'Safari',

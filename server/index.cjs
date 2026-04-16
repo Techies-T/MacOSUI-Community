@@ -171,6 +171,10 @@ const { google } = require('googleapis');
 const deepResearchModule = require('./routes/deepResearch.cjs');
 app.use('/api/research', deepResearchModule.router);
 
+// Import new Knowledge Base route
+const knowledgeModule = require('./routes/knowledge.cjs');
+app.use('/api/knowledge', requireAuth, knowledgeModule.router);
+
 // MCP Tool Execution Route
 const { callMcpTool } = require('./mcpClient.cjs');
 
@@ -323,6 +327,19 @@ app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('token');
     res.json({ message: 'Logged out' });
 });
+
+// Middleware to check user auth
+function requireAuth(req, res, next) {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+        if (err) {
+            return res.status(403).json({ error: 'Invalid or expired token' });
+        }
+        req.user = decoded;
+        next();
+    });
+}
 
 // Middleware to check admin role
 function requireAdmin(req, res, next) {

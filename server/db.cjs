@@ -110,6 +110,18 @@ function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    // Knowledge Base Articles
+    db.run(`CREATE TABLE IF NOT EXISTS knowledge_articles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content TEXT,
+        tags TEXT,
+        author_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(author_id) REFERENCES users(id)
+    )`);
 }
 
 const { encrypt, decrypt } = require('./crypto.cjs');
