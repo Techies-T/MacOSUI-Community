@@ -44,6 +44,21 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'Server is running' });
 });
 
+// Deep Research Published Reports (Public via UUID)
+app.get('/reports/:id', (req, res) => {
+    // Strip .html if provided by the user for convenience
+    const id = req.params.id.replace(/\.html$/, '');
+    
+    db.get("SELECT content, mime_type FROM published_reports WHERE id = ?", [id], (err, row) => {
+        if (err || !row) {
+            return res.status(404).send('<h1>404 Not Found</h1><p>The requested report does not exist or has been removed.</p>');
+        }
+        res.type(row.mime_type || 'text/html');
+        // Serve raw content directly
+        res.send(row.content);
+    });
+});
+
 // Config: Get public config and status
 app.get('/api/config', async (req, res) => {
     console.log("Config endpoint hit");

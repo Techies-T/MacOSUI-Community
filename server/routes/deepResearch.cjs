@@ -133,6 +133,47 @@ router.post('/start', async (req, res) => {
     }
 });
 
+router.post('/publish', async (req, res) => {
+    try {
+        const { title, content, mimeType } = req.body;
+        if (!content) {
+            return res.status(400).json({ error: 'Content is required to publish' });
+        }
+
+        const token = req.cookies.token;
+        if (!token) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+        
+        try {
+            jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        } catch (e) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+
+        const crypto = require('crypto');
+        const id = crypto.randomUUID();
+        const safeMimeType = mimeType || 'text/html';
+        const safeTitle = title || 'Untitled Report';
+
+        await new Promise((resolve, reject) => {
+            db.run(
+                "INSERT INTO published_reports (id, title, content, mime_type) VALUES (?, ?, ?, ?)",
+                [id, safeTitle, content, safeMimeType],
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        });
+
+        res.json({ success: true, id });
+    } catch (error) {
+        console.error("Publish Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 router.get('/status/:id', (req, res) => {
     const { id } = req.params;
     const job = researchJobs[id];

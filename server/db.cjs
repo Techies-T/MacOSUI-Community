@@ -63,6 +63,14 @@ function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS published_reports (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        content TEXT,
+        mime_type TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT

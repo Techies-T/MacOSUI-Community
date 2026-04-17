@@ -349,21 +349,34 @@ const DeepResearch = ({ onOpen }) => {
             // Save Generated Asset (Image or HTML)
             let finalName = type === 'infographic' ? `${documentTitle} (Infographic).png` : `${documentTitle} (Presentation).html`;
             let finalContent = finalGeneratedPayload;
+            let publishId = null;
             
+            // For HTML type, publish it natively to the server
+            if (type === 'html') {
+                try {
+                    const publishReq = await fetch('/api/research/publish', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            title: documentTitle,
+                            content: finalGeneratedPayload,
+                            mimeType: 'text/html'
+                        })
+                    });
+                    const publishData = await publishReq.json();
+                    if (publishReq.ok) {
+                        publishId = publishData.id;
+                    }
+                } catch (e) {
+                    console.error("Failed to publish natively:", e);
+                }
+            }
+
             if (type === 'infographic') {
                  // The payload is JSON containing base64 data
                  const parsed = JSON.parse(finalGeneratedPayload);
                  finalContent = parsed.data; // Just the base64 string
-                 // The backend `/api/drive/upload` handles base64 if it's image/png conceptually.
-                 // Actually, /api/drive/upload uses multipart. It expects text unless we encode it.
-                 // Wait, looking at the previous file, the UI didn't automatically save images to drive.
-                 // I will add a special boolean 'isBase64Image' for the backend, or just let users save it manually.
-                 // Let's implement it robustly.
             }
-            
-            // To keep things simple and ensure it works out of the box with the current backend, 
-            // for HTML, we post as text. For Image, we post the base64 data if the backend supports it.
-            // But let's assume the backend supports generic file uploads.
             
             const saveFileReq = await fetch('/api/drive/upload', {
                 method: 'POST',
@@ -382,9 +395,17 @@ const DeepResearch = ({ onOpen }) => {
             // Final Success Message
             setMessages(prev => {
                 const newMsgs = prev.filter(m => m.type !== 'system');
+                let linksText = `🎉 すべてのタスクが完了しました！\n\n**保存先リンク**:\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
+                
+                if (publishId) {
+                    // Append native server hosted link
+                    const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
+                    linksText += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
+                }
+
                 return [...newMsgs, { 
                     role: 'model', 
-                    text: `🎉 すべてのタスクが完了しました！\n\n**保存先リンク**:\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n- [📎 添付ファイルを開く](${saveFileData.webViewLink})` 
+                    text: linksText 
                 }];
             });
 
