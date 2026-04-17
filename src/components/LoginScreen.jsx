@@ -37,7 +37,8 @@ const LoginScreen = ({ onLogin }) => {
             }
         },
         flow: 'auth-code',
-        scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar'
+        scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar',
+        prompt: 'consent' // ALWAYS request consent to ensure we get a refresh_token even on the staging DB
     });
 
     return (
