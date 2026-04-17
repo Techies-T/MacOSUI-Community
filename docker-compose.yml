@@ -25,6 +25,8 @@ services:
     volumes:
       - ./server/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       # get-letsencrypt.sh で取得した証明書ファイルをマウント
+      # ネイティブLinux（VPS）ではシンボリックリンク解決のためにarchive自体のマウントが必須
+      - ./certbot/archive:/etc/archive:ro
       # ※ 事前に証明書を取得していないとNGINXコンテナがエラーで起動しません
       - ./certbot/live/${DOMAIN_NAME:-xxx.techiespod.co.jp}/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
       - ./certbot/live/${DOMAIN_NAME:-xxx.techiespod.co.jp}/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
