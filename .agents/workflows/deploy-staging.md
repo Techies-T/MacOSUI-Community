@@ -1,0 +1,45 @@
+---
+description: ステージングへのデプロイ準備から脆弱性チェック、プッシュ、外部稼働確認までの一連フロー(Built-in Quality)
+---
+
+このワークフローは、**ステージング環境（さくらVPS）**へ安全かつ確実に本番同等の品質でデプロイを行うための自動化手順です。
+
+> [!IMPORTANT]
+> このワークフローの自動デプロイ機能を利用するには、GitHubの対象リポジトリの `Settings > Secrets and variables > Actions` に以下のSecretが設定されている必要があります。
+> 1. `STAGING_HOST_IP` (133.167.105.49)
+> 2. `STAGING_USER` (debian)
+> 3. `STAGING_SSH_PRIVATE_KEY` (ローカルのSSH秘密鍵の中身)
+
+---
+
+### 1. セキュリティ診断と事前チェック (Local)
+// turbo
+1. Node.js パッケージの脆弱性診断を実施し、コンソールにレポートを出力します。
+   ```bash
+   npm audit
+   ```
+   > [!WARNING]
+   > `CRITICAL` または `HIGH` の脆弱性が発見された場合は、`npm audit fix` 等の対応を実施してから次のステップに進んでください。
+
+### 2. コードのコミットとStagingへのPush
+2. Gitの現在の変更内容を確認し、問題なければコミットとプッシュを行います。メッセージは変更内容に合わせて柔軟に対応します。
+   ```bash
+   git add .
+   git commit -m "chore: deploy to staging"
+   git push origin staging
+   ```
+   > [!NOTE]
+   > この `push` をトリガーとして、GitHub Actionsのサーバー上で自動デプロイ処理（Rsync + Dockerビルド・再起動）が開始されます。
+
+### 3. GitHub Actions による自動デプロイ監視
+3. ブラウザでGitHubのActionsページ（`https://github.com/minoru61/MacOSUI/actions`）を開き、最新のワークフローがエラーなく完了するかを確認してください。
+   目安として、完了までに1分〜2分程度かかります。
+
+### 4. ステージング環境の稼働確認（ヘルスチェック）
+// turbo
+4. 数分待機した後、本番さくらサーバーURLへリクエストを投げ、バックエンドが正常に応答するか（status: 'ok'）検証します。
+   ```bash
+   sleep 30 && curl -s https://macosui-staging.techiespod.co.jp/api/health
+   ```
+   > [!TIP]
+   > レスポンスに `{"status":"ok","message":"Server is running"}` と表示されれば、新バージョンのデプロイと起動は無事成功しています！
