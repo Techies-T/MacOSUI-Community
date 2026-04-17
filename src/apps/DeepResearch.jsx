@@ -392,6 +392,48 @@ const DeepResearch = ({ onOpen }) => {
             const saveFileData = await saveFileReq.json();
             if (!saveFileReq.ok) throw new Error(saveFileData.error || "Failed to save asset to Drive");
 
+            // ==========================================
+            // Task 4: Auto-Index to Library (Knowledge Base)
+            // ==========================================
+            let indexingSuccess = false;
+            try {
+                let markdownLinks = `**保存先リンク**:\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
+                if (publishId) {
+                    const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
+                    markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
+                }
+                
+                const indexContent = `**実行日時:** ${new Date().toLocaleString()}\n**調査クエリ:**\n> ${userQuery}\n\n${markdownLinks}\n\n## リサーチ要約\n${reportText.substring(0, 1500)}...`;
+
+                const extractReq = await fetch('/api/research/extract-tags', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: reportText })
+                });
+                
+                let knowledgeTags = ['DeepResearch', type === 'html' ? 'HTML' : 'Infographic'];
+                if (extractReq.ok) {
+                    const extracted = await extractReq.json();
+                    if (extracted.tags && Array.isArray(extracted.tags)) {
+                         knowledgeTags = [...knowledgeTags, ...extracted.tags];
+                    }
+                }
+
+                const postIndexReq = await fetch('/api/knowledge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: documentTitle,
+                        content: indexContent,
+                        tags: Array.from(new Set(knowledgeTags)) // Deduplicate
+                    })
+                });
+                
+                if (postIndexReq.ok) indexingSuccess = true;
+            } catch (indexError) {
+                console.error("Auto-Indexing Failed:", indexError);
+            }
+
             // Final Success Message
             setMessages(prev => {
                 const newMsgs = prev.filter(m => m.type !== 'system');
@@ -401,6 +443,10 @@ const DeepResearch = ({ onOpen }) => {
                     // Append native server hosted link
                     const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
                     linksText += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
+                }
+                
+                if (indexingSuccess) {
+                    linksText += `\n\n📚 **図書館のインデックス（ナレッジベース）へ自動登録しました！**`;
                 }
 
                 return [...newMsgs, { 

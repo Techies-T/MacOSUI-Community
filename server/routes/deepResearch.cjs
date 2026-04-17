@@ -133,6 +133,46 @@ router.post('/start', async (req, res) => {
     }
 });
 
+router.post('/extract-tags', async (req, res) => {
+    try {
+        const { text } = req.body;
+        if (!text) {
+            return res.status(400).json({ error: 'Text is required for tag extraction' });
+        }
+
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ error: 'Gemini API Key not configured' });
+        }
+
+        const token = req.cookies.token;
+        if (!token) return res.status(401).json({ error: 'Not authenticated' });
+        try {
+            jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        } catch (e) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+
+        const genAI = new GoogleGenAI({ apiKey });
+        // Use flash-lite or base flash for fast inference
+        const model = await db.getSetting('GEMINI_MODEL') || process.env.GEMINI_MODEL || 'models/gemini-2.5-flash';
+        
+        const prompt = `以下のリサーチ結果から、インデックス検索に役立つ重要なキーワードを3〜5つ抽出し、カンマ区切りで出力してください。その他の解説は一切不要です。\n\nリサーチ内容:\n${text.substring(0, 3000)}`;
+
+        const response = await genAI.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        const reply = response.text || "";
+        const tags = reply.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        res.json({ tags });
+    } catch (error) {
+        console.error("Tag Extraction Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 router.post('/publish', async (req, res) => {
     try {
         const { title, content, mimeType } = req.body;
