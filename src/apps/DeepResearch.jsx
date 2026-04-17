@@ -50,10 +50,10 @@ const DeepResearch = ({ onOpen }) => {
     };
 
     // Phase 1: Planning and Confirmation
-    const requestPipeline = async (type, bypassHistory = false) => {
+    const requestPipeline = async (type, bypassHistory = false, explicitQuery = null) => {
         if (!hasAccess) return;
         
-        const userQuery = bypassHistory ? pendingQuery : input.trim();
+        const userQuery = bypassHistory ? (explicitQuery || pendingQuery) : input.trim();
         if (!userQuery || isLoading) return;
 
         if (!bypassHistory) {
@@ -88,7 +88,7 @@ const DeepResearch = ({ onOpen }) => {
                         text: `⚠️ **過去に似たテーマが調査されています:**\n${hData.matches.map(m => `・[${new Date(m.created_at).toLocaleDateString()}] ${m.query_text} (${m.status})`).join('\n')}\n\n本当に新しくリサーチを実施しますか？`,
                         component: (
                             <div className="mt-4 flex gap-3">
-                                <button onClick={() => requestPipeline(type, true)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                                <button onClick={() => requestPipeline(type, true, userQuery)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                                     ▶ 無視して新規作成
                                 </button>
                                 <button onClick={cancelPipeline} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
