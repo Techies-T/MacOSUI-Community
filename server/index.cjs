@@ -236,17 +236,18 @@ app.post('/api/auth/google', async (req, res) => {
         const avatarUrl = payload.picture;
         const accessToken = encrypt(tokens.access_token);
         const refreshToken = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
+        const expiryDate = tokens.expiry_date || null;
 
         // 1. Check if user already exists
         db.get("SELECT * FROM users WHERE google_id = ? OR email = ?", [googleId, email], (err, existingUser) => {
             if (err) return res.status(500).json({ error: 'Database error' });
 
             const proceedWithLogin = (role) => {
-                db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?) 
+                db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role, token_expiry) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
                     ON CONFLICT(google_id) DO UPDATE SET 
-                    email=excluded.email, name=excluded.name, avatar_url=excluded.avatar_url, access_token=excluded.access_token` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
-                    [googleId, email, name, avatarUrl, accessToken, refreshToken || null, role],
+                    email=excluded.email, name=excluded.name, avatar_url=excluded.avatar_url, access_token=excluded.access_token, token_expiry=excluded.token_expiry` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
+                    [googleId, email, name, avatarUrl, accessToken, refreshToken || null, role, expiryDate],
                     function (err) {
                         if (err) {
                             console.error("DB Upsert Error:", err);
@@ -1525,7 +1526,7 @@ async function getDriveClient(req, res) {
             }
 
             // Get user tokens from DB
-            db.get("SELECT access_token, refresh_token FROM users WHERE google_id = ?", [decoded.googleId], async (err, row) => {
+            db.get("SELECT access_token, refresh_token, token_expiry FROM users WHERE google_id = ?", [decoded.googleId], async (err, row) => {
                 if (err) {
                     console.error("DB Error in getDriveClient:", err);
                     res.status(500).json({ error: 'Database error' });
@@ -1539,20 +1540,22 @@ async function getDriveClient(req, res) {
                     return;
                 }
 
-                console.log(`Drive Client: Using token for user ${decoded.googleId}. Has Refresh Token: ${!!row.refresh_token}`);
+                console.log(`Drive Client: Using token for user ${decoded.googleId}. Has Refresh Token: ${!!row.refresh_token}. Expiry: ${row.token_expiry}`);
 
                 const oAuth2Client = await getOAuthClient();
                 oAuth2Client.setCredentials({
                     access_token: decrypt(row.access_token),
-                    refresh_token: row.refresh_token ? decrypt(row.refresh_token) : undefined
+                    refresh_token: row.refresh_token ? decrypt(row.refresh_token) : undefined,
+                    // If token_expiry is missing in DB (old records), send 1 to force immediate refresh
+                    expiry_date: row.token_expiry || 1 
                 });
 
                 // Listen for new tokens and update DB
                 oAuth2Client.on('tokens', (tokens) => {
                     console.log("OAuth Client: Received new tokens");
                     if (tokens.access_token) {
-                        const updateSql = `UPDATE users SET access_token = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
-                        const params = [encrypt(tokens.access_token)];
+                        const updateSql = `UPDATE users SET access_token = ?, token_expiry = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
+                        const params = [encrypt(tokens.access_token), tokens.expiry_date || null];
                         if (tokens.refresh_token) params.push(encrypt(tokens.refresh_token));
                         params.push(decoded.googleId);
 
@@ -1565,7 +1568,7 @@ async function getDriveClient(req, res) {
 
                 // Force token refresh check
                 try {
-                    // This will refresh the token if it's expired
+                    // This will actively fetch a new token if expiry_date is null/past due
                     await oAuth2Client.getAccessToken();
                 } catch (tokenErr) {
                     console.error("Failed to refresh access token:", tokenErr);

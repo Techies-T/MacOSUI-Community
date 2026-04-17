@@ -47,6 +47,9 @@ function initDb() {
     db.run("ALTER TABLE users ADD COLUMN deep_research_enabled INTEGER DEFAULT 0", (err) => {
         // Ignore error if column exists
     });
+    db.run("ALTER TABLE users ADD COLUMN token_expiry INTEGER", (err) => {
+        // Ignore error if column exists
+    });
 
     db.run(`CREATE TABLE IF NOT EXISTS deep_research_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
