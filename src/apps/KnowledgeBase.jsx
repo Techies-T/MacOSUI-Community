@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import ErrorBoundary from './ErrorBoundary';
+
 
 const KnowledgeBase = () => {
     const [articles, setArticles] = useState([]);
@@ -54,14 +56,33 @@ const KnowledgeBase = () => {
         setIsEditing(true);
     };
 
-    const handleSelectArticle = (article) => {
+    const handleSelectArticle = async (article) => {
+        // Optimistically set title, content is populated after fetch finishes
         setSelectedArticleId(article.id);
         setEditForm({
             title: article.title,
-            content: article.content || '',
+            content: article.content || '読み込み中...',
             tags: Array.isArray(article.tags) ? article.tags.join(', ') : ''
         });
         setIsEditing(false);
+
+        try {
+            const res = await fetch(`/api/knowledge/${article.id}`);
+            if (res.ok) {
+                const fullArticle = await res.json();
+                
+                // Update the state with fetched full article
+                setArticles(prev => prev.map(a => a.id === fullArticle.id ? { ...a, content: fullArticle.content } : a));
+                
+                setEditForm({
+                    title: fullArticle.title,
+                    content: fullArticle.content || '',
+                    tags: Array.isArray(fullArticle.tags) ? fullArticle.tags.join(', ') : ''
+                });
+            }
+        } catch (error) {
+            console.error("Failed to fetch full article data", error);
+        }
     };
 
     const handleSave = async () => {
@@ -117,6 +138,50 @@ const KnowledgeBase = () => {
             }
         } catch (error) {
             console.error("Failed to delete", error);
+        }
+    };
+
+    const renderMarkdownLinks = (text) => {
+        try {
+            if (!text) return <em className="text-gray-500">No content provided.</em>;
+            
+            return text.split('\n').map((line, i) => {
+                const processText = (str, idxContext) => {
+                    if (!str) return null;
+                    const parts = str.split(/(\[.*?\]\(.*?\))/g);
+                    return parts.map((part, pIdx) => {
+                        if (!part) return null;
+                        const match = part.match(/^\[(.*?)\]\((.*?)\)$/);
+                        if (match) {
+                            return <a key={`${idxContext}-a-${pIdx}`} href={match[2]} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">{match[1]}</a>;
+                        }
+                        
+                        // Bold
+                        const boldParts = part.split(/(\*\*.*?\*\*)/g);
+                        return boldParts.map((bp, bIdx) => {
+                            if (!bp) return null;
+                            if (bp.startsWith('**') && bp.endsWith('**') && bp.length > 4) {
+                                return <strong key={`${idxContext}-b-${pIdx}-${bIdx}`} className="text-white">{bp.slice(2, -2)}</strong>;
+                            }
+                            return <span key={`${idxContext}-s-${pIdx}-${bIdx}`}>{bp}</span>;
+                        });
+                    });
+                };
+
+                if (line.startsWith('## ')) return <h2 key={i} className="text-xl font-bold mt-4 mb-2 text-white">{processText(line.replace('## ', ''), i)}</h2>;
+                if (line.startsWith('# ')) return <h1 key={i} className="text-2xl font-bold mt-4 mb-2 text-white">{processText(line.replace('# ', ''), i)}</h1>;
+                if (line.startsWith('> ')) return <blockquote key={i} className="border-l-4 border-gray-600 pl-4 py-1 italic text-gray-400 my-2">{processText(line.replace('> ', ''), i)}</blockquote>;
+                if (line.startsWith('- ')) return <li key={i} className="ml-4 list-disc marker:text-gray-500">{processText(line.substring(2), i)}</li>;
+                
+                return (
+                    <div key={i} className="min-h-[1.25em]">
+                        {processText(line, i)}
+                    </div>
+                );
+            });
+        } catch (error) {
+            console.error("Markdown parse error:", error);
+            return <div className="text-red-500 p-4 border border-red-500 rounded bg-red-900/20">記事のレンダリング中にエラーが発生しました。</div>;
         }
     };
 
@@ -238,6 +303,7 @@ const KnowledgeBase = () => {
                         </div>
                     ) : (
                         /* Reader View */
+                        <ErrorBoundary>
                         <div className="flex flex-col h-full p-8 max-w-4xl mx-auto w-full overflow-y-auto">
                             <div className="flex justify-between items-start mb-6">
                                 <div className="flex-1">
@@ -267,10 +333,11 @@ const KnowledgeBase = () => {
                             
                             <hr className="border-[#333] my-6" />
                             
-                            <div className="prose prose-invert max-w-none text-gray-300 leading-relaxed font-sans whitespace-pre-wrap">
-                                {selectedArticle?.content || <em className="text-gray-500">No content provided.</em>}
+                            <div className="prose prose-invert max-w-none text-gray-300 leading-relaxed font-sans mt-2">
+                                {renderMarkdownLinks(selectedArticle?.content)}
                             </div>
                         </div>
+                        </ErrorBoundary>
                     )
                 ) : (
                     /* Empty State */
