@@ -3,12 +3,14 @@ description: ステージングへのデプロイ準備から脆弱性チェッ�
 ---
 
 このワークフローは、**ステージング環境（さくらVPS）**へ安全かつ確実に本番同等の品質でデプロイを行うための自動化手順です。
+現在、本プロジェクトは **GitHub Container Registry (GHCR)** を利用したコンテナプロビジョニングへと移行済みです。重たいビルド処理やイメージの保管はGitHub Actionsが担当します。
 
 > [!IMPORTANT]
-> このワークフローの自動デプロイ機能を利用するには、GitHubの対象リポジトリの `Settings > Secrets and variables > Actions` に以下のSecretが設定されている必要があります。
+> このワークフローの自動デプロイ機能を利用するには、GitHubのリポジトリに以下のSecretが設定されている必要があります。
 > 1. `STAGING_HOST_IP` (133.167.105.49)
 > 2. `STAGING_USER` (debian)
 > 3. `STAGING_SSH_PRIVATE_KEY` (ローカルのSSH秘密鍵の中身)
+> 4. `GHCR_PAT` (GitHubパッケージへのアクセス権限を持つPersonal Access Token)
 
 ---
 
@@ -45,9 +47,9 @@ description: ステージングへのデプロイ準備から脆弱性チェッ�
 
 ### 4. ステージング環境の稼働確認（ヘルスチェック）
 // turbo
-4. 数分待機した後、本番さくらサーバーURLへリクエストを投げ、バックエンドが正常に応答するか（status: 'ok'）検証します。
+4. 数分待機した後、本番さくらサーバーURLへリクエストを投げ、バックエンドが正常に応答するか検証します。
    ```bash
-   sleep 30 && curl -s https://macosui-staging.techiespod.co.jp/api/health
+   sleep 10 && curl -s https://macosui-staging.techiespod.co.jp/api/health
    ```
    > [!TIP]
-   > レスポンスに `{"status":"ok","message":"Server is running"}` と表示されれば、新バージョンのデプロイと起動は無事成功しています！
+   > レスポンスに `{"status":"ok","message":"Server is running"}` と表示されれば、新コンテナからの応答が正常に返ってきています！

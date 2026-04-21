@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   web:
+    image: ${WEB_IMAGE:-macosui-local}
     build: .
     container_name: macosui-web
     # 本番・ステージング運用時はコンテナ内のdbファイルと、環境に合わせたenvファイルをマウントする
