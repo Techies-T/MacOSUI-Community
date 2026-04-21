@@ -28,16 +28,21 @@ description: ローカル用Dockerコンテナのビルド、脆弱性診断、�
 
 ### 3. コンテナの起動と稼働確認
 // turbo
-4. 既存の同名コンテナがある場合は削除し、起動します。
+4. ローカル開発環境のDockerコンテナ全体を最新のソースコードでリビルドし、再構築・起動します。
    ```bash
-   docker rm -f macosui-dev || true
-   docker run -d --name macosui-dev -p 8081:8080 -v "$(pwd)/server/database.sqlite:/app/server/database.sqlite" -v "$(pwd)/server/development.env:/app/server/development.env" macosui-local
+   docker compose up -d --build --force-recreate
    ```
 
 // turbo
-5. 数秒待機した後、ヘルスチェックAPIを叩いて接続確認を行います。
+5. NGINXコンテナを安全にリスケジュールするため、一度再起動します。
    ```bash
-   sleep 5 && curl -s http://localhost:8081/api/health
+   docker compose restart nginx
+   ```
+
+// turbo
+6. 数秒待機した後、ヘルスチェックAPIを叩いてバックエンドとの接続確認を行います。
+   ```bash
+   sleep 5 && curl -s http://localhost:8080/api/health
    ```
 
 // turbo

@@ -45,7 +45,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Deep Research Published Reports (Public via UUID)
-app.get('/reports/:id', (req, res) => {
+app.get('/reports/:id', requireAuthPage, (req, res) => {
     // Strip .html if provided by the user for convenience
     const id = req.params.id.replace(/\.html$/, '');
     
@@ -351,6 +351,39 @@ function requireAuth(req, res, next) {
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
         if (err) {
             return res.status(403).json({ error: 'Invalid or expired token' });
+        }
+        req.user = decoded;
+        next();
+    });
+}
+
+// Middleware for web pages (HTML) to gracefully redirect to login error
+function requireAuthPage(req, res, next) {
+    const token = req.cookies.token;
+    if (!token) {
+        return res.status(401).send(`
+            <html>
+            <head><style>body { font-family: sans-serif; background: #1e1e1e; color: #d4d4d4; padding: 2rem; } a { color: #58a6ff; }</style></head>
+            <body>
+            <h1>401 Unauthorized</h1>
+            <p>ご指定のレポートを閲覧する権限がありません。<br>Employee-Agentシステムにログインしてください。</p>
+            <p><a href="/">ログイン画面に戻る</a></p>
+            </body>
+            </html>
+        `);
+    }
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+        if (err) {
+            return res.status(403).send(`
+                <html>
+                <head><style>body { font-family: sans-serif; background: #1e1e1e; color: #d4d4d4; padding: 2rem; } a { color: #58a6ff; }</style></head>
+                <body>
+                <h1>403 Forbidden</h1>
+                <p>セッションの有効期限が切れているか、レポートを閲覧する権限がありません。</p>
+                <p><a href="/">ログイン画面に戻る</a></p>
+                </body>
+                </html>
+            `);
         }
         req.user = decoded;
         next();
