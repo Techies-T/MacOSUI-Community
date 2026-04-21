@@ -14,12 +14,20 @@ description: ステージングへのデプロイ準備から脆弱性チェッ�
 
 ### 1. セキュリティ診断と事前チェック (Local)
 // turbo
-1. Node.js パッケージの脆弱性診断を実施し、コンソールにレポートを出力します。
+1. Node.js パッケージのソースコードレベルの脆弱性診断を実施します。
    ```bash
-   npm audit
+   npm audit --audit-level=critical
    ```
-   > [!WARNING]
-   > `CRITICAL` または `HIGH` の脆弱性が発見された場合は、`npm audit fix` 等の対応を実施してから次のステップに進んでください。
+
+// turbo
+2. 実際にデプロイされるDockerイメージを一時ビルドし、コンテナ内部のOS層やベースイメージを含めた総合的なスキャン（Docker Scout）を実行します。
+   ```bash
+   docker build -t macosui-staging-test .
+   docker scout cves macosui-staging-test --exit-code --only-severity critical
+   ```
+   > [!CAUTION]
+   > `npm audit` または `docker scout` のスキャンで `CRITICAL`（致命的）な脆弱性が発見された場合は、**コマンドがエラー終了し、以降のステージングへのデプロイ作業は完全に中止（ブロック）されます**。
+   > 脆弱性を修正（`npm audit fix` や Dockerfileのベースイメージ更新など）するまでデプロイできません。
 
 ### 2. コードのコミットとStagingへのPush
 2. Gitの現在の変更内容を確認し、問題なければコミットとプッシュを行います。メッセージは変更内容に合わせて柔軟に対応します。

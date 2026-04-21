@@ -14,6 +14,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Security Check (Block on CRITICAL vulnerabilities)
+        run: |
+          npm ci
+          npm audit --audit-level=critical
+
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
