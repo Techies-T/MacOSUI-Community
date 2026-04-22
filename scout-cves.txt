@@ -1,0 +1,232 @@
+
+
+## Overview
+
+                   │       Analyzed Image        
+───────────────────┼─────────────────────────────
+ Target            │  macosui-local:latest       
+   digest          │  28fef2dcabda               
+   platform        │ linux/arm64                 
+   vulnerabilities │    1C     7H    13M     1L  
+   size            │ 142 MB                      
+   packages        │ 745                         
+
+
+## Packages and Vulnerabilities
+
+   1C     0H     0M     0L  protobufjs 7.5.4
+pkg:npm/protobufjs@7.5.4
+
+    ✗ CRITICAL CVE-2026-41242 [Improper Control of Generation of Code ('Code Injection')]
+      https://scout.docker.com/v/CVE-2026-41242?s=github&n=protobufjs&t=npm&vr=%3C7.5.5
+      Affected range : <7.5.5                                                          
+      Fixed version  : 7.5.5                                                           
+      CVSS Score     : 9.4                                                             
+      CVSS Vector    : CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H 
+    
+
+   0C     2H     1M     0L  vite 7.3.1
+pkg:npm/vite@7.3.1
+
+    ✗ HIGH CVE-2026-39364 [Incorrect Behavior Order: Validate Before Canonicalize]
+      https://scout.docker.com/v/CVE-2026-39364?s=github&n=vite&t=npm&vr=%3E%3D7.1.0%2C%3C%3D7.3.1
+      Affected range : >=7.1.0                                                         
+                     : <=7.3.1                                                         
+      Fixed version  : 7.3.2                                                           
+      CVSS Score     : 8.2                                                             
+      CVSS Vector    : CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N 
+    
+    ✗ HIGH CVE-2026-39363 [Exposure of Sensitive Information to an Unauthorized Actor]
+      https://scout.docker.com/v/CVE-2026-39363?s=github&n=vite&t=npm&vr=%3E%3D7.0.0%2C%3C%3D7.3.1
+      Affected range : >=7.0.0                                                         
+                     : <=7.3.1                                                         
+      Fixed version  : 7.3.2                                                           
+      CVSS Score     : 8.2                                                             
+      CVSS Vector    : CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N 
+    
+    ✗ MEDIUM CVE-2026-39365 [Exposure of Sensitive Information to an Unauthorized Actor]
+      https://scout.docker.com/v/CVE-2026-39365?s=github&n=vite&t=npm&vr=%3E%3D7.0.0%2C%3C%3D7.3.1
+      Affected range : >=7.0.0                                                         
+                     : <=7.3.1                                                         
+      Fixed version  : 7.3.2                                                           
+      CVSS Score     : 6.3                                                             
+      CVSS Vector    : CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N 
+    
+
+   0C     1H     1M     0L  path-to-regexp 8.3.0
+pkg:npm/path-to-regexp@8.3.0
+
+    ✗ HIGH CVE-2026-4926 [Inefficient Regular Expression Complexity]
+      https://scout.docker.com/v/CVE-2026-4926?s=github&n=path-to-regexp&t=npm&vr=%3E%3D8.0.0%2C%3C8.4.0
+      Affected range : >=8.0.0                                      
+                     : <8.4.0                                       
+      Fixed version  : 8.4.0                                        
+      CVSS Score     : 7.5                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H 
+    
+    ✗ MEDIUM CVE-2026-4923 [Inefficient Regular Expression Complexity]
+      https://scout.docker.com/v/CVE-2026-4923?s=github&n=path-to-regexp&t=npm&vr=%3E%3D8.0.0%2C%3C8.4.0
+      Affected range : >=8.0.0                                      
+                     : <8.4.0                                       
+      Fixed version  : 8.4.0                                        
+      CVSS Score     : 5.9                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H 
+    
+
+   0C     1H     1M     0L  picomatch 2.3.1
+pkg:npm/picomatch@2.3.1
+
+    ✗ HIGH CVE-2026-33671 [Inefficient Regular Expression Complexity]
+      https://scout.docker.com/v/CVE-2026-33671?s=github&n=picomatch&t=npm&vr=%3C2.3.2
+      Affected range : <2.3.2                                       
+      Fixed version  : 2.3.2                                        
+      CVSS Score     : 7.5                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H 
+    
+    ✗ MEDIUM CVE-2026-33672 [Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')]
+      https://scout.docker.com/v/CVE-2026-33672?s=github&n=picomatch&t=npm&vr=%3C2.3.2
+      Affected range : <2.3.2                                       
+      Fixed version  : 2.3.2                                        
+      CVSS Score     : 5.3                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N 
+    
+
+   0C     1H     1M     0L  picomatch 4.0.3
+pkg:npm/picomatch@4.0.3
+
+    ✗ HIGH CVE-2026-33671 [Inefficient Regular Expression Complexity]
+      https://scout.docker.com/v/CVE-2026-33671?s=github&n=picomatch&t=npm&vr=%3E%3D4.0.0%2C%3C4.0.4
+      Affected range : >=4.0.0                                      
+                     : <4.0.4                                       
+      Fixed version  : 4.0.4                                        
+      CVSS Score     : 7.5                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H 
+    
+    ✗ MEDIUM CVE-2026-33672 [Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')]
+      https://scout.docker.com/v/CVE-2026-33672?s=github&n=picomatch&t=npm&vr=%3E%3D4.0.0%2C%3C4.0.4
+      Affected range : >=4.0.0                                      
+                     : <4.0.4                                       
+      Fixed version  : 4.0.4                                        
+      CVSS Score     : 5.3                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N 
+    
+
+   0C     1H     0M     0L  flatted 3.4.0
+pkg:npm/flatted@3.4.0
+
+    ✗ HIGH CVE-2026-33228 [Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')]
+      https://scout.docker.com/v/CVE-2026-33228?s=github&n=flatted&t=npm&vr=%3C%3D3.4.1
+      Affected range : <=3.4.1                                                             
+      Fixed version  : 3.4.2                                                               
+      CVSS Score     : 8.9                                                                 
+      CVSS Vector    : CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:P 
+    
+
+   0C     1H     0M     0L  tar 7.5.10
+pkg:npm/tar@7.5.10
+
+    ✗ HIGH CVE-2026-31802 [Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')]
+      https://scout.docker.com/v/CVE-2026-31802?s=github&n=tar&t=npm&vr=%3C%3D7.5.10
+      Affected range : <=7.5.10                                                        
+      Fixed version  : 7.5.11                                                          
+      CVSS Score     : 8.2                                                             
+      CVSS Vector    : CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:H/SA:N 
+    
+
+   0C     0H     6M     0L  hono 4.12.8
+pkg:npm/hono@4.12.8
+
+    ✗ MEDIUM CVE-2026-39409 [Incorrect Behavior Order: Validate Before Canonicalize]
+      https://scout.docker.com/v/CVE-2026-39409?s=github&n=hono&t=npm&vr=%3C4.12.12
+      Affected range : <4.12.12                                                        
+      Fixed version  : 4.12.12                                                         
+      CVSS Score     : 6.3                                                             
+      CVSS Vector    : CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N 
+    
+    ✗ MEDIUM CVE-2026-39408 [Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')]
+      https://scout.docker.com/v/CVE-2026-39408?s=github&n=hono&t=npm&vr=%3E%3D4.0.0%2C%3C%3D4.12.11
+      Affected range : >=4.0.0                                                         
+                     : <=4.12.11                                                       
+      Fixed version  : 4.12.12                                                         
+      CVSS Score     : 5.9                                                             
+      CVSS Vector    : CVSS:4.0/AV:L/AC:H/AT:P/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N 
+    
+    ✗ MEDIUM GHSA-26pp-8wgv-hjvm [Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Request/Response Splitting')]
+      https://scout.docker.com/v/GHSA-26pp-8wgv-hjvm?s=github&n=hono&t=npm&vr=%3C4.12.12
+      Affected range : <4.12.12                                     
+      Fixed version  : 4.12.12                                      
+      CVSS Score     : 5.3                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L 
+    
+    ✗ MEDIUM CVE-2026-39407 [Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')]
+      https://scout.docker.com/v/CVE-2026-39407?s=github&n=hono&t=npm&vr=%3C4.12.12
+      Affected range : <4.12.12                                     
+      Fixed version  : 4.12.12                                      
+      CVSS Score     : 5.3                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N 
+    
+    ✗ MEDIUM CVE-2026-39410 [Improper Input Validation]
+      https://scout.docker.com/v/CVE-2026-39410?s=github&n=hono&t=npm&vr=%3C4.12.12
+      Affected range : <4.12.12                                     
+      Fixed version  : 4.12.12                                      
+      CVSS Score     : 4.8                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N 
+    
+    ✗ MEDIUM GHSA-458j-xx4x-4375 [Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')]
+      https://scout.docker.com/v/GHSA-458j-xx4x-4375?s=github&n=hono&t=npm&vr=%3C4.12.14
+      Affected range : <4.12.14                                     
+      Fixed version  : 4.12.14                                      
+      CVSS Score     : 4.3                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N 
+    
+
+   0C     0H     1M     0L  brace-expansion 5.0.4
+pkg:npm/brace-expansion@5.0.4
+
+    ✗ MEDIUM CVE-2026-33750 [Uncontrolled Resource Consumption]
+      https://scout.docker.com/v/CVE-2026-33750?s=github&n=brace-expansion&t=npm&vr=%3E%3D4.0.0%2C%3C5.0.5
+      Affected range : >=4.0.0                                      
+                     : <5.0.5                                       
+      Fixed version  : 5.0.5                                        
+      CVSS Score     : 6.5                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H 
+    
+
+   0C     0H     1M     0L  busybox 1.37.0-r30
+pkg:apk/alpine/busybox@1.37.0-r30?os_name=alpine&os_version=3.23
+
+    ✗ MEDIUM CVE-2025-60876
+      https://scout.docker.com/v/CVE-2025-60876?s=alpine&n=busybox&ns=alpine&t=apk&osn=alpine&osv=3.23&vr=%3C%3D1.37.0-r30
+      Affected range : <=1.37.0-r30 
+      Fixed version  : not fixed    
+    
+
+   0C     0H     1M     0L  @hono/node-server 1.19.11
+pkg:npm/%40hono/node-server@1.19.11
+
+    ✗ MEDIUM CVE-2026-39406 [Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')]
+      https://scout.docker.com/v/CVE-2026-39406?s=github&n=node-server&ns=%40hono&t=npm&vr=%3C1.19.13
+      Affected range : <1.19.13                                     
+      Fixed version  : 1.19.13                                      
+      CVSS Score     : 5.3                                          
+      CVSS Vector    : CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N 
+    
+
+   0C     0H     0M     1L  @tootallnate/once 1.1.2
+pkg:npm/%40tootallnate/once@1.1.2
+
+    ✗ LOW CVE-2026-3449 [Incorrect Control Flow Scoping]
+      https://scout.docker.com/v/CVE-2026-3449?s=github&n=once&ns=%40tootallnate&t=npm&vr=%3C3.0.1
+      Affected range : <3.0.1                                                              
+      Fixed version  : 3.0.1                                                               
+      CVSS Score     : 1.9                                                                 
+      CVSS Vector    : CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N/E:P 
+    
+
+
+22 vulnerabilities found in 12 packages
+  CRITICAL  1  
+  HIGH      7  
+  MEDIUM    13 
+  LOW       1  
+

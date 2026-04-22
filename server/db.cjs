@@ -183,6 +183,32 @@ db.setSetting = (key, value) => {
 // Auto-Activation Logic
 async function autoActivate() {
     try {
+        const existingPolicies = await db.getSetting('RBAC_POLICIES');
+        if (!existingPolicies) {
+            console.log('DEBUG: Initializing default RBAC policies...');
+            const defaultPolicies = JSON.stringify({
+                "admin": {
+                    "name": "Admin",
+                    "allowed_widgets": ["*"],
+                    "allowed_models": ["*"],
+                    "allowed_actions": ["*"]
+                },
+                "researcher": {
+                    "name": "Researcher",
+                    "allowed_widgets": ["app:deep-research", "app:knowledge-base", "app:gemini", "app:browser", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor"],
+                    "allowed_models": ["*"],
+                    "allowed_actions": ["action:generate_infographic"]
+                },
+                "user": {
+                    "name": "General User",
+                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser"],
+                    "allowed_models": ["model:gemini-flash"],
+                    "allowed_actions": []
+                }
+            });
+            await db.setSetting('RBAC_POLICIES', defaultPolicies);
+        }
+
         const existingClientId = await db.getSetting('GOOGLE_CLIENT_ID');
         const envClientId = process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
         const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;

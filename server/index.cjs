@@ -93,6 +93,13 @@ app.get('/api/config', async (req, res) => {
         const mcpClientSecret = await db.getSetting('MCP_CLIENT_SECRET');
         const isMcpSecretConfigured = !!mcpClientSecret;
 
+        let rbacPolicies;
+        try {
+            rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+        } catch (e) {
+            rbacPolicies = {};
+        }
+
         res.json({
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
@@ -111,7 +118,8 @@ app.get('/api/config', async (req, res) => {
             mcpServerEndpoint,
             mcpTokenUrl,
             mcpClientId,
-            isMcpSecretConfigured
+            isMcpSecretConfigured,
+            rbacPolicies
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -121,7 +129,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', requireAdmin, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -165,6 +173,10 @@ app.post('/api/config', requireAdmin, async (req, res) => {
         if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
         if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
         if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
+        
+        if (req.body.rbacPolicies) {
+            await db.setSetting('RBAC_POLICIES', JSON.stringify(req.body.rbacPolicies));
+        }
 
         res.json({ success: true });
     } catch (error) {
@@ -411,13 +423,13 @@ app.get('/api/users', requireAdmin, (req, res) => {
     });
 });
 
-app.put('/api/users/:id/deep-research', requireAdmin, (req, res) => {
+app.put('/api/users/:id/role', requireAdmin, (req, res) => {
     const { id } = req.params;
-    const { enabled } = req.body;
-    db.run("UPDATE users SET deep_research_enabled = ? WHERE id = ?", [enabled ? 1 : 0, id], function(err) {
+    const { role } = req.body;
+    db.run("UPDATE users SET role = ? WHERE id = ?", [role, id], function(err) {
         if (err) return res.status(500).json({ error: 'Database error' });
         if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
-        res.json({ success: true, deep_research_enabled: enabled ? 1 : 0 });
+        res.json({ success: true, role });
     });
 });
 

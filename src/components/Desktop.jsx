@@ -4,7 +4,7 @@ import Dock from './Dock';
 import WindowManager from './WindowManager';
 import StickiesLayer from '../apps/Stickies';
 
-const Desktop = ({ user, onLogout }) => {
+const Desktop = ({ user, onLogout, config }) => {
   const [windows, setWindows] = useState([]);
   const saveTimeoutRef = useRef(null);
   const isInitialMount = useRef(true);
@@ -168,6 +168,8 @@ const Desktop = ({ user, onLogout }) => {
       />
       <Dock
         windows={windows}
+        user={user}
+        config={config}
         onAppClick={(id) => {
           if (id === 'stickies') {
             if (stickiesRef.current) {

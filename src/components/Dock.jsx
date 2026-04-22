@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-const Dock = ({ onAppClick, windows = [] }) => {
+const Dock = ({ onAppClick, windows = [], user, config }) => {
     const apps = [
         { id: 'finder', name: 'Finder', icon: '😊' }, // Placeholder icons
         { id: 'browser', name: 'Browser', icon: '🌎' },
@@ -47,6 +47,15 @@ const Dock = ({ onAppClick, windows = [] }) => {
         }
     };
 
+    const userRole = user?.role || 'user';
+    const policies = config?.rbacPolicies || {};
+    const rolePolicy = policies[userRole] || {};
+    const allowedWidgets = rolePolicy.allowed_widgets || [];
+
+    const visibleApps = apps.filter(app => {
+        return allowedWidgets.includes('*') || allowedWidgets.includes(`app:${app.id}`);
+    });
+
     return (
         <div style={{
             display: 'flex',
@@ -65,7 +74,7 @@ const Dock = ({ onAppClick, windows = [] }) => {
                 boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
                 border: '1px solid rgba(255, 255, 255, 0.1)'
             }}>
-                {apps.map((app) => {
+                {visibleApps.map((app) => {
                     const isOpen = windows.some(w => w.type === app.id);
                     return (
                         <div key={app.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>

@@ -22,23 +22,33 @@ const DeepResearch = ({ onOpen }) => {
     };
 
     useEffect(() => {
+        let loadedConfig = null;
+
         fetch('/api/config')
             .then(res => res.json())
-            .then(data => setConfig(data))
-            .catch(err => console.error("Failed to fetch config", err));
-
-        fetch('/api/auth/me')
+            .then(data => {
+                setConfig(data);
+                loadedConfig = data;
+                return fetch('/api/auth/me');
+            })
             .then(res => res.json())
             .then(data => {
                 if (data.user) {
                     setUserAuth(data.user);
-                    if (data.user.role !== 'admin' && data.user.deep_research_enabled !== 1) {
+                    const userRole = data.user.role || 'user';
+                    const policies = loadedConfig?.rbacPolicies || {};
+                    const rolePolicy = policies[userRole] || {};
+                    const allowedWidgets = rolePolicy.allowed_widgets || [];
+                    
+                    const hasWidgetAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:deep-research');
+                    
+                    if (!hasWidgetAccess) {
                         setHasAccess(false);
                         setMessages([{ role: 'system', text: '🔒 Deep Researchの実行権限がありません。システム管理者にリクエストしてください。' }]);
                     }
                 }
             })
-            .catch(err => console.error("Failed to fetch auth", err));
+            .catch(err => console.error("Failed to fetch auth/config", err));
     }, []);
 
     useEffect(() => {
@@ -598,29 +608,42 @@ const DeepResearch = ({ onOpen }) => {
                 
                 {/* Action Buttons */}
                 <div className="flex items-center gap-3 mt-3">
-                    <button
-                        onClick={() => requestPipeline('infographic')}
-                        disabled={isLoading || !input.trim() || !hasAccess}
-                        className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                ${isLoading || !input.trim() || !hasAccess
-                                    ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
-                                    : 'bg-gradient-to-b from-indigo-50 to-white text-indigo-700 border-indigo-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
-                    >
-                        <span className="text-lg group-hover:scale-110 transition-transform">🎨</span>
-                        <span>画像化ワークフローで実行</span>
-                    </button>
-                    
-                    <button
-                        onClick={() => requestPipeline('html')}
-                        disabled={isLoading || !input.trim() || !hasAccess}
-                        className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                ${isLoading || !input.trim() || !hasAccess
-                                    ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
-                                    : 'bg-gradient-to-b from-emerald-50 to-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
-                    >
-                        <span className="text-lg group-hover:scale-110 transition-transform">📊</span>
-                        <span>HTML化ワークフローで実行</span>
-                    </button>
+                    { (() => {
+                        const userRole = userAuth?.role || 'user';
+                        const policies = config?.rbacPolicies || {};
+                        const allowedActions = (policies[userRole] || {}).allowed_actions || [];
+                        const canGenerateInfographic = allowedActions.includes('*') || allowedActions.includes('action:generate_infographic');
+
+                        return (
+                            <>
+                                {canGenerateInfographic && (
+                                    <button
+                                        onClick={() => requestPipeline('infographic')}
+                                        disabled={isLoading || !input.trim() || !hasAccess}
+                                        className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                                                ${isLoading || !input.trim() || !hasAccess
+                                                    ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
+                                                    : 'bg-gradient-to-b from-indigo-50 to-white text-indigo-700 border-indigo-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                    >
+                                        <span className="text-lg group-hover:scale-110 transition-transform">🎨</span>
+                                        <span>画像化ワークフローで実行</span>
+                                    </button>
+                                )}
+                                
+                                <button
+                                    onClick={() => requestPipeline('html')}
+                                    disabled={isLoading || !input.trim() || !hasAccess}
+                                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                                            ${isLoading || !input.trim() || !hasAccess
+                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
+                                                : 'bg-gradient-to-b from-emerald-50 to-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                >
+                                    <span className="text-lg group-hover:scale-110 transition-transform">📊</span>
+                                    <span>HTML化ワークフローで実行</span>
+                                </button>
+                            </>
+                        );
+                    })()}
                 </div>
             </div>
         </div>

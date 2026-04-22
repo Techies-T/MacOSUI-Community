@@ -79,7 +79,19 @@ router.post('/start', async (req, res) => {
         }
 
         // --- Permission check ---
-        if (user.role !== 'admin' && user.deep_research_enabled !== 1) {
+        let rbacPolicies = {};
+        try {
+            rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+        } catch (e) {
+            console.error("Failed to parse RBAC policies", e);
+        }
+        
+        const userRole = user.role || 'user';
+        const rolePolicy = rbacPolicies[userRole] || {};
+        const allowedWidgets = rolePolicy.allowed_widgets || [];
+        const hasPermission = allowedWidgets.includes('*') || allowedWidgets.includes('app:deep-research');
+
+        if (!hasPermission) {
             return res.status(403).json({ error: 'Deep Research実行権限がありません。管理者に連絡してください。' });
         }
 

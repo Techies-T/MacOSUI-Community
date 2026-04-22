@@ -88,7 +88,7 @@ const App = () => {
     return (
         <GoogleOAuthProvider clientId={config.clientId}>
             {user ? (
-                <Desktop user={user} onLogout={handleLogout} />
+                <Desktop user={user} onLogout={handleLogout} config={config} />
             ) : (
                 <LoginScreen onLogin={handleLogin} />
             )}
