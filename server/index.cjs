@@ -1425,7 +1425,8 @@ app.post('/api/drive/upload', async (req, res) => {
                 const buffer = Buffer.from(base64Data, 'base64');
                 bodyStream = Readable.from(buffer);
             } else {
-                bodyStream = Readable.from([content]);
+                // Pass string directly to avoid chunked encoding issues with Google Drive API
+                bodyStream = content;
             }
 
             return {

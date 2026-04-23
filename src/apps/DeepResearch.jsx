@@ -333,7 +333,7 @@ const DeepResearch = ({ onOpen }) => {
                 
                 // Verify Output instantly by opening in HTML Editor
                 if (onOpen) {
-                    onOpen('HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle}.html` });
+                    onOpen('html-editor', 'html-editor', 'HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle}.html` });
                 }
 
                 // ==========================================
@@ -387,7 +387,7 @@ const DeepResearch = ({ onOpen }) => {
                             setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
                             // Update HTML Editor if open
                             if (onOpen) {
-                                onOpen('HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle} (Auto-Fixed).html` });
+                                onOpen('html-editor', 'html-editor', 'HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle} (Auto-Fixed).html` });
                             }
                         } else {
                             setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーは検出されませんでした。レイアウトは完璧です！" }]);
