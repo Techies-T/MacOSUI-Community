@@ -145,42 +145,59 @@ const KnowledgeBase = () => {
         try {
             if (!text) return <em className="text-gray-500">No content provided.</em>;
             
-            return text.split('\n').map((line, i) => {
-                const processText = (str, idxContext) => {
-                    if (!str) return null;
-                    const parts = str.split(/(\[.*?\]\(.*?\))/g);
-                    return parts.map((part, pIdx) => {
-                        if (!part) return null;
-                        const match = part.match(/^\[(.*?)\]\((.*?)\)$/);
-                        if (match) {
-                            return <a key={`${idxContext}-a-${pIdx}`} href={match[2]} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">{match[1]}</a>;
+            const processText = (str, idxContext) => {
+                if (!str) return null;
+                const parts = str.split(/(\[.*?\]\(.*?\))/g);
+                return parts.map((part, pIdx) => {
+                    if (!part) return null;
+                    const match = part.match(/^\[(.*?)\]\((.*?)\)$/);
+                    if (match) {
+                        return <a key={`${idxContext}-a-${pIdx}`} href={match[2]} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">{match[1]}</a>;
+                    }
+                    
+                    // Bold
+                    const boldParts = part.split(/(\*\*.*?\*\*)/g);
+                    return boldParts.map((bp, bIdx) => {
+                        if (!bp) return null;
+                        if (bp.startsWith('**') && bp.endsWith('**') && bp.length > 4) {
+                            return <strong key={`${idxContext}-b-${pIdx}-${bIdx}`} className="text-white">{bp.slice(2, -2)}</strong>;
                         }
-                        
-                        // Bold
-                        const boldParts = part.split(/(\*\*.*?\*\*)/g);
-                        return boldParts.map((bp, bIdx) => {
-                            if (!bp) return null;
-                            if (bp.startsWith('**') && bp.endsWith('**') && bp.length > 4) {
-                                return <strong key={`${idxContext}-b-${pIdx}-${bIdx}`} className="text-white">{bp.slice(2, -2)}</strong>;
-                            }
-                            return <span key={`${idxContext}-s-${pIdx}-${bIdx}`}>{bp}</span>;
-                        });
+                        return <span key={`${idxContext}-s-${pIdx}-${bIdx}`}>{bp}</span>;
                     });
-                };
-
-                if (line.startsWith('## ')) return <h2 key={i} className="text-xl font-bold mt-4 mb-2 text-white">{processText(line.replace('## ', ''), i)}</h2>;
-                if (line.startsWith('# ')) return <h1 key={i} className="text-2xl font-bold mt-4 mb-2 text-white">{processText(line.replace('# ', ''), i)}</h1>;
+                });
+            };
+            
+            const lines = text.split('\n');
+            const elements = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                if (line.startsWith('## ')) {
+                    elements.push(<h2 key={i} className="text-xl font-bold mt-4 mb-2 text-white">{processText(line.replace('## ', ''), i)}</h2>);
+                    continue;
+                }
+                if (line.startsWith('# ')) {
+                    elements.push(<h1 key={i} className="text-2xl font-bold mt-4 mb-2 text-white">{processText(line.replace('# ', ''), i)}</h1>);
+                    continue;
+                }
                 if (line.startsWith('> ')) {
-                    const textContent = line.replace('> ', '');
-                    return (
-                        <div key={i} className="relative group my-2">
-                            <blockquote className="border-l-4 border-gray-600 pl-4 py-1 italic text-gray-400">
-                                {processText(textContent, i)}
+                    let blockquoteText = line.replace('> ', '');
+                    let j = i + 1;
+                    // Lazy blockquote continuation: consume lines until empty line or new block element
+                    while (j < lines.length && lines[j].trim() !== '' && !lines[j].startsWith('## ') && !lines[j].startsWith('# ') && !lines[j].startsWith('- ') && !lines[j].startsWith('**')) {
+                        blockquoteText += '\n' + (lines[j].startsWith('> ') ? lines[j].replace('> ', '') : lines[j]);
+                        j++;
+                    }
+                    
+                    elements.push(
+                        <div key={`bq-${i}`} className="relative group my-4 bg-[#2d2d30]/50 rounded-r border border-[#333] border-l-0">
+                            <blockquote className="border-l-4 border-blue-500 pl-4 py-3 italic text-gray-300 whitespace-pre-wrap">
+                                {processText(blockquoteText, i)}
                             </blockquote>
                             <button
                                 onClick={() => {
-                                    navigator.clipboard.writeText(textContent);
-                                    // 簡易的なフィードバック
+                                    navigator.clipboard.writeText(blockquoteText);
                                     const btn = document.getElementById(`copy-btn-${i}`);
                                     if (btn) {
                                         const originalText = btn.innerText;
@@ -189,22 +206,28 @@ const KnowledgeBase = () => {
                                     }
                                 }}
                                 id={`copy-btn-${i}`}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#333] hover:bg-[#444] text-xs px-2 py-1 rounded border border-[#555] cursor-pointer"
+                                className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#444] hover:bg-[#555] text-xs px-2 py-1 rounded shadow cursor-pointer text-white z-10"
                                 title="Copy to clipboard"
                             >
                                 Copy
                             </button>
                         </div>
                     );
+                    i = j - 1; // Skip consumed lines
+                    continue;
                 }
-                if (line.startsWith('- ')) return <li key={i} className="ml-4 list-disc marker:text-gray-500">{processText(line.substring(2), i)}</li>;
+                if (line.startsWith('- ')) {
+                    elements.push(<li key={i} className="ml-4 list-disc marker:text-gray-500">{processText(line.substring(2), i)}</li>);
+                    continue;
+                }
                 
-                return (
+                elements.push(
                     <div key={i} className="min-h-[1.25em]">
                         {processText(line, i)}
                     </div>
                 );
-            });
+            }
+            return elements;
         } catch (error) {
             console.error("Markdown parse error:", error);
             return <div className="text-red-500 p-4 border border-red-500 rounded bg-red-900/20">記事のレンダリング中にエラーが発生しました。</div>;
