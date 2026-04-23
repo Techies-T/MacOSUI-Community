@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { toPng } from 'html-to-image';
 
 const DeepResearch = ({ onOpen }) => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [stage, setStage] = useState('idle'); // 'idle', 'history_warning', 'planning', 'confirming', 'researching', 'generating', 'saving'
+    const [stage, setStage] = useState('idle'); // 'idle', 'history_warning', 'planning', 'confirming', 'researching', 'generating', 'validating', 'saving'
     
     // For confirmation phase
     const [pipelineType, setPipelineType] = useState('infographic');
@@ -333,6 +334,69 @@ const DeepResearch = ({ onOpen }) => {
                 // Verify Output instantly by opening in HTML Editor
                 if (onOpen) {
                     onOpen('HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle}.html` });
+                }
+
+                // ==========================================
+                // Task 2.5: Visual Validation (Auto-Correction)
+                // ==========================================
+                setStage('validating');
+                setMessages(prev => [...prev, { role: 'system', text: '🕵️‍♂️ Task 2.5: 生成された画像の視覚的検証と自己修正を実行中...' }]);
+                
+                try {
+                    const iframe = document.createElement('iframe');
+                    iframe.style.position = 'fixed';
+                    iframe.style.top = '-10000px';
+                    iframe.style.width = '1200px';
+                    iframe.style.height = '800px';
+                    document.body.appendChild(iframe);
+                    
+                    iframe.contentDocument.open();
+                    iframe.contentDocument.write(rawHtml);
+                    iframe.contentDocument.close();
+                    
+                    // Wait for rendering and CDN resources
+                    await new Promise(r => setTimeout(r, 2500));
+                    
+                    const dataUrl = await toPng(iframe.contentDocument.body, { cacheBust: true, backgroundColor: '#ffffff' });
+                    document.body.removeChild(iframe);
+                    
+                    // Extract base64 part
+                    const base64Data = dataUrl.split(',')[1];
+                    
+                    const validationPrompt = `以下のHTMLコードとそのレンダリング結果のスクリーンショットを確認してください。\nSVGグラフの文字（ラベルや値）とグラフの要素が重なって読みづらくなっている部分や、レイアウト崩れがないか視覚的にチェックしてください。\nもし重なりや崩れがある場合は、文字サイズを小さくする、マージンを調整する、配置を変えるなどしてHTML/SVGコードを修正し、修正後の完全なHTMLコードのみを出力してください。\nもし完璧で重なりが一切ない場合は、ただ「VALID」とだけ返答してください。\n\n=== 元のHTMLコード ===\n${rawHtml}`;
+
+                    const valReq = await fetch('/api/gemini', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            message: validationPrompt,
+                            images: [{ mimeType: 'image/png', data: base64Data }],
+                            history: [],
+                            config: { mode: 'html_svg', systemInstruction: 'あなたはUI/UXデザイナー兼フロントエンドエンジニアです。マークダウンを使用せず、要求されたHTMLコードのみ、またはVALIDという文字のみを出力してください。' }
+                        })
+                    });
+                    
+                    if (valReq.ok) {
+                        const valData = await valReq.json();
+                        let validationResult = await pollGeminiJob(valData.jobId);
+                        validationResult = validationResult.replace(/^```html\s*/i, '').replace(/```$/i, '').trim();
+                        
+                        if (validationResult !== 'VALID' && validationResult.length > 50) {
+                            rawHtml = validationResult;
+                            finalGeneratedPayload = rawHtml;
+                            setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
+                            // Update HTML Editor if open
+                            if (onOpen) {
+                                onOpen('HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle} (Auto-Fixed).html` });
+                            }
+                        } else {
+                            setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーは検出されませんでした。レイアウトは完璧です！" }]);
+                        }
+                    }
+                } catch (valErr) {
+                    console.error("Visual Validation Error:", valErr);
+                    // 失敗した場合は元のrawHtmlのまま進行する
+                    setMessages(prev => [...prev, { role: 'model', text: "⚠️ 視覚的検証プロセスをスキップしました（ネットワークエラー等）" }]);
                 }
             }
 

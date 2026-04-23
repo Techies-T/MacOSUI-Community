@@ -645,7 +645,7 @@ app.post('/api/gemini/proxy', async (req, res) => {
 // Google Drive API endpoints (google import moved to top)
 
 app.post('/api/gemini', async (req, res) => {
-    const { message, history, config } = req.body;
+    const { message, history, config, images } = req.body;
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.1-flash-lite-preview';
@@ -670,7 +670,7 @@ app.post('/api/gemini', async (req, res) => {
         }
 
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, modelName, config, googleId);
+        processGeminiJob(jobId, message, history, apiKey, modelName, config, googleId, images);
 
         // Track RAG query usage for FAQ feature
         if (config?.mode === 'rag' && message.trim()) {
@@ -695,7 +695,7 @@ app.post('/api/gemini', async (req, res) => {
 // ...
 
 // Background Gemini Job Processor
-async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId) {
+async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images) {
     geminiJobs[jobId] = { state: 'processing', reply: null, error: null };
     console.log(`Starting Gemini Job ${jobId}...`);
     console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
@@ -735,6 +735,16 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
         let requestParts = [{ text: message }];
 
+        if (images && Array.isArray(images)) {
+            const imageParts = images.map(img => ({
+                inlineData: {
+                    data: img.data,
+                    mimeType: img.mimeType || 'image/png'
+                }
+            }));
+            requestParts = [...imageParts, ...requestParts];
+        }
+
         if (ragFiles.length > 0) {
             const fileParts = ragFiles.map(f => ({
                 fileData: {
@@ -742,7 +752,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                     fileUri: f.gemini_file_uri
                 }
             }));
-            requestParts = [...fileParts, { text: message }];
+            requestParts = [...fileParts, ...requestParts];
         }
 
         const contents = history ? history.map(m => ({
