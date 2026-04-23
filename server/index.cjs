@@ -1045,7 +1045,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             } else {
                 // No function calls, use the aggregated text from stream
                 if (responseText) {
-                    geminiJobs[jobId] = { state: 'completed', reply: responseText, error: null };
+                    const usageMetadata = fullResult?.usageMetadata || response?.usageMetadata || null;
+                    geminiJobs[jobId] = { state: 'completed', reply: responseText, usageMetadata, error: null };
                     console.log(`Gemini Job ${jobId} completed.`);
 
                     // Deep Research Auto-Save to Drive

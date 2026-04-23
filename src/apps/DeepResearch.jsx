@@ -84,6 +84,17 @@ const DeepResearch = ({ onOpen }) => {
         }
         
         setPipelineType(type);
+        
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+        let selfCorrectionStatus = "不要（レイアウト完璧）";
+        
+        const handleUsage = (metadata) => {
+            if (metadata) {
+                totalInputTokens += metadata.promptTokenCount || 0;
+                totalOutputTokens += metadata.candidatesTokenCount || 0;
+            }
+        };
 
         // History Check Phase
         if (!bypassHistory) {
@@ -132,7 +143,7 @@ const DeepResearch = ({ onOpen }) => {
             const data = await req.json();
             if (!req.ok) throw new Error(data.error || "Failed to generate plan");
 
-            const planText = await pollGeminiJob(data.jobId);
+            const planText = await pollGeminiJob(data.jobId, handleUsage);
             
             // Show plan and confirmation options
             setStage('confirming');
@@ -284,7 +295,7 @@ const DeepResearch = ({ onOpen }) => {
                 const genData = await genReq.json();
                 if (!genReq.ok) throw new Error(genData.error || "Failed to start image generation");
 
-                finalGeneratedPayload = await pollGeminiJob(genData.jobId);
+                finalGeneratedPayload = await pollGeminiJob(genData.jobId, handleUsage);
                 mimeType = 'image/png';
                 
                 // Determine layout (parse the JSON from gemini job reply)
@@ -323,7 +334,7 @@ const DeepResearch = ({ onOpen }) => {
                 const genData = await genReq.json();
                 if (!genReq.ok) throw new Error(genData.error || "Failed to start HTML generation");
 
-                let rawHtml = await pollGeminiJob(genData.jobId);
+                let rawHtml = await pollGeminiJob(genData.jobId, handleUsage);
                 // Strip markdown backticks if accidentally returned
                 rawHtml = rawHtml.replace(/^```html\s*/i, '').replace(/```$/i, '').trim();
                 finalGeneratedPayload = rawHtml;
@@ -378,12 +389,13 @@ const DeepResearch = ({ onOpen }) => {
                     
                     if (valReq.ok) {
                         const valData = await valReq.json();
-                        let validationResult = await pollGeminiJob(valData.jobId);
+                        let validationResult = await pollGeminiJob(valData.jobId, handleUsage);
                         validationResult = validationResult.replace(/^```html\s*/i, '').replace(/```$/i, '').trim();
                         
                         if (validationResult !== 'VALID' && validationResult.length > 50) {
                             rawHtml = validationResult;
                             finalGeneratedPayload = rawHtml;
+                            selfCorrectionStatus = "実行済み（重なり・崩れを修正）";
                             setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
                             // Update HTML Editor if open
                             if (onOpen) {
@@ -477,7 +489,19 @@ const DeepResearch = ({ onOpen }) => {
                     markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
                 }
                 
-                const indexContent = `**実行日時:** ${new Date().toLocaleString()}\n**調査クエリ:**\n> ${userQuery}\n\n${markdownLinks}\n\n## リサーチ要約\n${reportText.substring(0, 1500)}...`;
+                const indexContent = `**実行日時:** ${new Date().toLocaleString()}
+**調査クエリ:**
+> ${userQuery.replace(/\n/g, '\n> ')}
+
+**ワークフロー情報:**
+- **対象モデル:** ${baseResearchModel} (Task 1) / ${type === 'html' ? htmlSvgModel : infographicModel} (Task 2)
+- **トークン使用量:** 入力 ${totalInputTokens.toLocaleString()} / 出力 ${totalOutputTokens.toLocaleString()} (合計 ${(totalInputTokens + totalOutputTokens).toLocaleString()} Tokens)
+- **自己修正プロセス:** ${type === 'html' ? selfCorrectionStatus : '対象外（画像生成）'}
+
+${markdownLinks}
+
+## リサーチ要約
+${reportText.substring(0, 1500)}...`;
 
                 const extractReq = await fetch('/api/research/extract-tags', {
                     method: 'POST',
@@ -542,7 +566,7 @@ const DeepResearch = ({ onOpen }) => {
     };
 
     // Helper polling function for Gemini jobs
-    const pollGeminiJob = (jobId) => {
+    const pollGeminiJob = (jobId, onUsage = null) => {
         return new Promise((resolve, reject) => {
             let attempts = 0;
             const pollInterval = setInterval(async () => {
@@ -552,6 +576,9 @@ const DeepResearch = ({ onOpen }) => {
                     const data = await res.json();
                     if (data.state === 'completed') {
                         clearInterval(pollInterval);
+                        if (onUsage && data.usageMetadata) {
+                            onUsage(data.usageMetadata);
+                        }
                         resolve(data.reply);
                     } else if (data.state === 'error') {
                         clearInterval(pollInterval);
