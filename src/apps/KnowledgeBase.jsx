@@ -170,7 +170,33 @@ const KnowledgeBase = () => {
 
                 if (line.startsWith('## ')) return <h2 key={i} className="text-xl font-bold mt-4 mb-2 text-white">{processText(line.replace('## ', ''), i)}</h2>;
                 if (line.startsWith('# ')) return <h1 key={i} className="text-2xl font-bold mt-4 mb-2 text-white">{processText(line.replace('# ', ''), i)}</h1>;
-                if (line.startsWith('> ')) return <blockquote key={i} className="border-l-4 border-gray-600 pl-4 py-1 italic text-gray-400 my-2">{processText(line.replace('> ', ''), i)}</blockquote>;
+                if (line.startsWith('> ')) {
+                    const textContent = line.replace('> ', '');
+                    return (
+                        <div key={i} className="relative group my-2">
+                            <blockquote className="border-l-4 border-gray-600 pl-4 py-1 italic text-gray-400">
+                                {processText(textContent, i)}
+                            </blockquote>
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(textContent);
+                                    // 簡易的なフィードバック
+                                    const btn = document.getElementById(`copy-btn-${i}`);
+                                    if (btn) {
+                                        const originalText = btn.innerText;
+                                        btn.innerText = "Copied!";
+                                        setTimeout(() => btn.innerText = originalText, 2000);
+                                    }
+                                }}
+                                id={`copy-btn-${i}`}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#333] hover:bg-[#444] text-xs px-2 py-1 rounded border border-[#555] cursor-pointer"
+                                title="Copy to clipboard"
+                            >
+                                Copy
+                            </button>
+                        </div>
+                    );
+                }
                 if (line.startsWith('- ')) return <li key={i} className="ml-4 list-disc marker:text-gray-500">{processText(line.substring(2), i)}</li>;
                 
                 return (
