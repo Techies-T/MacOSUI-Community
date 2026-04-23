@@ -128,7 +128,7 @@ app.get('/api/config', async (req, res) => {
 });
 
 // Config: Save settings (Activation)
-app.post('/api/config', requireAdmin, async (req, res) => {
+app.post('/api/config', requirePermission('action:manage_system_settings'), async (req, res) => {
     const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies } = req.body;
 
     try {
@@ -175,6 +175,13 @@ app.post('/api/config', requireAdmin, async (req, res) => {
         if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
         
         if (req.body.rbacPolicies) {
+            let currentPolicies = {};
+            try { currentPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}'); } catch(e){}
+            const rolePolicy = currentPolicies[req.user.role || 'user'] || {};
+            const allowedActions = rolePolicy.allowed_actions || [];
+            if (!allowedActions.includes('*') && !allowedActions.includes('action:manage_roles')) {
+                return res.status(403).json({ error: 'Permission denied. Requires action:manage_roles' });
+            }
             await db.setSetting('RBAC_POLICIES', JSON.stringify(req.body.rbacPolicies));
         }
 
@@ -403,27 +410,50 @@ function requireAuthPage(req, res, next) {
 }
 
 // Middleware to check admin role
-function requireAdmin(req, res, next) {
-    const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
-    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
-        if (err || decoded.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-        req.user = decoded;
-        next();
-    });
-};
+function requirePermission(action) {
+    return async (req, res, next) => {
+        const token = req.cookies.token;
+        if (!token) return res.status(401).json({ error: 'Not authenticated' });
+        
+        jwt.verify(token, process.env.JWT_SECRET || 'secret', async (err, decoded) => {
+            if (err) return res.status(401).json({ error: 'Invalid token' });
+            
+            const userRole = decoded.role || 'user';
+            
+            try {
+                let rbacPolicies = {};
+                const rbacJson = await db.getSetting('RBAC_POLICIES');
+                if (rbacJson) {
+                    rbacPolicies = JSON.parse(rbacJson);
+                }
+                const rolePolicy = rbacPolicies[userRole] || {};
+                const allowedActions = rolePolicy.allowed_actions || [];
+                
+                const hasPermission = allowedActions.includes('*') || allowedActions.includes(action);
+                
+                if (!hasPermission) {
+                    return res.status(403).json({ error: `Permission denied. Requires ${action}` });
+                }
+                
+                req.user = decoded;
+                next();
+            } catch (e) {
+                console.error("Failed to check permissions", e);
+                return res.status(500).json({ error: 'Internal Server Error during permission check' });
+            }
+        });
+    };
+}
 
 // --- Users & Invitations API ---
-app.get('/api/users', requireAdmin, (req, res) => {
+app.get('/api/users', requirePermission('action:manage_users'), (req, res) => {
     db.all("SELECT id, email, name, avatar_url, role, deep_research_enabled, created_at FROM users", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json(rows);
     });
 });
 
-app.put('/api/users/:id/role', requireAdmin, (req, res) => {
+app.put('/api/users/:id/role', requirePermission('action:manage_roles'), (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
     db.run("UPDATE users SET role = ? WHERE id = ?", [role, id], function(err) {
@@ -433,7 +463,7 @@ app.put('/api/users/:id/role', requireAdmin, (req, res) => {
     });
 });
 
-app.get('/api/invitations', requireAdmin, (req, res) => {
+app.get('/api/invitations', requirePermission('action:manage_users'), (req, res) => {
     db.all("SELECT email, invited_by, created_at FROM invitations", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         
@@ -449,7 +479,7 @@ app.get('/api/invitations', requireAdmin, (req, res) => {
     });
 });
 
-app.post('/api/invitations', requireAdmin, (req, res) => {
+app.post('/api/invitations', requirePermission('action:manage_users'), (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
     
@@ -464,14 +494,14 @@ app.post('/api/invitations', requireAdmin, (req, res) => {
     });
 });
 
-app.delete('/api/invitations/:email', requireAdmin, (req, res) => {
+app.delete('/api/invitations/:email', requirePermission('action:manage_users'), (req, res) => {
     db.run("DELETE FROM invitations WHERE email = ?", [req.params.email], function(err) {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json({ success: true });
     });
 });
 
-app.delete('/api/users/:id', requireAdmin, (req, res) => {
+app.delete('/api/users/:id', requirePermission('action:manage_users'), (req, res) => {
     if (parseInt(req.params.id) === req.user.id) {
         return res.status(400).json({ error: 'Cannot delete yourself' });
     }

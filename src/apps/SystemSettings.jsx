@@ -477,11 +477,36 @@ const SystemSettings = ({ user }) => {
         }
     };
 
+    const hasAction = (action) => {
+        if (!user || !user.role) return false;
+        const policy = rbacPolicies[user.role] || {};
+        const allowed = policy.allowed_actions || [];
+        return allowed.includes('*') || allowed.includes(action);
+    };
+
     const sidebarItems = [
-        { id: 'General', icon: '⚙️', label: 'General' },
+        ...(hasAction('action:manage_system_settings') ? [
+            { id: 'General', icon: '⚙️', label: 'General' },
+            { id: 'System', icon: '🔒', label: 'System' },
+            { id: 'Image Generation', icon: '🖼️', label: 'Image Gen' },
+            {
+                id: 'Deep Research', icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-indigo-500">
+                        <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 100 13.5 6.75 6.75 0 000-13.5zM2.25 10.5a8.25 8.25 0 1114.59 5.28l4.69 4.69a.75.75 0 11-1.06 1.06l-4.69-4.69A8.25 8.25 0 012.25 10.5z" clipRule="evenodd" />
+                    </svg>
+                ), label: 'Deep Research'
+            },
+            {
+                id: 'Server Monitor', icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-emerald-500">
+                        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+                        <path d="M12 12v9"></path>
+                        <path d="m8 17 4 4 4-4"></path>
+                    </svg>
+                ), label: 'Server Monitor'
+            }
+        ] : []),
         { id: 'Appearance', icon: '🎨', label: 'Appearance' },
-        { id: 'System', icon: '🔒', label: 'System' },
-        { id: 'Image Generation', icon: '🖼️', label: 'Image Gen' },
         {
             id: 'Personal RAG', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '1em', height: '1em', verticalAlign: 'middle', color: '#6366f1' }}>
@@ -498,28 +523,20 @@ const SystemSettings = ({ user }) => {
                 </svg>
             ), label: 'Personal RAG'
         },
-        {
-            id: 'Deep Research', icon: (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-indigo-500">
-                    <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 100 13.5 6.75 6.75 0 000-13.5zM2.25 10.5a8.25 8.25 0 1114.59 5.28l4.69 4.69a.75.75 0 11-1.06 1.06l-4.69-4.69A8.25 8.25 0 012.25 10.5z" clipRule="evenodd" />
-                </svg>
-            ), label: 'Deep Research'
-        },
-        {
-            id: 'Server Monitor', icon: (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-emerald-500">
-                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
-                    <path d="M12 12v9"></path>
-                    <path d="m8 17 4 4 4-4"></path>
-                </svg>
-            ), label: 'Server Monitor'
-        },
         { id: 'Finder', icon: '📁', label: 'Finder' },
-        ...(user?.role === 'admin' ? [
-            { id: 'Users', icon: '👥', label: 'Users & Groups' },
+        ...(hasAction('action:manage_users') ? [
+            { id: 'Users', icon: '👥', label: 'Users & Groups' }
+        ] : []),
+        ...(hasAction('action:manage_roles') ? [
             { id: 'Roles', icon: '🛡️', label: 'Roles & Permissions' }
         ] : [])
     ];
+
+    useEffect(() => {
+        if (sidebarItems.length > 0 && !sidebarItems.find(item => item.id === activeTab)) {
+            setActiveTab(sidebarItems[0].id);
+        }
+    }, [rbacPolicies, user]);
 
     const filteredModels = models.filter(model =>
         model.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -581,11 +598,8 @@ const SystemSettings = ({ user }) => {
                             </div>
                         </div>
 
-                        {/* Admin Only Sections */}
-                        {user?.role === 'admin' && (
-                            <>
-                                {/* Invite User */}
-                                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+                        {/* Invite User */}
+                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
                                     <h2 className="font-semibold mb-3">Invite User (ドメイン外ユーザーも可能)</h2>
                                     <p className="text-xs text-gray-500 mb-4">
                                         新しいユーザーを招待します。ここに登録されたメールアドレスの持ち主だけがログイン可能になります（ホワイトリスト方式）。
@@ -681,13 +695,11 @@ const SystemSettings = ({ user }) => {
                                             </div>
                                         ))}
                                     </div>
+                                    </div>
                                 </div>
-                            </>
-                        )}
-                    </div>
                 )}
 
-                {activeTab === 'Roles' && user?.role === 'admin' && (
+                {activeTab === 'Roles' && (
                     <div className="space-y-6 animate-fadeIn pb-20">
                         <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                             <div className="bg-slate-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
@@ -751,7 +763,10 @@ const SystemSettings = ({ user }) => {
                                             </tr>
                                             {[
                                                 { id: 'action:edit_workflow', label: 'Edit Workflows & Models' },
-                                                { id: 'action:generate_infographic', label: 'Generate Infographic' }
+                                                { id: 'action:generate_infographic', label: 'Generate Infographic' },
+                                                { id: 'action:manage_users', label: 'Manage Users & Groups' },
+                                                { id: 'action:manage_roles', label: 'Manage Roles & Permissions' },
+                                                { id: 'action:manage_system_settings', label: 'Manage System Settings (API Keys)' }
                                             ].map(action => (
                                                 <tr key={action.id} className="hover:bg-blue-50/30 transition-colors">
                                                     <td className="px-4 py-2 border-r border-gray-200 sticky left-0 bg-inherit text-gray-700 pl-6">
@@ -1086,7 +1101,6 @@ const SystemSettings = ({ user }) => {
                     </div>
                 )}
 
-                {/* Models are now part of the System Tab or handled separately. We'll add this to System tab temporarily to fix syntax */}
                 {activeTab === 'System' && (
                     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mt-6">
                         <h2 className="font-semibold mb-3">Model Selection <span className="text-gray-400 font-normal text-xs">(General Chat & Personal RAG)</span></h2>
