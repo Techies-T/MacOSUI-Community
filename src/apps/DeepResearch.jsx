@@ -930,17 +930,7 @@ ${reportText.substring(0, 1500)}...`;
                                     <span>既存レポートからHTML化</span>
                                 </button>
                                 
-                                <button
-                                    onClick={() => requestPipeline('direct_html')}
-                                    disabled={isLoading || !input.trim() || !hasAccess}
-                                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                            ${isLoading || !input.trim() || !hasAccess
-                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
-                                                : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
-                                >
-                                    <span className="text-lg group-hover:scale-110 transition-transform">📄</span>
-                                    <span>既存レポートからHTML化</span>
-                                </button>
+
                             </>
                         );
                     })()}
