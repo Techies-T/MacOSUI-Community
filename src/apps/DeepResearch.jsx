@@ -564,6 +564,10 @@ const DeepResearch = ({ onOpen }) => {
                     markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
                 }
                 
+                const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
+                const infographicModel = config?.geminiInfographicModel || 'models/gemini-2.5-pro';
+                const htmlSvgModel = config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro';
+
                 const indexContent = `**実行日時:** ${new Date().toLocaleString()}
 **調査クエリ:**
 > ${userQuery.replace(/\n/g, '\n> ')}
