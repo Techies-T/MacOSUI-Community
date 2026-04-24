@@ -62,6 +62,11 @@ const DeepResearch = ({ onOpen }) => {
                     if (!hasWidgetAccess) {
                         setHasAccess(false);
                         setMessages([{ role: 'system', text: '🔒 Deep Researchの実行権限がありません。システム管理者にリクエストしてください。' }]);
+                    } else {
+                        fetch('/api/research/workflow/incomplete')
+                            .then(r => r.json())
+                            .then(d => { if (d.workflow) setIncompleteWorkflow(d.workflow); })
+                            .catch(err => console.error("Error fetching incomplete workflow:", err));
                     }
                 }
             })
