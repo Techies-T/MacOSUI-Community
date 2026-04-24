@@ -413,6 +413,8 @@ const DeepResearch = ({ onOpen }) => {
                 setStage('validating');
                 setMessages(prev => [...prev, { role: 'system', text: '🕵️‍♂️ Task 2.5: 生成された画像の視覚的検証と自己修正を実行中...' }]);
                 
+                let originalPayloadForDebug = null;
+                
                 try {
                     const iframe = document.createElement('iframe');
                     iframe.style.position = 'fixed';
@@ -458,6 +460,7 @@ const DeepResearch = ({ onOpen }) => {
                                 console.warn(`Auto-correction rejected: new length ${validationResult.length} is suspiciously shorter than original ${rawHtml.length}`);
                                 setMessages(prev => [...prev, { role: 'model', text: "⚠️ 自己修正結果が不完全だったため、安全のため元のレイアウトを維持しました。" }]);
                             } else {
+                                originalPayloadForDebug = rawHtml;
                                 rawHtml = validationResult;
                                 finalGeneratedPayload = rawHtml;
                                 selfCorrectionStatusRef.current = "実行済み（重なり・崩れを修正）";
@@ -513,6 +516,7 @@ const DeepResearch = ({ onOpen }) => {
             let finalName = type === 'infographic' ? `${documentTitle} (Infographic).png` : `${documentTitle} (Presentation).html`;
             let finalContent = finalGeneratedPayload;
             let publishId = null;
+            let originalPublishId = null;
             
             // For HTML type, publish it natively to the server
             if (type === 'html') {
@@ -529,6 +533,23 @@ const DeepResearch = ({ onOpen }) => {
                     const publishData = await publishReq.json();
                     if (publishReq.ok) {
                         publishId = publishData.id;
+                    }
+                    
+                    // Publish the original payload if auto-correction occurred
+                    if (originalPayloadForDebug) {
+                        const publishOrigReq = await fetch('/api/research/publish', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                title: `${documentTitle} (修正前オリジナル)`,
+                                content: originalPayloadForDebug,
+                                mimeType: 'text/html'
+                            })
+                        });
+                        if (publishOrigReq.ok) {
+                            const origData = await publishOrigReq.json();
+                            originalPublishId = origData.id;
+                        }
                     }
                 } catch (e) {
                     console.error("Failed to publish natively:", e);
@@ -564,6 +585,10 @@ const DeepResearch = ({ onOpen }) => {
                 if (publishId) {
                     const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
                     markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
+                }
+                if (originalPublishId) {
+                    const origUrl = `${window.location.origin}/reports/${originalPublishId}.html`;
+                    markdownLinks += `\n- [🐛 **自己修正前のオリジナルを開く (Debug)**](${origUrl})`;
                 }
                 
                 const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
@@ -636,6 +661,11 @@ ${reportText.substring(0, 1500)}...`;
                     // Append native server hosted link
                     const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
                     linksText += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
+                }
+                
+                if (originalPublishId) {
+                    const origUrl = `${window.location.origin}/reports/${originalPublishId}.html`;
+                    linksText += `\n- [🐛 **自己修正前のオリジナルを開く (Debug)**](${origUrl})`;
                 }
                 
                 if (indexingSuccess) {
