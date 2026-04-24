@@ -237,6 +237,8 @@ const DeepResearch = ({ onOpen }) => {
         setIsLoading(true);
         setStage('researching');
         
+        const pipelineStartTime = Date.now();
+        
         // Remove confirmation buttons from previous message by stripping the component
         setMessages(prev => {
             const newArray = [...prev];
@@ -402,10 +404,8 @@ const DeepResearch = ({ onOpen }) => {
 
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2 完了！HTML/SVGファイルが生成されました。" }]);
                 
-                // Verify Output instantly by opening in HTML Editor
-                if (onOpen) {
-                    onOpen('html-editor', 'html-editor', 'HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle}.html` });
-                }
+                
+                // (HTML Editor popups have been removed in favor of the summary)
 
                 // ==========================================
                 // Task 2.5: Visual Validation (Auto-Correction)
@@ -457,10 +457,7 @@ const DeepResearch = ({ onOpen }) => {
                             finalGeneratedPayload = rawHtml;
                             selfCorrectionStatusRef.current = "実行済み（重なり・崩れを修正）";
                             setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
-                            // Update HTML Editor if open
-                            if (onOpen) {
-                                onOpen('html-editor', 'html-editor', 'HTML Editor', { initialHtml: rawHtml, filename: `${documentTitle} (Auto-Fixed).html` });
-                            }
+                            // (HTML Editor popups have been removed in favor of the summary)
                         } else {
                             setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーは検出されませんでした。レイアウトは完璧です！" }]);
                         }
@@ -567,15 +564,23 @@ const DeepResearch = ({ onOpen }) => {
                 const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
                 const infographicModel = config?.geminiInfographicModel || 'models/gemini-2.5-pro';
                 const htmlSvgModel = config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro';
+                
+                const totalSeconds = Math.round((Date.now() - pipelineStartTime) / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                const timeStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+
+                const summaryStats = `**ワークフロー実行結果:**
+- ⏱️ **実行時間:** ${timeStr}
+- 🤖 **対象モデル:** ${baseResearchModel} (Task1) / ${type === 'html' ? htmlSvgModel : infographicModel} (Task2)
+- 🪙 **トークン消費:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()})
+- 🔧 **自己修正プロセス:** ${type === 'html' ? selfCorrectionStatusRef.current : '対象外（画像生成）'}`;
 
                 const indexContent = `**実行日時:** ${new Date().toLocaleString()}
 **調査クエリ:**
 > ${userQuery.replace(/\n/g, '\n> ')}
 
-**ワークフロー情報:**
-- **対象モデル:** ${baseResearchModel} (Task 1) / ${type === 'html' ? htmlSvgModel : infographicModel} (Task 2)
-- **トークン使用量:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()} Tokens)
-- **自己修正プロセス:** ${type === 'html' ? selfCorrectionStatusRef.current : '対象外（画像生成）'}
+${summaryStats}
 
 ${markdownLinks}
 
@@ -620,7 +625,7 @@ ${reportText.substring(0, 1500)}...`;
             // Final Success Message
             setMessages(prev => {
                 const newMsgs = prev.filter(m => m.type !== 'system');
-                let linksText = `🎉 すべてのタスクが完了しました！\n\n**保存先リンク**:\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
+                let linksText = `🎉 すべてのタスクが完了しました！\n\n${summaryStats}\n\n**保存先リンク**:\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
                 
                 if (publishId) {
                     // Append native server hosted link
