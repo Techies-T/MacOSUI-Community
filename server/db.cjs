@@ -60,6 +60,21 @@ function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS deep_research_workflows (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER,
+        query_text TEXT,
+        pipeline_type TEXT,
+        status TEXT,
+        plan_text TEXT,
+        report_text TEXT,
+        generated_payload TEXT,
+        total_input_tokens INTEGER DEFAULT 0,
+        total_output_tokens INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS invitations (
         email TEXT PRIMARY KEY,
         invited_by INTEGER,

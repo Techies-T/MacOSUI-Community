@@ -18,6 +18,10 @@ const DeepResearch = ({ onOpen }) => {
     const [config, setConfig] = useState(null);
     const messagesEndRef = useRef(null);
 
+    // Resumption state
+    const [incompleteWorkflow, setIncompleteWorkflow] = useState(null);
+    const workflowIdRef = useRef(null);
+
     // Execution Tracking Refs
     const totalInputTokensRef = useRef(0);
     const totalOutputTokensRef = useRef(0);
@@ -97,6 +101,10 @@ const DeepResearch = ({ onOpen }) => {
         
         setPipelineType(type);
         
+        if (!workflowIdRef.current || bypassHistory) {
+            workflowIdRef.current = crypto.randomUUID();
+        }
+        
         // Reset counters for new pipeline execution
         totalInputTokensRef.current = 0;
         totalOutputTokensRef.current = 0;
@@ -151,6 +159,21 @@ const DeepResearch = ({ onOpen }) => {
 
             const planText = await pollGeminiJob(data.jobId, handleUsage);
             
+            // Save checkpoint
+            await fetch('/api/research/workflow/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: workflowIdRef.current,
+                    query_text: userQuery,
+                    pipeline_type: type,
+                    status: 'confirming',
+                    plan_text: planText,
+                    total_input_tokens: totalInputTokensRef.current,
+                    total_output_tokens: totalOutputTokensRef.current
+                })
+            }).catch(e => console.error(e));
+            
             // Show plan and confirmation options
             setStage('confirming');
             setIsLoading(false);
@@ -200,7 +223,12 @@ const DeepResearch = ({ onOpen }) => {
     };
 
     // Phase 2: Actual Execution
-    const executePipeline = async (userQuery, type) => {
+    const executePipeline = async (userQuery, type, resumeData = null) => {
+        if (resumeData) {
+            workflowIdRef.current = resumeData.id;
+            totalInputTokensRef.current = resumeData.total_input_tokens || 0;
+            totalOutputTokensRef.current = resumeData.total_output_tokens || 0;
+        }
         setIsLoading(true);
         setStage('researching');
         
@@ -218,59 +246,78 @@ const DeepResearch = ({ onOpen }) => {
             // ==========================================
             // Task 1: Deep Research
             // ==========================================
-            setMessages(prev => [...prev, { role: 'system', text: '🔍 Task 1: リサーチを実行中...' }]);
-            
-            const researchReq = await fetch('/api/research/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    query: userQuery, 
-                    systemInstruction: config?.deepResearchPrompt || "" 
-                })
-            });
-            const researchData = await researchReq.json();
+            let reportText = resumeData?.report_text || null;
+            let documentTitle = "Research Report";
 
-            if (researchReq.status === 429) {
-                throw new Error(researchData.error || "Rate limit exceeded.");
-            }
-            if (!researchReq.ok) {
-                throw new Error(researchData.error || "Failed to start research");
-            }
+            if (!reportText) {
+                setMessages(prev => [...prev, { role: 'system', text: '🔍 Task 1: リサーチを実行中...' }]);
+                
+                const researchReq = await fetch('/api/research/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        query: userQuery, 
+                        systemInstruction: config?.deepResearchPrompt || "" 
+                    })
+                });
+                const researchData = await researchReq.json();
 
-            const researchJobId = researchData.interaction_id;
-            let reportText = null;
+                if (researchReq.status === 429) {
+                    throw new Error(researchData.error || "Rate limit exceeded.");
+                }
+                if (!researchReq.ok) {
+                    throw new Error(researchData.error || "Failed to start research");
+                }
 
-            // Polling for Task 1
-            await new Promise((resolve, reject) => {
-                let attempts = 0;
-                const pollInterval = setInterval(async () => {
-                    attempts++;
-                    try {
-                        const res = await fetch(`/api/research/status/${researchJobId}`);
-                        const data = await res.json();
-                        if (data.status === 'completed') {
-                            reportText = data.result;
+                const researchJobId = researchData.interaction_id;
+
+                // Polling for Task 1
+                await new Promise((resolve, reject) => {
+                    let attempts = 0;
+                    const pollInterval = setInterval(async () => {
+                        attempts++;
+                        try {
+                            const res = await fetch(`/api/research/status/${researchJobId}`);
+                            const data = await res.json();
+                            if (data.status === 'completed') {
+                                reportText = data.result;
+                                clearInterval(pollInterval);
+                                resolve();
+                            } else if (data.status === 'failed') {
+                                clearInterval(pollInterval);
+                                reject(new Error("Research Failed: " + data.error));
+                            } else if (attempts >= 600) { // 15 mins timeout
+                                clearInterval(pollInterval);
+                                reject(new Error("Research timed out."));
+                            }
+                        } catch (err) {
                             clearInterval(pollInterval);
-                            resolve();
-                        } else if (data.status === 'failed') {
-                            clearInterval(pollInterval);
-                            reject(new Error("Research Failed: " + data.error));
-                        } else if (attempts >= 600) { // 15 mins timeout
-                            clearInterval(pollInterval);
-                            reject(new Error("Research timed out."));
+                            reject(new Error("Network error during research polling."));
                         }
-                    } catch (err) {
-                        clearInterval(pollInterval);
-                        reject(new Error("Network error during research polling."));
-                    }
-                }, 1500);
-            });
+                    }, 1500);
+                });
 
-            setMessages(prev => [...prev, { role: 'model', text: "✅ Task 1 完了！レポートが生成されました。" }]);
+                setMessages(prev => [...prev, { role: 'model', text: "✅ Task 1 完了！レポートが生成されました。" }]);
+                
+                // Save checkpoint
+                await fetch('/api/research/workflow/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: workflowIdRef.current,
+                        status: 'generating',
+                        report_text: reportText,
+                        total_input_tokens: totalInputTokensRef.current,
+                        total_output_tokens: totalOutputTokensRef.current
+                    })
+                }).catch(e => console.error(e));
+            } else {
+                setMessages(prev => [...prev, { role: 'model', text: "✅ Task 1: 保存済みのリサーチ結果を復元しました。" }]);
+            }
             
             // Extract a title for saving
             const headingMatch = reportText.match(/^#\s+(.+)$/m);
-            let documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}`;
+            documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}`;
             if (documentTitle.length > 80) documentTitle = documentTitle.substring(0, 77) + '...';
 
             // ==========================================
@@ -278,10 +325,12 @@ const DeepResearch = ({ onOpen }) => {
             // ==========================================
             setStage('generating');
             
-            let finalGeneratedPayload = null; // Either image JSON or HTML string
+            let finalGeneratedPayload = resumeData?.generated_payload || null; // Either image JSON or HTML string
             let mimeType = 'text/html';
 
-            if (type === 'infographic') {
+            if (finalGeneratedPayload) {
+                setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2: 保存済みの生成結果を復元しました。" }]);
+            } else if (type === 'infographic') {
                 setMessages(prev => [...prev, { role: 'system', text: '🎨 Task 2: インフォグラフィックを生成中...' }]);
                 
                 const defaultNanoPrompt = "以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}";
@@ -418,6 +467,21 @@ const DeepResearch = ({ onOpen }) => {
                 }
             }
 
+            // Save checkpoint after generation
+            if (!resumeData?.generated_payload) {
+                await fetch('/api/research/workflow/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: workflowIdRef.current,
+                        status: 'saving',
+                        generated_payload: finalGeneratedPayload,
+                        total_input_tokens: totalInputTokensRef.current,
+                        total_output_tokens: totalOutputTokensRef.current
+                    })
+                }).catch(e => console.error(e));
+            }
+
             // ==========================================
             // Task 3: Save to Drive
             // ==========================================
@@ -538,6 +602,12 @@ ${reportText.substring(0, 1500)}...`;
                 console.error("Auto-Indexing Failed:", indexError);
             }
 
+            // Delete workflow checkpoint on success
+            if (workflowIdRef.current) {
+                await fetch(`/api/research/workflow/${workflowIdRef.current}`, { method: 'DELETE' }).catch(e => console.error(e));
+                setIncompleteWorkflow(null);
+            }
+
             // Final Success Message
             setMessages(prev => {
                 const newMsgs = prev.filter(m => m.type !== 'system');
@@ -601,6 +671,19 @@ ${reportText.substring(0, 1500)}...`;
         });
     };
 
+    const resumeWorkflow = (workflow) => {
+        setIncompleteWorkflow(null);
+        setPipelineType(workflow.pipeline_type);
+        setPendingQuery(workflow.query_text);
+        setMessages([{ role: 'user', text: workflow.query_text }]);
+        executePipeline(workflow.query_text, workflow.pipeline_type, workflow);
+    };
+
+    const discardWorkflow = async (id) => {
+        setIncompleteWorkflow(null);
+        await fetch(`/api/research/workflow/${id}`, { method: 'DELETE' }).catch(e => console.error(e));
+    };
+
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
@@ -629,6 +712,29 @@ ${reportText.substring(0, 1500)}...`;
 
             {/* Chat Area */}
             <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 scrollbar-hide bg-gray-50/50">
+                {incompleteWorkflow && stage === 'idle' && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 animate-fadeIn">
+                        <div className="flex items-start">
+                            <span className="text-amber-500 text-xl mr-3">⚠️</span>
+                            <div>
+                                <h4 className="text-amber-800 font-bold text-sm">前回中断されたリサーチがあります</h4>
+                                <p className="text-amber-700 text-xs mt-1">テーマ: {incompleteWorkflow.query_text}</p>
+                                <p className="text-amber-600 text-[10px] mt-1">
+                                    ステータス: {incompleteWorkflow.status === 'generating' ? 'レポート作成完了' : incompleteWorkflow.status === 'saving' ? 'HTML/画像化完了' : incompleteWorkflow.status} | 
+                                    消費トークン: {(incompleteWorkflow.total_input_tokens + incompleteWorkflow.total_output_tokens).toLocaleString()}
+                                </p>
+                                <div className="mt-3 flex gap-2">
+                                    <button onClick={() => resumeWorkflow(incompleteWorkflow)} className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs font-semibold shadow-sm transition">
+                                        ▶ 途中から再開する
+                                    </button>
+                                    <button onClick={() => discardWorkflow(incompleteWorkflow.id)} className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-600 px-3 py-1.5 rounded text-xs font-semibold shadow-sm transition">
+                                        🗑 破棄する
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center px-4 animate-fadeIn">
                         <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center mb-6 shadow-sm border border-indigo-100 transform rotate-3">

@@ -344,6 +344,113 @@ async function cancelInProgressJobs() {
     }
 }
 
+async function getUserFromReq(req) {
+    const token = req.cookies.token;
+    if (!token) return null;
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        const user = await new Promise((resolve, reject) => {
+            db.get("SELECT * FROM users WHERE google_id = ?", [decoded.googleId], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+        return user;
+    } catch (e) {
+        return null;
+    }
+}
+
+// ==========================================
+// Workflow Resumption Endpoints
+// ==========================================
+
+router.get('/workflow/incomplete', async (req, res) => {
+    try {
+        const user = await getUserFromReq(req);
+        if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+        db.get(
+            `SELECT * FROM deep_research_workflows 
+             WHERE user_id = ? AND status != 'completed' AND status != 'failed' AND status != 'discarded' 
+             ORDER BY updated_at DESC LIMIT 1`,
+            [user.id],
+            (err, row) => {
+                if (err) {
+                    console.error("Fetch incomplete workflow error:", err);
+                    return res.status(500).json({ error: "Failed to fetch workflow" });
+                }
+                res.json({ workflow: row || null });
+            }
+        );
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+router.post('/workflow/save', async (req, res) => {
+    try {
+        const user = await getUserFromReq(req);
+        if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+        const { id, query_text, pipeline_type, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens } = req.body;
+        
+        if (!id) return res.status(400).json({ error: 'Workflow ID is required' });
+
+        // Check if workflow exists
+        const existing = await new Promise((resolve, reject) => {
+            db.get("SELECT * FROM deep_research_workflows WHERE id = ?", [id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (existing) {
+            // Update
+            db.run(
+                `UPDATE deep_research_workflows 
+                 SET status = ?, plan_text = COALESCE(?, plan_text), report_text = COALESCE(?, report_text), 
+                     generated_payload = COALESCE(?, generated_payload), 
+                     total_input_tokens = ?, total_output_tokens = ?, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ? AND user_id = ?`,
+                [status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0, id, user.id],
+                (err) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true, action: 'updated' });
+                }
+            );
+        } else {
+            // Insert
+            db.run(
+                `INSERT INTO deep_research_workflows (id, user_id, query_text, pipeline_type, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, user.id, query_text, pipeline_type, status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0],
+                (err) => {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true, action: 'inserted' });
+                }
+            );
+        }
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+router.delete('/workflow/:id', async (req, res) => {
+    try {
+        const user = await getUserFromReq(req);
+        if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+        const { id } = req.params;
+        db.run("UPDATE deep_research_workflows SET status = 'discarded' WHERE id = ? AND user_id = ?", [id, user.id], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
 module.exports = {
     router,
     cancelInProgressJobs
