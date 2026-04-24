@@ -659,7 +659,7 @@ ${reportText.substring(0, 1500)}...`;
                     } else if (data.state === 'error') {
                         clearInterval(pollInterval);
                         reject(new Error(data.error));
-                    } else if (attempts >= 120) { // 120 secs timeout
+                    } else if (attempts >= 600) { // 600 secs (10 mins) timeout for large generations
                         clearInterval(pollInterval);
                         reject(new Error("Generation timed out."));
                     }
