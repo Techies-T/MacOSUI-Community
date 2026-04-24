@@ -453,11 +453,16 @@ const DeepResearch = ({ onOpen }) => {
                         validationResult = validationResult.replace(/^```html\s*/i, '').replace(/```$/i, '').trim();
                         
                         if (validationResult !== 'VALID' && validationResult.length > 50) {
-                            rawHtml = validationResult;
-                            finalGeneratedPayload = rawHtml;
-                            selfCorrectionStatusRef.current = "実行済み（重なり・崩れを修正）";
-                            setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
-                            // (HTML Editor popups have been removed in favor of the summary)
+                            // Safety Check: Did the AI truncate or destroy the HTML?
+                            if (validationResult.length < rawHtml.length * 0.6) {
+                                console.warn(`Auto-correction rejected: new length ${validationResult.length} is suspiciously shorter than original ${rawHtml.length}`);
+                                setMessages(prev => [...prev, { role: 'model', text: "⚠️ 自己修正結果が不完全だったため、安全のため元のレイアウトを維持しました。" }]);
+                            } else {
+                                rawHtml = validationResult;
+                                finalGeneratedPayload = rawHtml;
+                                selfCorrectionStatusRef.current = "実行済み（重なり・崩れを修正）";
+                                setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
+                            }
                         } else {
                             setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーは検出されませんでした。レイアウトは完璧です！" }]);
                         }
