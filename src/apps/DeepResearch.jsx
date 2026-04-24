@@ -238,6 +238,8 @@ const DeepResearch = ({ onOpen }) => {
         setStage('researching');
         
         const pipelineStartTime = Date.now();
+        const isDirectHtml = type === 'direct_html';
+        const actualType = isDirectHtml ? 'html' : type;
         
         // Remove confirmation buttons from previous message by stripping the component
         setMessages(prev => {
@@ -256,7 +258,7 @@ const DeepResearch = ({ onOpen }) => {
             let reportText = resumeData?.report_text || null;
             let documentTitle = "Research Report";
 
-            if (!reportText) {
+            if (!reportText && !isDirectHtml) {
                 setMessages(prev => [...prev, { role: 'system', text: '🔍 Task 1: リサーチを実行中...' }]);
                 
                 const researchReq = await fetch('/api/research/start', {
@@ -318,14 +320,26 @@ const DeepResearch = ({ onOpen }) => {
                         total_output_tokens: totalOutputTokensRef.current
                     })
                 }).catch(e => console.error(e));
+            } else if (isDirectHtml) {
+                // Skip Task 1
+                const lines = userQuery.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                const firstLine = lines[0] || "既存レポート";
+                documentTitle = firstLine.replace(/^(#|\*|=|\-|テーマ:|===)+/gi, '').trim() || "既存レポートからの生成";
+                if (documentTitle.length > 50) documentTitle = documentTitle.substring(0, 50) + "...";
+                reportText = userQuery;
+                
+                setMessages(prev => [...prev, { role: 'system', text: '⏭️ Task 1: 既存レポートが入力されたため、リサーチプロセスをスキップします。' }]);
+                await new Promise(r => setTimeout(r, 1000));
             } else {
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 1: 保存済みのリサーチ結果を復元しました。" }]);
             }
             
-            // Extract a title for saving
-            const headingMatch = reportText.match(/^#\s+(.+)$/m);
-            documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}`;
-            if (documentTitle.length > 80) documentTitle = documentTitle.substring(0, 77) + '...';
+            // Extract a title for saving if not direct html
+            if (!isDirectHtml) {
+                const headingMatch = reportText.match(/^#\s+(.+)$/m);
+                documentTitle = headingMatch ? headingMatch[1].trim() : `Research Report: ${userQuery.substring(0, 30)}${userQuery.length > 30 ? '...' : ''}`;
+                if (documentTitle.length > 80) documentTitle = documentTitle.substring(0, 77) + '...';
+            }
 
             // ==========================================
             // Task 2: Generation (Infographic OR HTML/SVG)
@@ -337,7 +351,7 @@ const DeepResearch = ({ onOpen }) => {
 
             if (finalGeneratedPayload) {
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2: 保存済みの生成結果を復元しました。" }]);
-            } else if (type === 'infographic') {
+            } else if (actualType === 'infographic') {
                 setMessages(prev => [...prev, { role: 'system', text: '🎨 Task 2: インフォグラフィックを生成中...' }]);
                 
                 const defaultNanoPrompt = "以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}";
@@ -374,7 +388,7 @@ const DeepResearch = ({ onOpen }) => {
                     ) 
                 }]);
 
-            } else if (type === 'html') {
+            } else if (actualType === 'html') {
                 setMessages(prev => [...prev, { role: 'system', text: '📊 Task 2: HTML/SVG ナレッジを生成中...' }]);
                 
                 const defaultHtmlPrompt = `以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}`;
@@ -498,28 +512,31 @@ const DeepResearch = ({ onOpen }) => {
             setStage('saving');
             setMessages(prev => [...prev, { role: 'system', text: '💾 Task 3: Google Driveへ結果を自動保存中...' }]);
 
-            // Save Report (Google Doc)
-            const saveDocReq = await fetch('/api/drive/upload', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: `${documentTitle} (Report)`,
-                    content: reportText,
-                    isDoc: true,
-                    folderId: config?.geminiResearchFolderId || null
-                })
-            });
-            const saveDocData = await saveDocReq.json();
-            if (!saveDocReq.ok) throw new Error(saveDocData.error || "Failed to save report to Drive");
+            // Save Report (Google Doc) - Only if not direct HTML
+            let saveDocData = null;
+            if (!isDirectHtml) {
+                const saveDocReq = await fetch('/api/drive/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: `${documentTitle} (Report)`,
+                        content: reportText,
+                        isDoc: true,
+                        folderId: config?.geminiResearchFolderId || null
+                    })
+                });
+                saveDocData = await saveDocReq.json();
+                if (!saveDocReq.ok) throw new Error(saveDocData.error || "Failed to save report to Drive");
+            }
 
             // Save Generated Asset (Image or HTML)
-            let finalName = type === 'infographic' ? `${documentTitle} (Infographic).png` : `${documentTitle} (Presentation).html`;
+            let finalName = actualType === 'infographic' ? `${documentTitle} (Infographic).png` : `${documentTitle} (Presentation).html`;
             let finalContent = finalGeneratedPayload;
             let publishId = null;
             let originalPublishId = null;
             
             // For HTML type, publish it natively to the server
-            if (type === 'html') {
+            if (actualType === 'html') {
                 try {
                     const publishReq = await fetch('/api/research/publish', {
                         method: 'POST',
@@ -556,7 +573,7 @@ const DeepResearch = ({ onOpen }) => {
                 }
             }
 
-            if (type === 'infographic') {
+            if (actualType === 'infographic') {
                  // The payload is JSON containing base64 data
                  const parsed = JSON.parse(finalGeneratedPayload);
                  finalContent = parsed.data; // Just the base64 string
@@ -569,7 +586,7 @@ const DeepResearch = ({ onOpen }) => {
                     name: finalName,
                     content: finalContent,
                     mimeType: mimeType,
-                    isBase64: type === 'infographic', // Hint for backend if needed
+                    isBase64: actualType === 'infographic', // Hint for backend if needed
                     folderId: config?.geminiResearchFolderId || null
                 })
             });
@@ -602,13 +619,15 @@ const DeepResearch = ({ onOpen }) => {
 
                 const summaryStats = `**ワークフロー実行結果:**
 - ⏱️ **実行時間:** ${timeStr}
-- 🤖 **対象モデル:** ${baseResearchModel} (Task1) / ${type === 'html' ? htmlSvgModel : infographicModel} (Task2)
+- 🤖 **対象モデル:** ${isDirectHtml ? 'スキップ' : baseResearchModel} (Task1) / ${actualType === 'html' ? htmlSvgModel : infographicModel} (Task2)
 - 🪙 **トークン消費:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()})
-- 🔧 **自己修正プロセス:** ${type === 'html' ? selfCorrectionStatusRef.current : '対象外（画像生成）'}`;
+- 🔧 **自己修正プロセス:** ${actualType === 'html' ? selfCorrectionStatusRef.current : '対象外（画像生成）'}`;
+
+                const indexQueryText = isDirectHtml ? "既存レポートからのHTML/SVG直接変換" : userQuery.replace(/\n/g, '\n> ');
 
                 const indexContent = `**実行日時:** ${new Date().toLocaleString()}
 **調査クエリ:**
-> ${userQuery.replace(/\n/g, '\n> ')}
+> ${indexQueryText}
 
 ${summaryStats}
 
@@ -623,7 +642,8 @@ ${reportText.substring(0, 1500)}...`;
                     body: JSON.stringify({ text: reportText })
                 });
                 
-                let knowledgeTags = ['DeepResearch', type === 'html' ? 'HTML' : 'Infographic'];
+                let knowledgeTags = ['DeepResearch', actualType === 'html' ? 'HTML' : 'Infographic'];
+                if (isDirectHtml) knowledgeTags.push('Direct Conversion');
                 if (extractReq.ok) {
                     const extracted = await extractReq.json();
                     if (extracted.tags && Array.isArray(extracted.tags)) {
@@ -655,7 +675,11 @@ ${reportText.substring(0, 1500)}...`;
             // Final Success Message
             setMessages(prev => {
                 const newMsgs = prev.filter(m => m.type !== 'system');
-                let linksText = `🎉 すべてのタスクが完了しました！\n\n${summaryStats}\n\n**保存先リンク**:\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
+                let linksText = `🎉 すべてのタスクが完了しました！\n\n${summaryStats}\n\n**保存先リンク**:\n`;
+                if (!isDirectHtml && saveDocData) {
+                    linksText += `- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n`;
+                }
+                linksText += `- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
                 
                 if (publishId) {
                     // Append native server hosted link
@@ -892,6 +916,30 @@ ${reportText.substring(0, 1500)}...`;
                                 >
                                     <span className="text-lg group-hover:scale-110 transition-transform">📊</span>
                                     <span>HTML化ワークフローで実行</span>
+                                </button>
+                                
+                                <button
+                                    onClick={() => requestPipeline('direct_html')}
+                                    disabled={isLoading || !input.trim() || !hasAccess}
+                                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                                            ${isLoading || !input.trim() || !hasAccess
+                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
+                                                : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                >
+                                    <span className="text-lg group-hover:scale-110 transition-transform">📄</span>
+                                    <span>既存レポートからHTML化</span>
+                                </button>
+                                
+                                <button
+                                    onClick={() => requestPipeline('direct_html')}
+                                    disabled={isLoading || !input.trim() || !hasAccess}
+                                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                                            ${isLoading || !input.trim() || !hasAccess
+                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
+                                                : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                >
+                                    <span className="text-lg group-hover:scale-110 transition-transform">📄</span>
+                                    <span>既存レポートからHTML化</span>
                                 </button>
                             </>
                         );
