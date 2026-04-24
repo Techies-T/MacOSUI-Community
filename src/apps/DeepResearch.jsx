@@ -18,6 +18,18 @@ const DeepResearch = ({ onOpen }) => {
     const [config, setConfig] = useState(null);
     const messagesEndRef = useRef(null);
 
+    // Execution Tracking Refs
+    const totalInputTokensRef = useRef(0);
+    const totalOutputTokensRef = useRef(0);
+    const selfCorrectionStatusRef = useRef("不要（レイアウト完璧）");
+
+    const handleUsage = React.useCallback((metadata) => {
+        if (metadata) {
+            totalInputTokensRef.current += metadata.promptTokenCount || 0;
+            totalOutputTokensRef.current += metadata.candidatesTokenCount || 0;
+        }
+    }, []);
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -85,16 +97,10 @@ const DeepResearch = ({ onOpen }) => {
         
         setPipelineType(type);
         
-        let totalInputTokens = 0;
-        let totalOutputTokens = 0;
-        let selfCorrectionStatus = "不要（レイアウト完璧）";
-        
-        const handleUsage = (metadata) => {
-            if (metadata) {
-                totalInputTokens += metadata.promptTokenCount || 0;
-                totalOutputTokens += metadata.candidatesTokenCount || 0;
-            }
-        };
+        // Reset counters for new pipeline execution
+        totalInputTokensRef.current = 0;
+        totalOutputTokensRef.current = 0;
+        selfCorrectionStatusRef.current = "不要（レイアウト完璧）";
 
         // History Check Phase
         if (!bypassHistory) {
@@ -395,7 +401,7 @@ const DeepResearch = ({ onOpen }) => {
                         if (validationResult !== 'VALID' && validationResult.length > 50) {
                             rawHtml = validationResult;
                             finalGeneratedPayload = rawHtml;
-                            selfCorrectionStatus = "実行済み（重なり・崩れを修正）";
+                            selfCorrectionStatusRef.current = "実行済み（重なり・崩れを修正）";
                             setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
                             // Update HTML Editor if open
                             if (onOpen) {
@@ -495,8 +501,8 @@ const DeepResearch = ({ onOpen }) => {
 
 **ワークフロー情報:**
 - **対象モデル:** ${baseResearchModel} (Task 1) / ${type === 'html' ? htmlSvgModel : infographicModel} (Task 2)
-- **トークン使用量:** 入力 ${totalInputTokens.toLocaleString()} / 出力 ${totalOutputTokens.toLocaleString()} (合計 ${(totalInputTokens + totalOutputTokens).toLocaleString()} Tokens)
-- **自己修正プロセス:** ${type === 'html' ? selfCorrectionStatus : '対象外（画像生成）'}
+- **トークン使用量:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()} Tokens)
+- **自己修正プロセス:** ${type === 'html' ? selfCorrectionStatusRef.current : '対象外（画像生成）'}
 
 ${markdownLinks}
 
