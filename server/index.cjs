@@ -2024,6 +2024,11 @@ app.use((req, res, next) => {
             `<head><script>window.ENV = ${JSON.stringify(envConfig)};</script>`
         );
 
+        // Set headers to prevent aggressive caching of index.html by browsers (especially Safari)
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+
         res.send(injectedData);
     });
 });
