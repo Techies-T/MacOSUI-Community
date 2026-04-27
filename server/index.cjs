@@ -849,8 +849,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             let response = null;
 
             try {
-                const timeoutMs = 60000; // 60s timeout
-                const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (60s)")), timeoutMs));
+                const timeoutMs = 120000; // 120s timeout
+                const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
 
                 if (mode === 'nanobanana') {
                     console.log("Sending request to Gemini for Image Generation...");
@@ -916,6 +916,11 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                     if (!response || !response.candidates) {
                         throw new Error("No candidates in Gemini response");
                     }
+
+                    // Check for truncated HTML generation
+                    if (mode === 'html_svg' && responseText.length > 0 && !responseText.includes('</html>') && !responseText.includes('</svg>')) {
+                        throw new Error("Truncated output detected (missing closing tags). Retrying...");
+                    }
                 }
 
                 // Logging for verification
@@ -933,8 +938,9 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
                 const isTimeout = apiError.message && apiError.message.includes('Timeout');
                 const isOverloaded = apiError.status === 503 || (apiError.message && apiError.message.includes('Overloaded'));
+                const isTruncated = apiError.message && apiError.message.includes('Truncated');
 
-                if (currentRetries > 0 && (isTimeout || isOverloaded)) {
+                if (currentRetries > 0 && (isTimeout || isOverloaded || isTruncated)) {
                     currentRetries--;
                     maxTurns++; // Don't count retry as a turn
                     await new Promise(res => setTimeout(res, 3000)); // Wait a bit longer before retry
