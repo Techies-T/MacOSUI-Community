@@ -442,8 +442,13 @@ const DeepResearch = ({ onOpen }) => {
                 if (!genReq.ok) throw new Error(genData.error || "Failed to start HTML generation");
 
                 let rawHtml = await pollGeminiJob(genData.jobId, handleUsage);
-                // Strip markdown backticks if accidentally returned
-                rawHtml = rawHtml.replace(/^```html\s*/i, '').replace(/```$/i, '').trim();
+                // Strip markdown backticks and conversational text if present
+                const htmlMatch = rawHtml.match(/```(?:html|xml)?\s*([\s\S]*?)\s*```/i);
+                if (htmlMatch) {
+                    rawHtml = htmlMatch[1].trim();
+                } else {
+                    rawHtml = rawHtml.replace(/^```(?:html|xml)?\s*/i, '').replace(/```$/i, '').trim();
+                }
                 finalGeneratedPayload = rawHtml;
                 mimeType = 'text/html';
 
