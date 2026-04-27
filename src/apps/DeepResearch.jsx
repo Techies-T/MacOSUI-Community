@@ -929,17 +929,22 @@ ${reportText.substring(0, 1500)}...`;
                     isOpen={isDriveModalOpen} 
                     onClose={() => setIsDriveModalOpen(false)} 
                     onSelect={(f) => setSelectedDriveFile(f)} 
+                    defaultFolderId={config?.geminiResearchFolderId}
                 />
             )}
         </div>
     );
 };
 
-const DrivePickerModal = ({ isOpen, onClose, onSelect }) => {
+const DrivePickerModal = ({ isOpen, onClose, onSelect, defaultFolderId }) => {
     const [files, setFiles] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [currentFolder, setCurrentFolder] = useState('root');
-    const [folderHistory, setFolderHistory] = useState([{ id: 'root', name: 'ルート (共有ドライブ)' }]);
+    
+    const initialFolderId = defaultFolderId || 'root';
+    const initialFolderName = initialFolderId !== 'root' ? 'DeepResearch 出力先' : 'ルート (共有ドライブ)';
+    
+    const [currentFolder, setCurrentFolder] = useState(initialFolderId);
+    const [folderHistory, setFolderHistory] = useState([{ id: initialFolderId, name: initialFolderName }]);
 
     useEffect(() => {
         if (isOpen) {
