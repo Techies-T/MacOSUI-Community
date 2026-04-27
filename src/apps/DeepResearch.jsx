@@ -938,38 +938,92 @@ ${reportText.substring(0, 1500)}...`;
 const DrivePickerModal = ({ isOpen, onClose, onSelect }) => {
     const [files, setFiles] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [currentFolder, setCurrentFolder] = useState('root');
+    const [folderHistory, setFolderHistory] = useState([{ id: 'root', name: 'ルート (共有ドライブ)' }]);
 
     useEffect(() => {
         if (isOpen) {
             setLoading(true);
-            fetch('/api/drive/list')
+            fetch(`/api/drive/list?folderId=${currentFolder}`)
                 .then(r => r.json())
                 .then(d => { setFiles(d.files || []); setLoading(false); })
                 .catch(() => setLoading(false));
         }
-    }, [isOpen]);
+    }, [isOpen, currentFolder]);
 
     if (!isOpen) return null;
+
+    const handleItemClick = (f) => {
+        if (f.mimeType === 'application/vnd.google-apps.folder') {
+            setFolderHistory(prev => [...prev, { id: f.id, name: f.name }]);
+            setCurrentFolder(f.id);
+        } else {
+            onSelect(f);
+            onClose();
+        }
+    };
+
+    const handleBack = () => {
+        if (folderHistory.length > 1) {
+            const newHistory = folderHistory.slice(0, -1);
+            setFolderHistory(newHistory);
+            setCurrentFolder(newHistory[newHistory.length - 1].id);
+        }
+    };
 
     return (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col h-[600px] overflow-hidden animate-fadeIn">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2"><span className="text-xl">☁️</span> Google Drive から選択</h3>
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        <span className="text-xl">☁️</span> Google Drive から選択
+                    </h3>
                     <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-xl font-bold cursor-pointer">×</button>
                 </div>
+                
+                {/* Breadcrumbs / Navigation */}
+                <div className="px-4 py-2 border-b bg-white flex items-center gap-2 overflow-x-auto text-sm">
+                    {folderHistory.length > 1 && (
+                        <button onClick={handleBack} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded transition flex items-center">
+                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+                            戻る
+                        </button>
+                    )}
+                    <div className="flex items-center text-gray-500 gap-1 whitespace-nowrap">
+                        {folderHistory.map((folder, idx) => (
+                            <span key={folder.id} className="flex items-center gap-1">
+                                {idx > 0 && <span>/</span>}
+                                <span className={idx === folderHistory.length - 1 ? 'font-semibold text-gray-800' : ''}>
+                                    {folder.name}
+                                </span>
+                            </span>
+                        ))}
+                    </div>
+                </div>
+
                 <div className="flex-1 overflow-y-auto p-4 bg-gray-50/30">
                     {loading ? (
                         <div className="flex justify-center items-center h-full text-gray-400 animate-pulse">読み込み中...</div>
                     ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder').map(f => (
+                            {/* Sort folders first, then files */}
+                            {files.sort((a, b) => {
+                                const isAFolder = a.mimeType === 'application/vnd.google-apps.folder';
+                                const isBFolder = b.mimeType === 'application/vnd.google-apps.folder';
+                                if (isAFolder && !isBFolder) return -1;
+                                if (!isAFolder && isBFolder) return 1;
+                                return a.name.localeCompare(b.name);
+                            }).map(f => (
                                 <div 
                                     key={f.id} 
-                                    onClick={() => { onSelect(f); onClose(); }}
+                                    onClick={() => handleItemClick(f)}
                                     className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-white shadow-sm hover:bg-indigo-50 hover:border-indigo-200 hover:shadow cursor-pointer transition-all active:scale-[0.98]"
                                 >
-                                    <img src={f.iconLink} alt="" className="w-6 h-6 object-contain" />
+                                    {f.mimeType === 'application/vnd.google-apps.folder' ? (
+                                        <span className="text-2xl">📁</span>
+                                    ) : (
+                                        <img src={f.iconLink} alt="" className="w-6 h-6 object-contain" />
+                                    )}
                                     <span className="text-sm text-gray-700 truncate flex-1 font-medium">{f.name}</span>
                                 </div>
                             ))}
