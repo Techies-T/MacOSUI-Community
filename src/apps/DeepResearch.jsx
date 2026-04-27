@@ -17,6 +17,10 @@ const DeepResearch = ({ onOpen }) => {
 
     const [config, setConfig] = useState(null);
     const messagesEndRef = useRef(null);
+    
+    // Drive File Selection
+    const [selectedDriveFile, setSelectedDriveFile] = useState(null);
+    const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
 
     // Resumption state
     const [incompleteWorkflow, setIncompleteWorkflow] = useState(null);
@@ -86,12 +90,13 @@ const DeepResearch = ({ onOpen }) => {
         if (!hasAccess) return;
         
         const userQuery = bypassHistory ? (explicitQuery || pendingQuery) : input.trim();
-        if (!userQuery || isLoading) return;
+        if ((!userQuery && !selectedDriveFile) || isLoading) return;
 
         if (!bypassHistory) {
             setInput('');
             setPendingQuery(userQuery);
-            setMessages(prev => [...prev, { role: 'user', text: userQuery }]);
+            const msgText = selectedDriveFile ? `📎 ${selectedDriveFile.name} を添付しました\n${userQuery}` : userQuery;
+            setMessages(prev => [...prev, { role: 'user', text: msgText }]);
         } else {
             // Remove previous warning buttons
             setMessages(prev => {
@@ -114,6 +119,12 @@ const DeepResearch = ({ onOpen }) => {
         totalInputTokensRef.current = 0;
         totalOutputTokensRef.current = 0;
         selfCorrectionStatusRef.current = "不要（レイアウト完璧）";
+
+        if (selectedDriveFile || type === 'direct_html') {
+             // Bypass Deep Research Task 1
+             executePipeline(userQuery, type, null, selectedDriveFile);
+             return;
+        }
 
         // History Check Phase
         if (!bypassHistory) {
@@ -228,7 +239,7 @@ const DeepResearch = ({ onOpen }) => {
     };
 
     // Phase 2: Actual Execution
-    const executePipeline = async (userQuery, type, resumeData = null) => {
+    const executePipeline = async (userQuery, type, resumeData = null, attachedFile = null) => {
         if (resumeData) {
             workflowIdRef.current = resumeData.id;
             totalInputTokensRef.current = resumeData.total_input_tokens || 0;
@@ -238,8 +249,8 @@ const DeepResearch = ({ onOpen }) => {
         setStage('researching');
         
         const pipelineStartTime = Date.now();
-        const isDirectHtml = type === 'direct_html';
-        const actualType = isDirectHtml ? 'html' : type;
+        const isDirectHtml = type === 'direct_html' || !!attachedFile;
+        const actualType = type === 'direct_html' ? 'html' : type;
         
         // Remove confirmation buttons from previous message by stripping the component
         setMessages(prev => {
@@ -320,6 +331,21 @@ const DeepResearch = ({ onOpen }) => {
                         total_output_tokens: totalOutputTokensRef.current
                     })
                 }).catch(e => console.error(e));
+            } else if (attachedFile) {
+                 setMessages(prev => [...prev, { role: 'system', text: `📎 ドライブからドキュメントを読み込んでいます: ${attachedFile.name}` }]);
+                 const readReq = await fetch(`/api/drive/read?fileId=${attachedFile.id}`);
+                 const readData = await readReq.json();
+                 if (!readReq.ok) throw new Error("Failed to read file");
+                 
+                 reportText = readData.content;
+                 if (readData.type === 'html') {
+                     const tmp = document.createElement('div');
+                     tmp.innerHTML = reportText;
+                     reportText = tmp.innerText || tmp.textContent;
+                 }
+                 documentTitle = attachedFile.name.replace(/\.[^/.]+$/, "");
+                 if (documentTitle.length > 50) documentTitle = documentTitle.substring(0, 50) + "...";
+                 setMessages(prev => [...prev, { role: 'model', text: `✅ ドキュメントの読み込みが完了しました。(${reportText.length.toLocaleString()} 文字)` }]);
             } else if (isDirectHtml) {
                 // Skip Task 1
                 const lines = userQuery.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -348,6 +374,11 @@ const DeepResearch = ({ onOpen }) => {
             
             let finalGeneratedPayload = resumeData?.generated_payload || null; // Either image JSON or HTML string
             let mimeType = 'text/html';
+            
+            // Clean report text to remove noise (Sources, Token summaries) and allow longer context
+            const cleanReportForPrompt = reportText
+                .replace(/\n+\s*(\*\*Sources:\*\*|Sources:|---[\s\n]*\*\*Deep Research Usage Summary\*\*)[\s\S]*$/i, '')
+                .substring(0, 30000);
 
             if (finalGeneratedPayload) {
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2: 保存済みの生成結果を復元しました。" }]);
@@ -357,7 +388,7 @@ const DeepResearch = ({ onOpen }) => {
                 const defaultNanoPrompt = "以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}";
                 let promptTemplate = config?.nanoBananaPrompt || defaultNanoPrompt;
                 if (!promptTemplate.includes('{{report}}')) promptTemplate += "\n\n{{report}}";
-                const genPrompt = promptTemplate.replace(/{{report}}/g, reportText.substring(0, 3000));
+                const genPrompt = promptTemplate.replace(/{{report}}/g, cleanReportForPrompt);
 
                 const genReq = await fetch('/api/gemini', {
                     method: 'POST',
@@ -396,7 +427,7 @@ const DeepResearch = ({ onOpen }) => {
                 if (!promptTemplate.includes('{{report}}')) promptTemplate += "\n\n=== テーマ: {{title}} ===\n\n{{report}}";
                 const genPrompt = promptTemplate
                     .replace(/{{title}}/g, documentTitle)
-                    .replace(/{{report}}/g, reportText.substring(0, 3000));
+                    .replace(/{{report}}/g, cleanReportForPrompt);
 
                 const genReq = await fetch('/api/gemini', {
                     method: 'POST',
@@ -424,71 +455,8 @@ const DeepResearch = ({ onOpen }) => {
                 // ==========================================
                 // Task 2.5: Visual Validation (Auto-Correction)
                 // ==========================================
-                setStage('validating');
-                setMessages(prev => [...prev, { role: 'system', text: '🕵️‍♂️ Task 2.5: 生成された画像の視覚的検証と自己修正を実行中...' }]);
-                
+                // Temporarily disabled due to SVG layout destruction issues
                 let originalPayloadForDebug = null;
-                
-                try {
-                    const iframe = document.createElement('iframe');
-                    iframe.style.position = 'fixed';
-                    iframe.style.top = '-10000px';
-                    iframe.style.width = '1200px';
-                    iframe.style.height = '800px';
-                    document.body.appendChild(iframe);
-                    
-                    iframe.contentDocument.open();
-                    iframe.contentDocument.write(rawHtml);
-                    iframe.contentDocument.close();
-                    
-                    // Wait for rendering and CDN resources
-                    await new Promise(r => setTimeout(r, 2500));
-                    
-                    const dataUrl = await toPng(iframe.contentDocument.body, { cacheBust: true, backgroundColor: '#ffffff' });
-                    document.body.removeChild(iframe);
-                    
-                    // Extract base64 part
-                    const base64Data = dataUrl.split(',')[1];
-                    
-                    const validationPrompt = `以下のHTMLコードとそのレンダリング結果のスクリーンショットを確認してください。\nSVGグラフの文字（ラベルや値）とグラフの要素が重なって読みづらくなっている部分や、レイアウト崩れがないか視覚的にチェックしてください。\nもし重なりや崩れがある場合は、文字サイズを小さくする、マージンを調整する、配置を変えるなどしてHTML/SVGコードを修正し、修正後の完全なHTMLコードのみを出力してください。\nもし完璧で重なりが一切ない場合は、ただ「VALID」とだけ返答してください。\n\n=== 元のHTMLコード ===\n${rawHtml}`;
-
-                    const valReq = await fetch('/api/gemini', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            message: validationPrompt,
-                            images: [{ mimeType: 'image/png', data: base64Data }],
-                            history: [],
-                            config: { mode: 'html_svg', systemInstruction: 'あなたはUI/UXデザイナー兼フロントエンドエンジニアです。マークダウンを使用せず、要求されたHTMLコードのみ、またはVALIDという文字のみを出力してください。' }
-                        })
-                    });
-                    
-                    if (valReq.ok) {
-                        const valData = await valReq.json();
-                        let validationResult = await pollGeminiJob(valData.jobId, handleUsage);
-                        validationResult = validationResult.replace(/^```html\s*/i, '').replace(/```$/i, '').trim();
-                        
-                        if (validationResult !== 'VALID' && validationResult.length > 50) {
-                            // Safety Check: Did the AI truncate or destroy the HTML?
-                            if (validationResult.length < rawHtml.length * 0.6) {
-                                console.warn(`Auto-correction rejected: new length ${validationResult.length} is suspiciously shorter than original ${rawHtml.length}`);
-                                setMessages(prev => [...prev, { role: 'model', text: "⚠️ 自己修正結果が不完全だったため、安全のため元のレイアウトを維持しました。" }]);
-                            } else {
-                                originalPayloadForDebug = rawHtml;
-                                rawHtml = validationResult;
-                                finalGeneratedPayload = rawHtml;
-                                selfCorrectionStatusRef.current = "実行済み（重なり・崩れを修正）";
-                                setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーを検知したため、AIが自律的にSVGレイアウトを修正しました！" }]);
-                            }
-                        } else {
-                            setMessages(prev => [...prev, { role: 'model', text: "✨ 視覚的エラーは検出されませんでした。レイアウトは完璧です！" }]);
-                        }
-                    }
-                } catch (valErr) {
-                    console.error("Visual Validation Error:", valErr);
-                    // 失敗した場合は元のrawHtmlのまま進行する
-                    setMessages(prev => [...prev, { role: 'model', text: "⚠️ 視覚的検証プロセスをスキップしました（ネットワークエラー等）" }]);
-                }
             }
 
             // Save checkpoint after generation
@@ -870,16 +838,31 @@ ${reportText.substring(0, 1500)}...`;
             </div>
 
             {/* Input Area */}
-            <div className="px-6 py-5 bg-white border-t border-gray-100">
+            <div className="px-6 py-5 bg-white border-t border-gray-100 relative">
                 <div className="relative">
+                    {selectedDriveFile && (
+                        <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-semibold shadow-sm border border-indigo-200">
+                            <span className="truncate max-w-[150px]">{selectedDriveFile.name}</span>
+                            <button onClick={() => setSelectedDriveFile(null)} className="hover:text-indigo-900 ml-1">✖</button>
+                        </div>
+                    )}
                     <textarea
                         value={input}
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         placeholder={hasAccess ? "リサーチするテーマを入力してください（例：日本の少子化対策の現状と課題）" : "実行権限がありません。"}
-                        className={`w-full pl-5 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-gray-50/50 resize-none h-[110px] text-sm text-gray-800 transition-all font-medium shadow-inner ${!hasAccess ? 'opacity-60 cursor-not-allowed bg-gray-100' : 'placeholder-gray-400'}`}
+                        className={`w-full pl-5 pr-12 py-4 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-gray-50/50 resize-none h-[110px] text-sm text-gray-800 transition-all font-medium shadow-inner ${!hasAccess ? 'opacity-60 cursor-not-allowed bg-gray-100' : 'placeholder-gray-400'} ${selectedDriveFile ? 'pt-10' : ''}`}
                         disabled={isLoading || !hasAccess}
                     />
+                    {/* Attachment Button */}
+                    <button 
+                        onClick={() => setIsDriveModalOpen(true)}
+                        disabled={isLoading || !hasAccess}
+                        className="absolute bottom-3 right-3 p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                        title="Google Driveから添付"
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                    </button>
                 </div>
                 
                 {/* Action Buttons */}
@@ -895,9 +878,9 @@ ${reportText.substring(0, 1500)}...`;
                                 {canGenerateInfographic && (
                                     <button
                                         onClick={() => requestPipeline('infographic')}
-                                        disabled={isLoading || !input.trim() || !hasAccess}
+                                        disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
                                         className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                                ${isLoading || !input.trim() || !hasAccess
+                                                ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
                                                     ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
                                                     : 'bg-gradient-to-b from-indigo-50 to-white text-indigo-700 border-indigo-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                                     >
@@ -908,9 +891,9 @@ ${reportText.substring(0, 1500)}...`;
                                 
                                 <button
                                     onClick={() => requestPipeline('html')}
-                                    disabled={isLoading || !input.trim() || !hasAccess}
+                                    disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
                                     className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                            ${isLoading || !input.trim() || !hasAccess
+                                            ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
                                                 ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
                                                 : 'bg-gradient-to-b from-emerald-50 to-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                                 >
@@ -920,9 +903,9 @@ ${reportText.substring(0, 1500)}...`;
                                 
                                 <button
                                     onClick={() => requestPipeline('direct_html')}
-                                    disabled={isLoading || !input.trim() || !hasAccess}
+                                    disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
                                     className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                            ${isLoading || !input.trim() || !hasAccess
+                                            ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
                                                 ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
                                                 : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                                 >
@@ -934,6 +917,62 @@ ${reportText.substring(0, 1500)}...`;
                             </>
                         );
                     })()}
+                </div>
+            </div>
+            {isDriveModalOpen && (
+                <DrivePickerModal 
+                    isOpen={isDriveModalOpen} 
+                    onClose={() => setIsDriveModalOpen(false)} 
+                    onSelect={(f) => setSelectedDriveFile(f)} 
+                />
+            )}
+        </div>
+    );
+};
+
+const DrivePickerModal = ({ isOpen, onClose, onSelect }) => {
+    const [files, setFiles] = useState([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            setLoading(true);
+            fetch('/api/drive/list')
+                .then(r => r.json())
+                .then(d => { setFiles(d.files || []); setLoading(false); })
+                .catch(() => setLoading(false));
+        }
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col h-[600px] overflow-hidden animate-fadeIn">
+                <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2"><span className="text-xl">☁️</span> Google Drive から選択</h3>
+                    <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-xl font-bold cursor-pointer">×</button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 bg-gray-50/30">
+                    {loading ? (
+                        <div className="flex justify-center items-center h-full text-gray-400 animate-pulse">読み込み中...</div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder').map(f => (
+                                <div 
+                                    key={f.id} 
+                                    onClick={() => { onSelect(f); onClose(); }}
+                                    className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-white shadow-sm hover:bg-indigo-50 hover:border-indigo-200 hover:shadow cursor-pointer transition-all active:scale-[0.98]"
+                                >
+                                    <img src={f.iconLink} alt="" className="w-6 h-6 object-contain" />
+                                    <span className="text-sm text-gray-700 truncate flex-1 font-medium">{f.name}</span>
+                                </div>
+                            ))}
+                            {files.length === 0 && !loading && (
+                                <div className="col-span-full text-center text-gray-500 mt-10">ファイルが見つかりません。</div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
