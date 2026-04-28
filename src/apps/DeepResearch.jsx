@@ -630,14 +630,8 @@ ${reportText.substring(0, 1500)}...`;
                 }
                 linksText += `- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
                 
-                if (publishId) {
-                    // Append native server hosted link
-                    const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
-                    linksText += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
-                }
-                
                 if (indexingSuccess) {
-                    linksText += `\n\n📚 **図書館のインデックス（ナレッジベース）へ自動登録しました！**`;
+                    linksText += `\n\n📚 **図書館のインデックス（ナレッジベース）へ自動登録しました！**\nこちらからナレッジベースに移動して、登録された記事の中にあるリンクから閲覧してください。`;
                 }
 
                 return [...newMsgs, { 
