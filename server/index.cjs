@@ -916,11 +916,6 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                     if (!response || !response.candidates) {
                         throw new Error("No candidates in Gemini response");
                     }
-
-                    // Check for truncated HTML generation
-                    if (mode === 'html_svg' && responseText.length > 0 && !responseText.includes('</html>') && !responseText.includes('</svg>')) {
-                        throw new Error("Truncated output detected (missing closing tags). Retrying...");
-                    }
                 }
 
                 // Logging for verification
@@ -938,9 +933,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
                 const isTimeout = apiError.message && apiError.message.includes('Timeout');
                 const isOverloaded = apiError.status === 503 || (apiError.message && apiError.message.includes('Overloaded'));
-                const isTruncated = apiError.message && apiError.message.includes('Truncated');
 
-                if (currentRetries > 0 && (isTimeout || isOverloaded || isTruncated)) {
+                if (currentRetries > 0 && (isTimeout || isOverloaded)) {
                     currentRetries--;
                     maxTurns++; // Don't count retry as a turn
                     await new Promise(res => setTimeout(res, 3000)); // Wait a bit longer before retry

@@ -29,7 +29,6 @@ const DeepResearch = ({ onOpen }) => {
     // Execution Tracking Refs
     const totalInputTokensRef = useRef(0);
     const totalOutputTokensRef = useRef(0);
-    const selfCorrectionStatusRef = useRef("不要（レイアウト完璧）");
 
     const handleUsage = React.useCallback((metadata) => {
         if (metadata) {
@@ -118,7 +117,6 @@ const DeepResearch = ({ onOpen }) => {
         // Reset counters for new pipeline execution
         totalInputTokensRef.current = 0;
         totalOutputTokensRef.current = 0;
-        selfCorrectionStatusRef.current = "不要（レイアウト完璧）";
 
         if (selectedDriveFile || type === 'direct_html') {
              // Bypass Deep Research Task 1
@@ -456,12 +454,6 @@ const DeepResearch = ({ onOpen }) => {
                 
                 
                 // (HTML Editor popups have been removed in favor of the summary)
-
-                // ==========================================
-                // Task 2.5: Visual Validation (Auto-Correction)
-                // ==========================================
-                // Temporarily disabled due to SVG layout destruction issues
-                let originalPayloadForDebug = null;
             }
 
             // Save checkpoint after generation
@@ -506,7 +498,6 @@ const DeepResearch = ({ onOpen }) => {
             let finalName = actualType === 'infographic' ? `${documentTitle} (Infographic).png` : `${documentTitle} (Presentation).html`;
             let finalContent = finalGeneratedPayload;
             let publishId = null;
-            let originalPublishId = null;
             
             // For HTML type, publish it natively to the server
             if (actualType === 'html') {
@@ -525,22 +516,7 @@ const DeepResearch = ({ onOpen }) => {
                         publishId = publishData.id;
                     }
                     
-                    // Publish the original payload if auto-correction occurred
-                    if (originalPayloadForDebug) {
-                        const publishOrigReq = await fetch('/api/research/publish', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                title: `${documentTitle} (修正前オリジナル)`,
-                                content: originalPayloadForDebug,
-                                mimeType: 'text/html'
-                            })
-                        });
-                        if (publishOrigReq.ok) {
-                            const origData = await publishOrigReq.json();
-                            originalPublishId = origData.id;
-                        }
-                    }
+
                 } catch (e) {
                     console.error("Failed to publish natively:", e);
                 }
@@ -576,10 +552,6 @@ const DeepResearch = ({ onOpen }) => {
                     const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
                     markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
                 }
-                if (originalPublishId) {
-                    const origUrl = `${window.location.origin}/reports/${originalPublishId}.html`;
-                    markdownLinks += `\n- [🐛 **自己修正前のオリジナルを開く (Debug)**](${origUrl})`;
-                }
                 
                 const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
                 const infographicModel = config?.geminiInfographicModel || 'models/gemini-2.5-pro';
@@ -593,8 +565,7 @@ const DeepResearch = ({ onOpen }) => {
                 const summaryStats = `**ワークフロー実行結果:**
 - ⏱️ **実行時間:** ${timeStr}
 - 🤖 **対象モデル:** ${isDirectHtml ? 'スキップ' : baseResearchModel} (Task1) / ${actualType === 'html' ? htmlSvgModel : infographicModel} (Task2)
-- 🪙 **トークン消費:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()})
-- 🔧 **自己修正プロセス:** ${actualType === 'html' ? selfCorrectionStatusRef.current : '対象外（画像生成）'}`;
+- 🪙 **トークン消費:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()})`;
 
                 const indexQueryText = isDirectHtml ? "既存レポートからのHTML/SVG直接変換" : userQuery.replace(/\n/g, '\n> ');
 
@@ -658,11 +629,6 @@ ${reportText.substring(0, 1500)}...`;
                     // Append native server hosted link
                     const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
                     linksText += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
-                }
-                
-                if (originalPublishId) {
-                    const origUrl = `${window.location.origin}/reports/${originalPublishId}.html`;
-                    linksText += `\n- [🐛 **自己修正前のオリジナルを開く (Debug)**](${origUrl})`;
                 }
                 
                 if (indexingSuccess) {
