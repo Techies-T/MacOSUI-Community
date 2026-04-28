@@ -546,6 +546,21 @@ const DeepResearch = ({ onOpen }) => {
             // Task 4: Auto-Index to Library (Knowledge Base)
             // ==========================================
             let indexingSuccess = false;
+            
+            const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
+            const infographicModel = config?.geminiInfographicModel || 'models/gemini-2.5-pro';
+            const htmlSvgModel = config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro';
+            
+            const totalSeconds = Math.round((Date.now() - pipelineStartTime) / 1000);
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            const timeStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+
+            const summaryStats = `**ワークフロー実行結果:**
+- ⏱️ **実行時間:** ${timeStr}
+- 🤖 **対象モデル:** ${isDirectHtml ? 'スキップ' : baseResearchModel} (Task1) / ${actualType === 'html' ? htmlSvgModel : infographicModel} (Task2)
+- 🪙 **トークン消費:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()})`;
+
             try {
                 let markdownLinks = `**保存先リンク**:`;
                 if (!isDirectHtml && saveDocData) {
@@ -558,20 +573,6 @@ const DeepResearch = ({ onOpen }) => {
                     markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
                 }
                 
-                const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
-                const infographicModel = config?.geminiInfographicModel || 'models/gemini-2.5-pro';
-                const htmlSvgModel = config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro';
-                
-                const totalSeconds = Math.round((Date.now() - pipelineStartTime) / 1000);
-                const minutes = Math.floor(totalSeconds / 60);
-                const seconds = totalSeconds % 60;
-                const timeStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
-
-                const summaryStats = `**ワークフロー実行結果:**
-- ⏱️ **実行時間:** ${timeStr}
-- 🤖 **対象モデル:** ${isDirectHtml ? 'スキップ' : baseResearchModel} (Task1) / ${actualType === 'html' ? htmlSvgModel : infographicModel} (Task2)
-- 🪙 **トークン消費:** 入力 ${totalInputTokensRef.current.toLocaleString()} / 出力 ${totalOutputTokensRef.current.toLocaleString()} (合計 ${(totalInputTokensRef.current + totalOutputTokensRef.current).toLocaleString()})`;
-
                 const indexQueryText = isDirectHtml ? "既存レポートからのHTML/SVG直接変換" : userQuery.replace(/\n/g, '\n> ');
 
                 const indexContent = `**実行日時:** ${new Date().toLocaleString()}
