@@ -547,7 +547,12 @@ const DeepResearch = ({ onOpen }) => {
             // ==========================================
             let indexingSuccess = false;
             try {
-                let markdownLinks = `**保存先リンク**:\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
+                let markdownLinks = `**保存先リンク**:`;
+                if (!isDirectHtml && saveDocData) {
+                    markdownLinks += `\n- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})`;
+                }
+                markdownLinks += `\n- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
+
                 if (publishId) {
                     const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
                     markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
