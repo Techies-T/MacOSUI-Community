@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 const Gemini = () => {
-    const [mode, setMode] = useState('rag'); // Default to RAG
-    const [useGrounding, setUseGrounding] = useState(false);
+    const [mode, setMode] = useState('normal');
+    const [useGrounding, setUseGrounding] = useState(true);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
+    const [targetRagFolderId, setTargetRagFolderId] = useState(null);
+    const [ragFolders, setRagFolders] = useState([]);
     const [isConfigLoaded, setIsConfigLoaded] = useState(false);
     const [hasWarnedExpiry, setHasWarnedExpiry] = useState(false);
     const [inputHistory, setInputHistory] = useState([]);
@@ -32,6 +34,9 @@ const Gemini = () => {
                 const data = await res.json();
                 if (data.lastRagSyncTime) {
                     setLastRagSyncTime(data.lastRagSyncTime);
+                }
+                if (data.googleDriveRagFolders) {
+                    setRagFolders(data.googleDriveRagFolders);
                 }
             } catch (err) {
                 console.error("Failed to fetch config for RAG expiry check:", err);
@@ -144,7 +149,7 @@ const Gemini = () => {
             const requestBody = {
                 message: userMessage.text,
                 history: history,
-                config: { mode: mode, grounding: useGrounding } // Pass selected mode and grounding flag
+                config: { mode: mode, grounding: useGrounding, targetRagFolderId: targetRagFolderId } // Pass selected mode and grounding flag
             };
 
             const response = await fetch('/api/gemini', {
@@ -246,31 +251,29 @@ const Gemini = () => {
                 <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-center">
                     <div className="bg-white/20 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
                         <select
-                            value={mode}
-                            onChange={(e) => setMode(e.target.value)}
+                            value={mode === 'rag' ? `rag_${targetRagFolderId}` : (mode === 'normal' ? (useGrounding ? 'normal_on' : 'normal_off') : mode)}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === 'normal_on') { setMode('normal'); setUseGrounding(true); setTargetRagFolderId(null); }
+                                else if (val === 'normal_off') { setMode('normal'); setUseGrounding(false); setTargetRagFolderId(null); }
+                                else if (val.startsWith('rag_')) { setMode('rag'); setUseGrounding(false); setTargetRagFolderId(val.replace('rag_', '')); }
+                                else { setMode(val); setUseGrounding(false); setTargetRagFolderId(null); }
+                            }}
                             className="bg-transparent border-none text-white text-sm font-medium outline-none cursor-pointer appearance-none pr-6 pl-3 py-1.5 focus:ring-0"
                             style={{ backgroundImage: 'none', minWidth: '120px' }}
                         >
-                            <option value="rag" className="text-gray-800">📚 Personal RAG</option>
-                            <option value="chat" className="text-gray-800">💬 Normal Chat</option>
+                            <option value="normal_on" className="text-gray-800">💬 Normal Chat (Grounding ON)</option>
+                            <option value="normal_off" className="text-gray-800">💬 Normal Chat (Grounding OFF)</option>
+                            {ragFolders.map((f, idx) => (
+                                <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 {f.name}</option>
+                            ))}
+                            <option value="research" className="text-gray-800">🔍 Deep Research</option>
+                            <option value="html_svg" className="text-gray-800">🎨 HTML/SVG Dev</option>
                         </select>
                         <span className="text-white/80 text-[10px] pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 transform">▼</span>
                     </div>
 
-                    {mode === 'chat' && (
-                        <div className="flex items-center gap-2 bg-white/20 backdrop-blur-md rounded-lg px-3 py-1.5 shadow-sm border border-white/10">
-                            <span className="text-white text-xs font-medium">Google Search</span>
-                            <button
-                                onClick={() => setUseGrounding(!useGrounding)}
-                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${useGrounding ? 'bg-blue-500' : 'bg-gray-400/50'}`}
-                            >
-                                <span
-                                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${useGrounding ? 'translate-x-4.5' : 'translate-x-1'}`}
-                                    style={{ transform: useGrounding ? 'translateX(18px)' : 'translateX(4px)' }}
-                                />
-                            </button>
-                        </div>
-                    )}
+                    
                 </div>
 
                 {/* Messages Area */}
@@ -387,6 +390,20 @@ const Gemini = () => {
 
                 {/* Input Area */}
                 <div className="p-4 pt-2">
+                    {/* Preset Button Area */}
+                    <div className="flex gap-2 mb-2 px-1">
+                        <button
+                            onClick={() => {
+                                setMode('normal');
+                                setUseGrounding(true);
+                                setTargetRagFolderId(null);
+                                setInput("今週のAI3大ニュースについて教えてください");
+                            }}
+                            className="text-xs px-3 py-1.5 bg-white/10 text-white hover:bg-white/20 rounded-full border border-white/20 transition-colors shadow-sm backdrop-blur-md"
+                        >
+                            📰 今週のAI3大ニュース
+                        </button>
+                    </div>
                     <div className="backdrop-blur-xl bg-white/10 rounded-[20px] border border-white/20 shadow-lg p-1.5 flex items-center gap-2 transition-all focus-within:bg-white/20 focus-within:border-white/30">
                         <input
                             ref={inputRef}

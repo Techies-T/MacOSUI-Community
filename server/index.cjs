@@ -67,7 +67,19 @@ app.get('/api/config', async (req, res) => {
         const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET') || process.env.GOOGLE_CLIENT_SECRET;
         const geminiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const googleDriveRootId = await db.getSetting('GOOGLE_DRIVE_ROOT_ID');
-        const googleDriveRagFolderId = await db.getSetting('GOOGLE_DRIVE_RAG_FOLDER_ID');
+        
+        let googleDriveRagFolders = [];
+        try {
+            googleDriveRagFolders = JSON.parse(await db.getSetting('GOOGLE_DRIVE_RAG_FOLDERS') || '[]');
+        } catch (e) {
+            googleDriveRagFolders = [];
+        }
+        if (googleDriveRagFolders.length === 0) {
+            const oldFolderId = await db.getSetting('GOOGLE_DRIVE_RAG_FOLDER_ID');
+            if (oldFolderId) {
+                googleDriveRagFolders = [{ id: oldFolderId, name: 'Default RAG Folder' }];
+            }
+        }
 
         const isConfigured = !!(clientId && clientSecret);
         const geminiModel = await db.getSetting('GEMINI_MODEL');
@@ -106,7 +118,7 @@ app.get('/api/config', async (req, res) => {
             isConfigured,
             geminiModel,
             googleDriveRootId: googleDriveRootId || '',
-            googleDriveRagFolderId: googleDriveRagFolderId || '',
+            googleDriveRagFolders,
             lastRagSyncTime: lastRagSyncTime || null,
             geminiResearchFolderId: geminiResearchFolderId || '',
             nanoBananaModel,
@@ -129,7 +141,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', requirePermission('action:manage_system_settings'), async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolderId, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -161,7 +173,7 @@ app.post('/api/config', requirePermission('action:manage_system_settings'), asyn
         if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
         if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
         if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
-        if (googleDriveRagFolderId !== undefined) await db.setSetting('GOOGLE_DRIVE_RAG_FOLDER_ID', googleDriveRagFolderId);
+        if (googleDriveRagFolders !== undefined) await db.setSetting('GOOGLE_DRIVE_RAG_FOLDERS', JSON.stringify(googleDriveRagFolders));
         if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
         if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
         if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
@@ -723,10 +735,19 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         // Get RAG files (if mode is 'rag' or 'research')
         let ragFiles = [];
         if (mode === 'rag' || mode === 'research') {
+            const targetFolderId = customConfig?.targetRagFolderId;
             ragFiles = await new Promise((resolve, reject) => {
                 // Only use files synced within the last 40 hours (Gemini File API limit is 48h)
                 const expirationLimit = new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString();
-                db.all("SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files WHERE last_synced_at > ?", [expirationLimit], (err, rows) => {
+                let query = "SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files WHERE last_synced_at > ?";
+                let params = [expirationLimit];
+                
+                if (mode === 'rag' && targetFolderId) {
+                    query += " AND folder_id = ?";
+                    params.push(targetFolderId);
+                }
+                
+                db.all(query, params, (err, rows) => {
                     if (err) resolve([]);
                     else resolve(rows || []);
                 });
@@ -1157,32 +1178,45 @@ let ragSyncStatus = {
 };
 
 // Background Sync Function
-async function performRagSync(drive, ragFolderId, apiKey) {
+async function performRagSync(drive, ragFolders, apiKey) {
     ragSyncStatus = { state: 'syncing', progress: 0, total: 0, currentFile: 'Starting...', error: null };
-    console.log("Starting background RAG sync...");
+    console.log("Starting background RAG sync for multiple folders...");
 
     try {
         const client = new GoogleGenAI({ apiKey });
 
-        // 1. List files
+        let allDriveFiles = [];
+        let folderIdMap = new Map(); // drive_file_id -> folder_id
+
+        // 1. List files for all folders
         ragSyncStatus.currentFile = 'Listing files...';
-        const driveRes = await drive.files.list({
-            q: `'${ragFolderId}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
-            fields: 'files(id, name, mimeType, modifiedTime)',
-            pageSize: 50, // Increased limit
-            supportsAllDrives: true,
-            includeItemsFromAllDrives: true
-        });
+        for (const folder of ragFolders) {
+            try {
+                const driveRes = await drive.files.list({
+                    q: `'${folder.id}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
+                    fields: 'files(id, name, mimeType, modifiedTime)',
+                    pageSize: 50,
+                    supportsAllDrives: true,
+                    includeItemsFromAllDrives: true
+                });
+                
+                const files = driveRes.data.files || [];
+                allDriveFiles = allDriveFiles.concat(files);
+                files.forEach(f => folderIdMap.set(f.id, folder.id));
+            } catch (folderErr) {
+                console.error(`Failed to list files for folder ${folder.name}:`, folderErr.message);
+            }
+        }
 
-        const files = driveRes.data.files;
-        ragSyncStatus.total = files.length;
-        console.log(`Found ${files.length} files to sync.`);
+        ragSyncStatus.total = allDriveFiles.length;
+        console.log(`Found ${allDriveFiles.length} files to sync across ${ragFolders.length} folders.`);
 
-        const currentDriveFileIds = files.map(f => f.id);
+        const currentDriveFileIds = allDriveFiles.map(f => f.id);
         const syncedFiles = [];
 
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
+        for (let i = 0; i < allDriveFiles.length; i++) {
+            const file = allDriveFiles[i];
+            const currentFolderId = folderIdMap.get(file.id);
             ragSyncStatus.currentFile = `Syncing ${file.name} (${i + 1}/${files.length})`;
             ragSyncStatus.progress = i + 1;
             console.log(`Syncing file: ${file.name}`);
@@ -1230,8 +1264,8 @@ async function performRagSync(drive, ragFolderId, apiKey) {
 
                 // Store in DB
                 await new Promise((resolve, reject) => {
-                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, mime_type, last_synced_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-                        [file.id, uploadResult.uri, mimeType],
+                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, folder_id, mime_type, last_synced_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                        [file.id, uploadResult.uri, currentFolderId, mimeType],
                         (err) => {
                             if (err) reject(err);
                             else resolve();
@@ -1294,9 +1328,15 @@ app.post('/api/rag/sync', async (req, res) => {
         const drive = await getDriveClient(req, res);
         if (!drive) return; // Response already sent
 
-        const ragFolderId = await db.getSetting('GOOGLE_DRIVE_RAG_FOLDER_ID');
-        if (!ragFolderId) {
-            return res.status(400).json({ error: 'RAG Folder ID not configured' });
+        let ragFolders = [];
+        try {
+            ragFolders = JSON.parse(await db.getSetting('GOOGLE_DRIVE_RAG_FOLDERS') || '[]');
+        } catch (e) {
+            ragFolders = [];
+        }
+
+        if (ragFolders.length === 0) {
+            return res.status(400).json({ error: 'RAG Folders not configured' });
         }
 
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
@@ -1305,7 +1345,7 @@ app.post('/api/rag/sync', async (req, res) => {
         }
 
         // Start background process
-        performRagSync(drive, ragFolderId, apiKey);
+        performRagSync(drive, ragFolders, apiKey);
 
         res.json({ success: true, message: 'Sync started in background' });
 
@@ -1338,8 +1378,14 @@ app.get('/api/rag/popular-queries', (req, res) => {
 // RAG: Check if Sync is Needed
 app.get('/api/rag/check-sync-needed', async (req, res) => {
     try {
-        const ragFolderId = await db.getSetting('GOOGLE_DRIVE_RAG_FOLDER_ID');
-        if (!ragFolderId) {
+        let ragFolders = [];
+        try {
+            ragFolders = JSON.parse(await db.getSetting('GOOGLE_DRIVE_RAG_FOLDERS') || '[]');
+        } catch (e) {
+            ragFolders = [];
+        }
+        
+        if (ragFolders.length === 0) {
             return res.json({ syncNeeded: false, reason: 'unconfigured' });
         }
 
@@ -1347,15 +1393,23 @@ app.get('/api/rag/check-sync-needed', async (req, res) => {
         if (!drive) return; // Response is handled by helper
 
         // List files in drive
-        const driveRes = await drive.files.list({
-            q: `'${ragFolderId}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
-            fields: 'files(id, modifiedTime)',
-            pageSize: 100,
-            supportsAllDrives: true,
-            includeItemsFromAllDrives: true
-        });
+        let allDriveFiles = [];
+        for (const folder of ragFolders) {
+            try {
+                const driveRes = await drive.files.list({
+                    q: `'${folder.id}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
+                    fields: 'files(id, modifiedTime)',
+                    pageSize: 100,
+                    supportsAllDrives: true,
+                    includeItemsFromAllDrives: true
+                });
+                allDriveFiles = allDriveFiles.concat(driveRes.data.files || []);
+            } catch (folderErr) {
+                console.error(`Sync Check: Failed to list files for folder ${folder.name}:`, folderErr.message);
+            }
+        }
 
-        const driveFiles = driveRes.data.files || [];
+        const driveFiles = allDriveFiles;
         
         // Fetch DB files
         const dbFiles = await new Promise((resolve, reject) => {

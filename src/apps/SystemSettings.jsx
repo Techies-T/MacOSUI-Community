@@ -8,9 +8,9 @@ const SystemSettings = ({ user }) => {
     const [currentResearchModel, setCurrentResearchModel] = useState('');
     const [currentHtmlSvgModel, setCurrentHtmlSvgModel] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
-    const [ragFolderId, setRagFolderId] = useState('');
-    const [ragFolderName, setRagFolderName] = useState('');
-    const [isFetchingRagName, setIsFetchingRagName] = useState(false);
+    const [ragFolders, setRagFolders] = useState([]);
+    const [newRagFolderId, setNewRagFolderId] = useState('');
+    const [newRagFolderName, setNewRagFolderName] = useState('');
     const [researchFolderId, setResearchFolderId] = useState(''); // New state
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [googleClientId, setGoogleClientId] = useState('');
@@ -57,8 +57,8 @@ const SystemSettings = ({ user }) => {
                 if (data.googleDriveRootId) {
                     setDriveRootId(data.googleDriveRootId);
                 }
-                if (data.googleDriveRagFolderId) {
-                    setRagFolderId(data.googleDriveRagFolderId);
+                if (data.googleDriveRagFolders) {
+                    setRagFolders(data.googleDriveRagFolders);
                 }
                 if (data.maskedClientId) {
                     setGoogleClientId(data.maskedClientId);
@@ -115,22 +115,7 @@ const SystemSettings = ({ user }) => {
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
 
-    // Fetch Folder Name dynamically when RAG Folder ID changes
-    useEffect(() => {
-        if (!ragFolderId) {
-            setRagFolderName('');
-            return;
-        }
-        setIsFetchingRagName(true);
-        fetch(`/api/drive/folder_info?folderId=${ragFolderId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.name) setRagFolderName(data.name);
-                else setRagFolderName('Unknown or Inaccessible Folder');
-            })
-            .catch(() => setRagFolderName('Error fetching folder info'))
-            .finally(() => setIsFetchingRagName(false));
-    }, [ragFolderId]);
+    
 
     // Fetch users and invitations when Users tab is active
     useEffect(() => {
@@ -333,18 +318,29 @@ const SystemSettings = ({ user }) => {
         }
     };
 
-    const handleSaveRagFolder = async () => {
+    const handleSaveRagFolders = async () => {
         try {
             await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ googleDriveRagFolderId: ragFolderId })
+                body: JSON.stringify({ googleDriveRagFolders: ragFolders })
             });
-            alert('RAG Folder ID saved!');
+            alert('RAG Folders saved!');
         } catch (err) {
-            console.error("Failed to save RAG folder", err);
+            console.error("Failed to save RAG folders", err);
             alert('Failed to save.');
         }
+    };
+
+    const handleAddRagFolder = () => {
+        if (!newRagFolderId || !newRagFolderName) return;
+        setRagFolders([...ragFolders, { id: newRagFolderId, name: newRagFolderName }]);
+        setNewRagFolderId('');
+        setNewRagFolderName('');
+    };
+
+    const handleRemoveRagFolder = (idToRemove) => {
+        setRagFolders(ragFolders.filter(f => f.id !== idToRemove));
     };
 
     const handleSaveResearchFolder = async () => {
@@ -877,39 +873,62 @@ const SystemSettings = ({ user }) => {
                 {activeTab === 'Personal RAG' && (
                     <div className="space-y-6">
                         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">Personal RAG Status</h2>
+                                                        <h2 className="font-semibold mb-3">Personal RAG Status</h2>
                             <p className="text-xs text-gray-500 mb-4">
-                                Configure a Google Drive folder to sync documents for AI context.
+                                Configure Google Drive folders to sync documents for AI context.
                             </p>
                             
-                            <div className="mb-6">
-                                <label className="block text-xs font-medium text-gray-500 mb-1">RAG Folder ID</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        value={ragFolderId}
-                                        onChange={(e) => setRagFolderId(e.target.value)}
-                                        placeholder="Google Drive Folder ID for RAG"
-                                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
-                                    />
-                                    <button
-                                        onClick={handleSaveRagFolder}
-                                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                    >
-                                        Save
-                                    </button>
+                            <div className="mb-6 space-y-4">
+                                <div className="space-y-2">
+                                    {ragFolders.map((folder, idx) => (
+                                        <div key={idx} className="flex gap-2 items-center p-2 bg-gray-50 border border-gray-200 rounded">
+                                            <span className="text-sm">📚</span>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-semibold text-gray-700 truncate">{folder.name}</p>
+                                                <p className="text-[10px] text-gray-400 font-mono truncate">{folder.id}</p>
+                                            </div>
+                                            <button onClick={() => handleRemoveRagFolder(folder.id)} className="text-red-500 hover:text-red-700 text-xs px-2 py-1">Remove</button>
+                                        </div>
+                                    ))}
+                                    {ragFolders.length === 0 && (
+                                        <p className="text-xs text-gray-400 italic">No RAG folders configured.</p>
+                                    )}
                                 </div>
-                                {ragFolderName && (
-                                    <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded text-xs text-blue-700 flex items-center gap-2">
-                                        <span className="text-sm">📁</span>
-                                        <span className="font-semibold break-all">
-                                            {isFetchingRagName ? 'Fetching folder name...' : ragFolderName}
-                                        </span>
+                                
+                                <div className="p-3 border border-dashed border-gray-300 rounded bg-gray-50">
+                                    <h3 className="text-xs font-semibold text-gray-600 mb-2">Add New RAG Folder</h3>
+                                    <div className="flex flex-col gap-2">
+                                        <input
+                                            type="text"
+                                            value={newRagFolderName}
+                                            onChange={(e) => setNewRagFolderName(e.target.value)}
+                                            placeholder="Display Name (e.g. 業務マニュアル)"
+                                            className="px-3 py-1.5 border border-gray-200 rounded bg-white text-xs focus:outline-none focus:border-blue-500"
+                                        />
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={newRagFolderId}
+                                                onChange={(e) => setNewRagFolderId(e.target.value)}
+                                                placeholder="Google Drive Folder ID"
+                                                className="flex-1 px-3 py-1.5 border border-gray-200 rounded bg-white text-xs focus:outline-none focus:border-blue-500 font-mono"
+                                            />
+                                            <button
+                                                onClick={handleAddRagFolder}
+                                                className="px-3 py-1.5 bg-indigo-500 text-white rounded text-xs font-medium hover:bg-indigo-600 transition-colors"
+                                            >
+                                                Add
+                                            </button>
+                                        </div>
                                     </div>
-                                )}
-                                <p className="text-[10px] text-gray-400 mt-1">
-                                    ID of the folder containing PDFs/Docs to sync.
-                                </p>
+                                </div>
+                                
+                                <button
+                                    onClick={handleSaveRagFolders}
+                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors w-full mt-2"
+                                >
+                                    Save Configuration
+                                </button>
                             </div>
 
                             <div className="pt-4 border-t border-gray-100">
@@ -922,7 +941,7 @@ const SystemSettings = ({ user }) => {
                                         {isSyncing ? 'Syncing...' : 'Sync Now'}
                                     </button>
                                 </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Files in the configured RAG folder will be synced to Gemini for Personal RAG.</p>
+                                <p className="text-[10px] text-gray-400 mt-1">Files in all configured RAG folders will be synced to Gemini.</p>
                                 {isSyncing && (
                                     <div className="mt-2 text-xs text-blue-600 animate-pulse">
                                         Syncing in progress... Please wait.

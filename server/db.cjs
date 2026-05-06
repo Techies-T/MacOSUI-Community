@@ -97,6 +97,7 @@ function initDb() {
     db.run(`CREATE TABLE IF NOT EXISTS rag_files (
     drive_file_id TEXT PRIMARY KEY,
     gemini_file_uri TEXT,
+    folder_id TEXT,
     mime_type TEXT,
     last_synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     file_hash TEXT
