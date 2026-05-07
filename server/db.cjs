@@ -115,6 +115,9 @@ function initDb() {
     db.run("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", (err) => {
         // Ignore error if column exists
     });
+    db.run("ALTER TABLE rag_files ADD COLUMN folder_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
 
     // User Preferences (Window State)
     db.run(`CREATE TABLE IF NOT EXISTS user_preferences (
