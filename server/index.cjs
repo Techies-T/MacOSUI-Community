@@ -793,7 +793,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             systemInstruction = {
                 parts: [{ text: customConfig.systemInstruction }]
             };
-        } else if (mode === 'chat' && customConfig?.grounding) {
+        } else if (mode === 'normal' && customConfig?.grounding) {
             systemInstruction = {
                 parts: [{ text: "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge." }]
             };
@@ -806,7 +806,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
         // Configure Tools based on mode
         const tools = [];
-        if (mode === 'search' || mode === 'research' || (mode === 'chat' && customConfig?.grounding)) {
+        if (mode === 'search' || mode === 'research' || (mode === 'normal' && customConfig?.grounding)) {
             // SDK expects camelCase googleSearch
             tools.push({ googleSearch: {} });
         }
@@ -849,7 +849,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         };
 
         // Add thinkingConfig for Gemini 3.1 Pro to improve grounding and reasoning
-        if (mode === 'research' || (mode === 'chat' && customConfig?.grounding)) {
+        if (mode === 'research' || (mode === 'normal' && customConfig?.grounding)) {
             let level = customConfig?.thinkingLevel || 'HIGH';
             if (level === 'DEFAULT' || level === 'STANDARD') level = 'MEDIUM'; // 'STANDARD' is invalid for 3.1 Pro, use 'MEDIUM'
 
