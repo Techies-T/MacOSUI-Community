@@ -14,6 +14,9 @@ const Gemini = () => {
     const [inputHistory, setInputHistory] = useState([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
     const [popularQueries, setPopularQueries] = useState([]);
+
+    const [chatPresets, setChatPresets] = useState({});
+
     const [copiedIndex, setCopiedIndex] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -392,17 +395,43 @@ const Gemini = () => {
                 <div className="p-4 pt-2">
                     {/* Preset Button Area */}
                     <div className="flex gap-2 mb-2 px-1">
-                        <button
-                            onClick={() => {
-                                setMode('normal');
-                                setUseGrounding(true);
-                                setTargetRagFolderId(null);
-                                setInput("今週のAI3大ニュースについて教えてください");
-                            }}
-                            className="text-xs px-3 py-1.5 bg-white/10 text-white hover:bg-white/20 rounded-full border border-white/20 transition-colors shadow-sm backdrop-blur-md"
-                        >
-                            📰 今週のAI3大ニュース
-                        </button>
+
+                        {(() => {
+                            const currentContext = mode === 'rag' && targetRagFolderId ? `rag_${targetRagFolderId}` : (useGrounding ? 'grounding' : 'normal');
+                            const currentPresets = chatPresets[currentContext] || [];
+                            
+                            if (currentPresets.length > 0) {
+                                return currentPresets.map((preset, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => {
+                                            setInput(preset.prompt);
+                                            inputRef.current?.focus();
+                                        }}
+                                        className="text-xs px-3 py-1.5 bg-white/10 text-white hover:bg-white/20 rounded-full border border-white/20 transition-colors shadow-sm backdrop-blur-md"
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ));
+                            } else {
+                                // Fallback default presets if no config exists
+                                if (currentContext === 'grounding') {
+                                    return (
+                                        <button
+                                            onClick={() => {
+                                                setInput("今週のAI3大ニュースについて教えてください");
+                                                inputRef.current?.focus();
+                                            }}
+                                            className="text-xs px-3 py-1.5 bg-white/10 text-white hover:bg-white/20 rounded-full border border-white/20 transition-colors shadow-sm backdrop-blur-md"
+                                        >
+                                            📰 今週のAI3大ニュース
+                                        </button>
+                                    );
+                                }
+                                return null;
+                            }
+                        })()}
+
                     </div>
                     <div className="backdrop-blur-xl bg-white/10 rounded-[20px] border border-white/20 shadow-lg p-1.5 flex items-center gap-2 transition-all focus-within:bg-white/20 focus-within:border-white/30">
                         <input

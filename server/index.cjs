@@ -1380,6 +1380,57 @@ app.get('/api/rag/popular-queries', (req, res) => {
     );
 });
 
+// RAG: Manage FAQ Queries (Get All)
+app.get('/api/rag/popular-queries/all', (req, res) => {
+    db.all(
+        "SELECT id, query_text, usage_count, last_used_at FROM rag_queries ORDER BY usage_count DESC, last_used_at DESC",
+        [],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows || []);
+        }
+    );
+});
+
+// RAG: Update FAQ Query
+app.put('/api/rag/popular-queries/:id', (req, res) => {
+    const { id } = req.params;
+    const { query_text } = req.body;
+    db.run("UPDATE rag_queries SET query_text = ? WHERE id = ?", [query_text, id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
+});
+
+// RAG: Delete FAQ Query
+app.delete('/api/rag/popular-queries/:id', (req, res) => {
+    const { id } = req.params;
+    db.run("DELETE FROM rag_queries WHERE id = ?", [id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
+});
+
+// Chat: Get Preset Prompts
+app.get('/api/chat/presets', async (req, res) => {
+    try {
+        const presets = await db.getSetting('CHAT_PRESET_PROMPTS') || '{}';
+        res.json(JSON.parse(presets));
+    } catch (e) {
+        res.json({});
+    }
+});
+
+// Chat: Save Preset Prompts
+app.post('/api/chat/presets', async (req, res) => {
+    try {
+        await db.setSetting('CHAT_PRESET_PROMPTS', JSON.stringify(req.body));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to save presets' });
+    }
+});
+
 // RAG: Check if Sync is Needed
 app.get('/api/rag/check-sync-needed', async (req, res) => {
     try {
