@@ -254,19 +254,17 @@ const Gemini = () => {
                 <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-center">
                     <div className="bg-white/20 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
                         <select
-                            value={mode === 'rag' ? `rag_${targetRagFolderId}` : (mode === 'normal' ? (useGrounding ? 'normal_on' : 'normal_off') : mode)}
+                            value={mode === 'rag' ? `rag_${targetRagFolderId}` : mode}
                             onChange={(e) => {
                                 const val = e.target.value;
-                                if (val === 'normal_on') { setMode('normal'); setUseGrounding(true); setTargetRagFolderId(null); }
-                                else if (val === 'normal_off') { setMode('normal'); setUseGrounding(false); setTargetRagFolderId(null); }
+                                if (val === 'normal') { setMode('normal'); setUseGrounding(true); setTargetRagFolderId(null); }
                                 else if (val.startsWith('rag_')) { setMode('rag'); setUseGrounding(false); setTargetRagFolderId(val.replace('rag_', '')); }
                                 else { setMode(val); setUseGrounding(false); setTargetRagFolderId(null); }
                             }}
                             className="bg-transparent border-none text-white text-sm font-medium outline-none cursor-pointer appearance-none pr-6 pl-3 py-1.5 focus:ring-0"
                             style={{ backgroundImage: 'none', minWidth: '120px' }}
                         >
-                            <option value="normal_on" className="text-gray-800">💬 Normal Chat (Grounding ON)</option>
-                            <option value="normal_off" className="text-gray-800">💬 Normal Chat (Grounding OFF)</option>
+                            <option value="normal" className="text-gray-800">💬 Normal Chat</option>
                             {ragFolders.map((f, idx) => (
                                 <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 {f.name}</option>
                             ))}
@@ -275,6 +273,14 @@ const Gemini = () => {
                         </select>
                         <span className="text-white/80 text-[10px] pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 transform">▼</span>
                     </div>
+                    {mode === 'normal' && (
+                        <div className="ml-3 flex items-center bg-white/10 backdrop-blur-md rounded-lg px-3 py-1.5 border border-white/10 cursor-pointer" onClick={() => setUseGrounding(!useGrounding)}>
+                            <span className="text-xs font-medium text-white mr-2">Grounding</span>
+                            <div className={`w-8 h-4 rounded-full transition-colors relative ${useGrounding ? 'bg-green-400' : 'bg-white/20'}`}>
+                                <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${useGrounding ? 'translate-x-4' : 'translate-x-0.5'}`}></div>
+                            </div>
+                        </div>
+                    )}
 
                     
                 </div>
@@ -290,7 +296,7 @@ const Gemini = () => {
                             <p className="text-sm opacity-80 mb-4">How can I help you today?</p>
 
                             <div className="bg-white/10 px-3 py-1 mb-6 rounded-full text-xs font-medium border border-white/10">
-                                {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Google Search' : (useGrounding ? 'Mode: Chat (with Search)' : 'Mode: Chat')}
+                                {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Google Search' : 'Mode: Chat'}
                             </div>
 
                             {mode === 'rag' && popularQueries.length > 0 && (
@@ -397,7 +403,7 @@ const Gemini = () => {
                     <div className="flex gap-2 mb-2 px-1">
 
                         {(() => {
-                            const currentContext = mode === 'rag' && targetRagFolderId ? `rag_${targetRagFolderId}` : (useGrounding ? 'grounding' : 'normal');
+                            const currentContext = mode === 'rag' && targetRagFolderId ? `rag_${targetRagFolderId}` : 'normal';
                             const currentPresets = chatPresets[currentContext] || [];
                             
                             if (currentPresets.length > 0) {
@@ -415,7 +421,7 @@ const Gemini = () => {
                                 ));
                             } else {
                                 // Fallback default presets if no config exists
-                                if (currentContext === 'grounding') {
+                                if (currentContext === 'normal') {
                                     return (
                                         <button
                                             onClick={() => {

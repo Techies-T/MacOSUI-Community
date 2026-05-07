@@ -1427,8 +1427,7 @@ const SystemSettings = ({ user }) => {
                                     value={chatPresetContext}
                                     onChange={(e) => setChatPresetContext(e.target.value)}
                                 >
-                                    <option value="normal">Normal Chat (Grounding OFF)</option>
-                                    <option value="grounding">Normal Chat (Grounding ON)</option>
+                                    <option value="normal">Normal Chat</option>
                                     {ragFolders.map(f => (
                                         <option key={f.id} value={`rag_${f.id}`}>RAG Folder: {f.name}</option>
                                     ))}
