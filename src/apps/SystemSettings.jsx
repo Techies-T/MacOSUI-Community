@@ -334,6 +334,13 @@ const SystemSettings = ({ user }) => {
 
     const handleAddRagFolder = () => {
         if (!newRagFolderId || !newRagFolderName) return;
+        
+        // Prevent duplicate folder IDs
+        if (ragFolders.some(f => f.id === newRagFolderId)) {
+            alert('This Folder ID is already added.');
+            return;
+        }
+
         setRagFolders([...ragFolders, { id: newRagFolderId, name: newRagFolderName }]);
         setNewRagFolderId('');
         setNewRagFolderName('');
