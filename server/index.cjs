@@ -1217,7 +1217,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
         for (let i = 0; i < allDriveFiles.length; i++) {
             const file = allDriveFiles[i];
             const currentFolderId = folderIdMap.get(file.id);
-            ragSyncStatus.currentFile = `Syncing ${file.name} (${i + 1}/${files.length})`;
+            ragSyncStatus.currentFile = `Syncing ${file.name} (${i + 1}/${allDriveFiles.length})`;
             ragSyncStatus.progress = i + 1;
             console.log(`Syncing file: ${file.name}`);
 
