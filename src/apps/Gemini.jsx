@@ -46,6 +46,14 @@ const Gemini = () => {
             } finally {
                 setIsConfigLoaded(true);
             }
+
+            try {
+                const presetRes = await fetch('/api/chat/presets');
+                const presetData = await presetRes.json();
+                setChatPresets(presetData);
+            } catch (error) {
+                console.error("Failed to load chat presets:", error);
+            }
         };
         fetchConfig();
 
