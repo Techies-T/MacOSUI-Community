@@ -1208,13 +1208,13 @@ async function performRagSync(drive, ragFolders, apiKey) {
             }
         }
 
-        ragSyncStatus.total = uniqueDriveFiles.length;
-        console.log(`Found ${uniqueDriveFiles.length} files to sync across ${ragFolders.length} folders.`);
-
         // Deduplicate drive files
         const uniqueDriveFilesMap = new Map();
         allDriveFiles.forEach(f => uniqueDriveFilesMap.set(f.id, f));
         const uniqueDriveFiles = Array.from(uniqueDriveFilesMap.values());
+
+        ragSyncStatus.total = uniqueDriveFiles.length;
+        console.log(`Found ${uniqueDriveFiles.length} files to sync across ${ragFolders.length} folders.`);
 
         const currentDriveFileIds = uniqueDriveFiles.map(f => f.id);
         const syncedFiles = [];
