@@ -17,7 +17,7 @@
 
 ### 1-1. ウィジェットのレンダリングと隔離
 - `[✅]` **TC-SKILL-01**: Dockから「Demo Skill」をクリックした際、`ExternalWidget.jsx` を通じて `public/demo-skill.html` がエラーなくIframe内に表示されること。
-- `[ ]` **TC-SKILL-02**: Iframe要素に `sandbox="allow-scripts allow-same-origin"` 属性が正しく付与されており、ウィジェット側からMacOSUI本体（親）のDOMや `localStorage` に直接アクセスできないこと（XSS防御の確認）。
+- `[✅]` **TC-SKILL-02**: Iframe要素に `sandbox="allow-scripts allow-same-origin"` 属性が正しく付与されており、ウィジェット側からMacOSUI本体（親）のDOMや `localStorage` に直接アクセスできないこと（XSS防御の確認）。
 
 ### 1-2. postMessage 双方向通信の正常系
 - `[✅]` **TC-SKILL-03**: ウィジェット内のボタンを押下した際、`type: 'AI_REQUEST'` が `postMessage` 経由でMacOSUI本体に正しく送信されること。
