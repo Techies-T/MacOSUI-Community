@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import SkillsTab from './SystemSettings/tabs/SkillsTab';
+import SystemTab from './SystemSettings/tabs/SystemTab';
+import PersonalRagTab from './SystemSettings/tabs/PersonalRagTab';
+import DeepResearchTab from './SystemSettings/tabs/DeepResearchTab';
+import ImageGenTab from './SystemSettings/tabs/ImageGenTab';
+import ServerMonitorTab from './SystemSettings/tabs/ServerMonitorTab';
+import ChatConfigTab from './SystemSettings/tabs/ChatConfigTab';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
@@ -864,741 +870,103 @@ const SystemSettings = ({ user }) => {
                     </div>
                 )}
 
+                
                 {activeTab === 'System' && (
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">System Configuration</h2>
-                            <p className="text-xs text-gray-500 mb-4">
-                                These keys are stored securely in the database.
-                            </p>
-                            <div className="space-y-3 mb-6">
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">Google Client ID</label>
-                                    <input type="text" disabled value={googleClientId || "Not Configured"} className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400 font-mono" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">Google Client Secret</label>
-                                    <input type="text" disabled value={isConfigured ? "******** (Configured)" : "Not Configured"} className="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-400 font-mono" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">API Configuration</h2>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Gemini API Key</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="password"
-                                    value={geminiApiKey}
-                                    onChange={(e) => setGeminiApiKey(e.target.value)}
-                                    placeholder="Enter new API Key to update"
-                                    className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                                />
-                                <button
-                                    onClick={handleSaveGeminiKey}
-                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                >
-                                    Save
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                    <SystemTab
+                        geminiApiKey={geminiApiKey}
+                        setGeminiApiKey={setGeminiApiKey}
+                        googleClientId={googleClientId}
+                        setGoogleClientId={setGoogleClientId}
+                        isConfigured={isConfigured}
+                        handleSaveSettings={handleSaveSettings}
+                        searchTerm={searchTerm}
+                        setSearchTerm={setSearchTerm}
+                        filteredModels={filteredModels}
+                        currentModel={currentModel}
+                        handleModelChange={handleModelChange}
+                    />
                 )}
 
                 {activeTab === 'Personal RAG' && (
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                                                        <h2 className="font-semibold mb-3">Personal RAG Status</h2>
-                            <p className="text-xs text-gray-500 mb-4">
-                                Configure Google Drive folders to sync documents for AI context.
-                            </p>
-                            
-                            <div className="mb-6 space-y-4">
-                                <div className="space-y-2">
-                                    {ragFolders.map((folder, idx) => (
-                                        <div key={idx} className="flex gap-2 items-center p-2 bg-gray-50 border border-gray-200 rounded">
-                                            <span className="text-sm">📚</span>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-semibold text-gray-700 truncate">{folder.name}</p>
-                                                <p className="text-[10px] text-gray-400 font-mono truncate">{folder.id}</p>
-                                            </div>
-                                            <button onClick={() => handleRemoveRagFolder(folder.id)} className="text-red-500 hover:text-red-700 text-xs px-2 py-1">Remove</button>
-                                        </div>
-                                    ))}
-                                    {ragFolders.length === 0 && (
-                                        <p className="text-xs text-gray-400 italic">No RAG folders configured.</p>
-                                    )}
-                                </div>
-                                
-                                <div className="p-3 border border-dashed border-gray-300 rounded bg-gray-50">
-                                    <h3 className="text-xs font-semibold text-gray-600 mb-2">Add New RAG Folder</h3>
-                                    <div className="flex flex-col gap-2">
-                                        <input
-                                            type="text"
-                                            value={newRagFolderName}
-                                            onChange={(e) => setNewRagFolderName(e.target.value)}
-                                            placeholder="Display Name (e.g. 業務マニュアル)"
-                                            className="px-3 py-1.5 border border-gray-200 rounded bg-white text-xs focus:outline-none focus:border-blue-500"
-                                        />
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={newRagFolderId}
-                                                onChange={(e) => setNewRagFolderId(e.target.value)}
-                                                placeholder="Google Drive Folder ID"
-                                                className="flex-1 px-3 py-1.5 border border-gray-200 rounded bg-white text-xs focus:outline-none focus:border-blue-500 font-mono"
-                                            />
-                                            <button
-                                                onClick={handleAddRagFolder}
-                                                className="px-3 py-1.5 bg-indigo-500 text-white rounded text-xs font-medium hover:bg-indigo-600 transition-colors"
-                                            >
-                                                Add
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <button
-                                    onClick={handleSaveRagFolders}
-                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors w-full mt-2"
-                                >
-                                    Save Configuration
-                                </button>
-                            </div>
-
-                            <div className="pt-4 border-t border-gray-100">
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={handleSyncRag}
-                                        disabled={isSyncing}
-                                        className={`px-3 py-2 text-white rounded text-xs font-medium transition-colors ${isSyncing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}`}
-                                    >
-                                        {isSyncing ? 'Syncing...' : 'Sync Now'}
-                                    </button>
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1">Files in all configured RAG folders will be synced to Gemini.</p>
-                                {isSyncing && (
-                                    <div className="mt-2 text-xs text-blue-600 animate-pulse">
-                                        Syncing in progress... Please wait.
-                                    </div>
-                                )}
-                                {lastRagSyncTime && (
-                                    <div className="mt-3 p-2 bg-gray-50 rounded border border-gray-100">
-                                        <div className="flex justify-between text-xs text-gray-500 mb-1">
-                                            <span>Last Synced:</span>
-                                            <span className="font-medium text-gray-700">{new Date(lastRagSyncTime).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between text-xs text-gray-500">
-                                            <span>Next Sync Needed:</span>
-                                            <span className="font-medium text-red-500">
-                                                {new Date(new Date(lastRagSyncTime).getTime() + 24 * 60 * 60 * 1000).toLocaleString()}
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+                    <PersonalRagTab
+                        ragFolders={ragFolders}
+                        newRagFolderName={newRagFolderName}
+                        setNewRagFolderName={setNewRagFolderName}
+                        newRagFolderId={newRagFolderId}
+                        setNewRagFolderId={setNewRagFolderId}
+                        handleAddRagFolder={handleAddRagFolder}
+                        handleRemoveRagFolder={handleRemoveRagFolder}
+                        handleSaveRagFolders={handleSaveRagFolders}
+                        handleSyncRag={handleSyncRag}
+                        isSyncing={isSyncing}
+                        lastRagSyncTime={lastRagSyncTime}
+                    />
                 )}
 
                 {activeTab === 'Deep Research' && (
-                    <div className="space-y-6 animate-fadeIn pb-20">
-                        {/* 1. Base Research Agent */}
-                        <div className="bg-white rounded-lg border border-indigo-100 shadow-sm overflow-hidden">
-                            <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-3 flex items-center gap-2">
-                                <span className="text-xl">🔍</span>
-                                <h2 className="font-semibold text-indigo-900">1. Base Research Agent</h2>
-                            </div>
-                            <div className="p-4 space-y-4">
-                                <p className="text-xs text-gray-600">
-                                    This agent performs the autonomous Web / RAG research and generates the core report.
-                                </p>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Model Selection</label>
-                                    <select
-                                        value={currentResearchModel}
-                                        onChange={(e) => {
-                                            setCurrentResearchModel(e.target.value);
-                                            fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ geminiResearchModel: e.target.value }) });
-                                        }}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-indigo-500 font-mono"
-                                    >
-                                        <option value="">Select a model...</option>
-                                        {models.map(m => (
-                                            <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">System Prompt</label>
-                                    <textarea
-                                        value={deepResearchPrompt}
-                                        onChange={(e) => setDeepResearchPrompt(e.target.value)}
-                                        placeholder="あなたは世界最高峰のリサーチャーです..."
-                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm font-mono h-32 focus:outline-none focus:border-indigo-500"
-                                    />
-                                    <div className="mt-2 text-right">
-                                        <button onClick={handleSaveDeepResearchPrompt} className="px-4 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded text-xs font-medium transition-colors cursor-pointer">Save Prompt</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 2. Infographic Output Agent */}
-                        <div className="bg-white rounded-lg border border-fuchsia-100 shadow-sm overflow-hidden">
-                            <div className="bg-fuchsia-50 border-b border-fuchsia-100 px-4 py-3 flex items-center gap-2">
-                                <span className="text-xl">🎨</span>
-                                <h2 className="font-semibold text-fuchsia-900">2. Infographic Output Agent</h2>
-                            </div>
-                            <div className="p-4 space-y-4">
-                                <p className="text-xs text-gray-600">
-                                    Generates an image from the Research Report. (e.g. Nano Banana 2)
-                                </p>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Model Selection</label>
-                                    <select
-                                        value={currentNanoBananaModel}
-                                        onChange={(e) => {
-                                            setCurrentNanoBananaModel(e.target.value);
-                                            fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nanoBananaModel: e.target.value }) });
-                                        }}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono"
-                                    >
-                                        <option value="">Select a model...</option>
-                                        {models.map(m => (
-                                            <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt Template</label>
-                                    <textarea
-                                        value={nanoBananaPrompt}
-                                        onChange={(e) => setNanoBananaPrompt(e.target.value)}
-                                        placeholder="... {{style}} ... {{report}} ..."
-                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm font-mono h-24 focus:outline-none focus:border-fuchsia-500"
-                                    />
-                                    <div className="mt-2 text-right">
-                                        <button onClick={handleSaveNanoBananaPrompt} className="px-4 py-1.5 bg-fuchsia-500 hover:bg-fuchsia-600 text-white rounded text-xs font-medium transition-colors cursor-pointer">Save Prompt</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 3. HTML/SVG Output Agent */}
-                        <div className="bg-white rounded-lg border border-emerald-100 shadow-sm overflow-hidden">
-                            <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-3 flex items-center gap-2">
-                                <span className="text-xl">📊</span>
-                                <h2 className="font-semibold text-emerald-900">3. HTML/SVG Output Agent</h2>
-                            </div>
-                            <div className="p-4 space-y-4">
-                                <p className="text-xs text-gray-600">
-                                    Generates an interactive HTML/SVG single-page web report.
-                                </p>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Model Selection</label>
-                                    <select
-                                        value={currentHtmlSvgModel}
-                                        onChange={(e) => {
-                                            setCurrentHtmlSvgModel(e.target.value);
-                                            fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ geminiHtmlSvgModel: e.target.value }) });
-                                        }}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
-                                    >
-                                        <option value="">Select a model...</option>
-                                        {models.map(m => (
-                                            <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1">Prompt Template</label>
-                                    <textarea
-                                        value={htmlSvgPrompt}
-                                        onChange={(e) => setHtmlSvgPrompt(e.target.value)}
-                                        placeholder="... {{title}} ... {{report}} ..."
-                                        className="w-full px-3 py-2 border border-gray-300 rounded bg-white text-sm font-mono h-32 focus:outline-none focus:border-emerald-500"
-                                    />
-                                    <div className="mt-2 text-right">
-                                        <button onClick={handleSaveHtmlSvgPrompt} className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs font-medium transition-colors cursor-pointer">Save Prompt</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 4. Output Destination */}
-                        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3 flex items-center gap-2 text-slate-800">
-                                <span className="text-xl">💾</span> 4. Output Destination
-                            </h2>
-                            <p className="text-xs text-gray-500 mb-4">
-                                Specify the Google Drive Folder ID where all outputs will be uploaded autonomously.
-                            </p>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1">Google Drive Folder ID</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={researchFolderId}
-                                    onChange={(e) => setResearchFolderId(e.target.value)}
-                                    placeholder="e.g. 1a2b3c4d5e6f7g8h9i0j..."
-                                    className="flex-1 px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:border-slate-500 font-mono"
-                                />
-                                <button
-                                    onClick={handleSaveResearchFolder}
-                                    className="px-4 py-2 bg-slate-700 text-white rounded text-xs font-medium hover:bg-slate-800 transition-colors cursor-pointer"
-                                >
-                                    Save Folder ID
-                                </button>
-                            </div>
-                        </div>
-
-                    </div>
+                    <DeepResearchTab
+                        activeDrTab={activeDrTab}
+                        setActiveDrTab={setActiveDrTab}
+                        deepResearchPrompt={deepResearchPrompt}
+                        setDeepResearchPrompt={setDeepResearchPrompt}
+                        htmlSvgPrompt={htmlSvgPrompt}
+                        setHtmlSvgPrompt={setHtmlSvgPrompt}
+                        researchFolderId={researchFolderId}
+                        setResearchFolderId={setResearchFolderId}
+                        mcpServerEndpoint={mcpServerEndpoint}
+                        setMcpServerEndpoint={setMcpServerEndpoint}
+                        mcpTokenUrl={mcpTokenUrl}
+                        setMcpTokenUrl={setMcpTokenUrl}
+                        mcpClientId={mcpClientId}
+                        setMcpClientId={setMcpClientId}
+                        mcpClientSecret={mcpClientSecret}
+                        setMcpClientSecret={setMcpClientSecret}
+                        isMcpSecretConfigured={isMcpSecretConfigured}
+                        handleSaveSettings={handleSaveSettings}
+                    />
                 )}
 
-                {activeTab === 'System' && (
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mt-6">
-                        <h2 className="font-semibold mb-3">Model Selection <span className="text-gray-400 font-normal text-xs">(General Chat & Personal RAG)</span></h2>
-
-                        {/* Selected Model Details */}
-                        {currentModel && models.find(m => m.name === currentModel) && (
-                            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 text-xs mb-6">
-                                <h3 className="font-semibold mb-2 text-gray-700">Selected Model Specs</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <span className="block text-gray-500 mb-1">Description</span>
-                                        <p className="text-gray-800">{models.find(m => m.name === currentModel).description || 'No description available'}</p>
-                                    </div>
-                                    <div>
-                                        <span className="block text-gray-500 mb-1">Context Window</span>
-                                        <p className="text-gray-800">
-                                            Input: <span className="font-medium">{models.find(m => m.name === currentModel).inputTokenLimit?.toLocaleString()}</span> tokens<br />
-                                            Output: <span className="font-medium">{models.find(m => m.name === currentModel).outputTokenLimit?.toLocaleString()}</span> tokens
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-medium text-sm">Available Models</h3>
-                            <input
-                                type="text"
-                                placeholder="Filter models..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="px-2 py-1 text-xs border border-gray-200 rounded bg-gray-50 focus:outline-none focus:border-blue-500 w-40"
-                            />
-                        </div>
-                        <div className="overflow-hidden border border-gray-200 rounded-lg mb-4">
-                            <div className="max-h-[300px] overflow-y-auto">
-                                <table className="w-full text-left text-xs table-fixed">
-                                    <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
-                                        <tr>
-                                            <th className="w-10 px-4 py-2 font-medium text-gray-500"></th>
-                                            <th className="px-4 py-2 font-medium text-gray-500">Name</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {filteredModels.map((model) => (
-                                            <tr key={model.name} className={`hover:bg-gray-50 ${currentModel === model.name ? 'bg-blue-50' : ''} cursor-pointer`} onClick={() => handleModelChange(model.name)}>
-                                                <td className="px-4 py-2 text-center">
-                                                    <input
-                                                        type="radio"
-                                                        name="geminiModel"
-                                                        checked={currentModel === model.name}
-                                                        onChange={() => handleModelChange(model.name)}
-                                                        className="text-blue-600 focus:ring-blue-500 pointer-events-none"
-                                                    />
-                                                </td>
-                                                <td className="px-4 py-2 font-medium break-words" title={model.displayName}>{model.displayName}</td>
-                                            </tr>
-                                        ))}
-                                        {filteredModels.length === 0 && (
-                                            <tr>
-                                                <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
-                                                    {models.length === 0 ? 'Loading models...' : 'No models found'}
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                )}
                 {activeTab === 'Image Generation' && (
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">Nano Banana Model <span className="text-gray-400 font-normal text-xs">(AI Image Analysis)</span></h2>
-                            <p className="text-xs text-gray-500 mb-4">
-                                Select the Gemini model to use for image generation and visual tasks.
-                            </p>
-
-                            {/* Selected Model Details */}
-                            {currentNanoBananaModel && models.find(m => m.name === currentNanoBananaModel) && (
-                                <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-100 p-4 text-xs mb-6">
-                                    <h3 className="font-semibold mb-2 text-purple-900">Configured Image Model</h3>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <span className="block text-purple-600 mb-1">Description</span>
-                                            <p className="text-purple-900">{models.find(m => m.name === currentNanoBananaModel).description || 'No description available'}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex items-center justify-between mb-3">
-                                <h3 className="font-medium text-sm">Available Models</h3>
-                                <input
-                                    type="text"
-                                    placeholder="Filter models..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="px-2 py-1 text-xs border border-gray-200 rounded bg-gray-50 focus:outline-none focus:border-purple-500 w-40"
-                                />
-                            </div>
-                            <div className="overflow-hidden border border-gray-200 rounded-lg mb-4">
-                                <div className="max-h-[300px] overflow-y-auto">
-                                    <table className="w-full text-left text-xs table-fixed">
-                                        <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
-                                            <tr>
-                                                <th className="w-10 px-4 py-2 font-medium text-gray-500"></th>
-                                                <th className="px-4 py-2 font-medium text-gray-500">Name</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            {filteredModels.map((model) => (
-                                                <tr key={`nano-${model.name}`} className={`hover:bg-purple-50 ${currentNanoBananaModel === model.name ? 'bg-purple-100' : ''} cursor-pointer`} onClick={() => handleNanoBananaModelChange(model.name)}>
-                                                    <td className="px-4 py-2 text-center">
-                                                        <input
-                                                            type="radio"
-                                                            name="nanoBananaModel"
-                                                            checked={currentNanoBananaModel === model.name}
-                                                            onChange={() => handleNanoBananaModelChange(model.name)}
-                                                            className="text-purple-600 focus:ring-purple-500 pointer-events-none"
-                                                        />
-                                                    </td>
-                                                    <td className="px-4 py-2 font-medium break-words text-gray-800" title={model.displayName}>{model.displayName}</td>
-                                                </tr>
-                                            ))}
-                                            {filteredModels.length === 0 && (
-                                                <tr>
-                                                    <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
-                                                        {models.length === 0 ? 'Loading models...' : 'No models found'}
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Deep Research Model Selection */}
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mt-6">
-                            <h2 className="font-semibold mb-3">Deep Research Model <span className="text-gray-400 font-normal text-xs">(Advanced Reasoning)</span></h2>
-                            <p className="text-xs text-gray-500 mb-4">
-                                Select the Gemini model to use for the Deep Research feature. Typically, a pro-level model with custom tools is recommended.
-                                <br />
-                                Currently Selected: <span className="font-mono text-blue-600 bg-blue-50 px-1 rounded">{currentResearchModel}</span>
-                            </p>
-
-                            <div className="overflow-x-auto border border-gray-100 rounded">
-                                <div className="max-h-64 overflow-y-auto">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="text-xs text-gray-600 bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
-                                            <tr>
-                                                <th className="px-4 py-2 w-12 text-center">Select</th>
-                                                <th className="px-4 py-2">Model Name</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {filteredModels.map((model) => (
-                                                <tr key={`dr-${model.name}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                                                    <td className="px-4 py-2 text-center">
-                                                        <input
-                                                            type="radio"
-                                                            name="researchModelSelect"
-                                                            value={model.name}
-                                                            checked={currentResearchModel === model.name}
-                                                            onChange={() => handleResearchModelChange(model.name)}
-                                                            className="w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                        />
-                                                    </td>
-                                                    <td className="px-4 py-2 font-medium break-words text-gray-800" title={model.displayName}>{model.displayName}</td>
-                                                </tr>
-                                            ))}
-                                            {filteredModels.length === 0 && (
-                                                <tr>
-                                                    <td colSpan="2" className="px-4 py-4 text-center text-gray-500">
-                                                        {models.length === 0 ? 'Loading models...' : 'No models found'}
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <ImageGenTab
+                        models={models}
+                        searchTerm={searchTerm}
+                        setSearchTerm={setSearchTerm}
+                        filteredModels={filteredModels}
+                        currentNanoBananaModel={currentNanoBananaModel}
+                        handleNanoBananaModelChange={handleNanoBananaModelChange}
+                        currentResearchModel={currentResearchModel}
+                        handleResearchModelChange={handleResearchModelChange}
+                    />
                 )}
 
                 {activeTab === 'Server Monitor' && (
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <h2 className="font-semibold mb-3">Server Monitor Configuration</h2>
-                            <p className="text-xs text-gray-500 mb-4">
-                                Settings for the MCP Client Server Monitor (App Runner Dashboard).
-                            </p>
-                            
-                            <div className="space-y-6">
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Server Endpoint URL</label>
-                                    <input
-                                        type="text"
-                                        value={mcpServerEndpoint}
-                                        onChange={(e) => setMcpServerEndpoint(e.target.value)}
-                                        placeholder="SSE Endpoint URL (e.g. https://api.example.com/sse)"
-                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
-                                    />
-                                    <p className="text-[10px] text-gray-400 mt-1">
-                                        The SSE endpoint provided by the MCP server.
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">OAuth Token URL (Optional for Local)</label>
-                                    <input
-                                        type="text"
-                                        value={mcpTokenUrl}
-                                        onChange={(e) => setMcpTokenUrl(e.target.value)}
-                                        placeholder="OAuth Token URL (e.g. https://api.example.com/oauth/token)"
-                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client ID (Optional)</label>
-                                    <input
-                                        type="text"
-                                        value={mcpClientId}
-                                        onChange={(e) => setMcpClientId(e.target.value)}
-                                        placeholder="OAuth Client ID"
-                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client Secret (Optional)</label>
-                                    <input
-                                        type="password"
-                                        value={mcpClientSecret}
-                                        onChange={(e) => setMcpClientSecret(e.target.value)}
-                                        placeholder={isMcpSecretConfigured ? "******** (Configured)" : "OAuth Client Secret"}
-                                        className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-emerald-500 font-mono"
-                                    />
-                                    <p className="text-[10px] text-gray-400 mt-1">
-                                        Enter a new secret to update. Leave empty to keep existing.
-                                    </p>
-                                </div>
-
-                                <div className="pt-4 border-t border-gray-100 flex justify-end">
-                                    <button
-                                        onClick={handleSaveMcpConfig}
-                                        className="px-4 py-2 bg-emerald-500 text-white rounded text-xs font-medium hover:bg-emerald-600 transition-colors"
-                                    >
-                                        Save Configuration
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <ServerMonitorTab
+                        mcpServerEndpoint={mcpServerEndpoint}
+                        setMcpServerEndpoint={setMcpServerEndpoint}
+                        mcpTokenUrl={mcpTokenUrl}
+                        setMcpTokenUrl={setMcpTokenUrl}
+                        mcpClientId={mcpClientId}
+                        setMcpClientId={setMcpClientId}
+                        mcpClientSecret={mcpClientSecret}
+                        setMcpClientSecret={setMcpClientSecret}
+                        isMcpSecretConfigured={isMcpSecretConfigured}
+                        handleSaveMcpConfig={handleSaveMcpConfig}
+                    />
                 )}
 
-                
                 {activeTab === 'Chat Config' && (
-                    <div className="space-y-6 animate-fadeIn">
-                        {/* Presets Manager */}
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <div className="flex items-center gap-2 mb-4">
-                                <span className="text-xl">💬</span>
-                                <h2 className="font-semibold text-indigo-900">Preset Prompts</h2>
-                            </div>
-                            <p className="text-xs text-gray-500 mb-4">Configure shortcut buttons displayed in Gemini Chat based on the selected mode.</p>
-
-                            <div className="mb-4">
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">Context</label>
-                                <select 
-                                    className="w-full bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
-                                    value={chatPresetContext}
-                                    onChange={(e) => setChatPresetContext(e.target.value)}
-                                >
-                                    <option value="normal">Normal Chat</option>
-                                    {ragFolders.map(f => (
-                                        <option key={f.id} value={`rag_${f.id}`}>RAG Folder: {f.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 space-y-2 max-h-[300px] overflow-y-auto">
-                                {(chatPresets[chatPresetContext] || []).length === 0 ? (
-                                    <p className="text-xs text-gray-400 italic">No presets configured for this context.</p>
-                                ) : (
-                                    (chatPresets[chatPresetContext] || []).map((preset, idx) => (
-                                        <div key={idx} className="flex flex-col bg-white border border-gray-200 rounded p-2 shadow-sm">
-                                            <div className="flex justify-between items-start mb-1">
-                                                <span className="text-xs font-bold text-gray-800">{preset.label}</span>
-                                                <button 
-                                                    className="text-red-500 hover:text-red-700 text-xs px-2"
-                                                    onClick={async () => {
-                                                        const newPresets = { ...chatPresets };
-                                                        newPresets[chatPresetContext] = newPresets[chatPresetContext].filter((_, i) => i !== idx);
-                                                        setChatPresets(newPresets);
-                                                        try {
-                                                            await fetch('/api/chat/presets', {
-                                                                method: 'POST',
-                                                                headers: { 'Content-Type': 'application/json' },
-                                                                body: JSON.stringify(newPresets)
-                                                            });
-                                                        } catch(e) {}
-                                                    }}
-                                                >Delete</button>
-                                            </div>
-                                            <span className="text-xs text-gray-500">{preset.prompt}</span>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-
-                            <div className="border border-dashed border-gray-300 bg-gray-50 rounded-lg p-3">
-                                <h3 className="text-xs font-semibold text-gray-700 mb-2">Add New Preset</h3>
-                                <div className="space-y-2">
-                                    <input 
-                                        type="text" 
-                                        placeholder="Button Label (e.g. 📰 今週のAI3大ニュース)" 
-                                        className="w-full bg-white border border-gray-300 text-gray-900 text-xs rounded-lg p-2"
-                                        value={presetLabel}
-                                        onChange={(e) => setPresetLabel(e.target.value)}
-                                    />
-                                    <input 
-                                        type="text" 
-                                        placeholder="Prompt to send (e.g. 今週のAI3大ニュースについて教えてください)" 
-                                        className="w-full bg-white border border-gray-300 text-gray-900 text-xs rounded-lg p-2"
-                                        value={presetPrompt}
-                                        onChange={(e) => setPresetPrompt(e.target.value)}
-                                    />
-                                    <button 
-                                        disabled={!presetLabel || !presetPrompt}
-                                        onClick={async () => {
-                                            const newPresets = { ...chatPresets };
-                                            if (!newPresets[chatPresetContext]) newPresets[chatPresetContext] = [];
-                                            newPresets[chatPresetContext].push({ label: presetLabel, prompt: presetPrompt });
-                                            setChatPresets(newPresets);
-                                            setPresetLabel('');
-                                            setPresetPrompt('');
-                                            try {
-                                                await fetch('/api/chat/presets', {
-                                                    method: 'POST',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify(newPresets)
-                                                });
-                                            } catch(e) {}
-                                        }}
-                                        className="w-full px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
-                                    >Add Preset</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* RAG FAQ Manager */}
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                            <div className="flex items-center gap-2 mb-4">
-                                <span className="text-xl">🌟</span>
-                                <h2 className="font-semibold text-indigo-900">RAG Popular FAQ</h2>
-                            </div>
-                            <p className="text-xs text-gray-500 mb-4">Manage the auto-generated popular questions that appear in RAG chat mode.</p>
-
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-xs text-gray-600">
-                                    <thead className="bg-gray-100 uppercase text-gray-700">
-                                        <tr>
-                                            <th className="px-4 py-2 border-b">Query Text</th>
-                                            <th className="px-4 py-2 border-b">Usage</th>
-                                            <th className="px-4 py-2 border-b">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {ragFaqs.length === 0 && (
-                                            <tr><td colSpan="3" className="text-center py-4 text-gray-400">No popular queries found.</td></tr>
-                                        )}
-                                        {ragFaqs.map(faq => (
-                                            <tr key={faq.id} className="border-b hover:bg-gray-50">
-                                                <td className="px-4 py-2 font-medium text-gray-900">
-                                                    <input 
-                                                        type="text" 
-                                                        className="w-full bg-transparent border-none focus:ring-0 p-0 text-xs" 
-                                                        defaultValue={faq.query_text}
-                                                        onBlur={async (e) => {
-                                                            if (e.target.value !== faq.query_text) {
-                                                                try {
-                                                                    await fetch(`/api/rag/popular-queries/${faq.id}`, {
-                                                                        method: 'PUT',
-                                                                        headers: { 'Content-Type': 'application/json' },
-                                                                        body: JSON.stringify({ query_text: e.target.value })
-                                                                    });
-                                                                    // Refresh
-                                                                    const res = await fetch('/api/rag/popular-queries/all');
-                                                                    setRagFaqs(await res.json());
-                                                                } catch(err) {}
-                                                            }
-                                                        }}
-                                                    />
-                                                </td>
-                                                <td className="px-4 py-2">{faq.usage_count}</td>
-                                                <td className="px-4 py-2">
-                                                    <button 
-                                                        className="text-red-500 hover:underline"
-                                                        onClick={async () => {
-                                                            try {
-                                                                await fetch(`/api/rag/popular-queries/${faq.id}`, { method: 'DELETE' });
-                                                                const res = await fetch('/api/rag/popular-queries/all');
-                                                                setRagFaqs(await res.json());
-                                                            } catch(err) {}
-                                                        }}
-                                                    >Delete</button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'Finder' && (
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                        <h2 className="font-semibold mb-3">Finder Configuration</h2>
-                        <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Google Drive Root Folder ID</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={driveRootId}
-                                    onChange={(e) => setDriveRootId(e.target.value)}
-                                    placeholder="Folder ID (leave empty for root)"
-                                    className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                                />
-                                <button
-                                    onClick={handleSaveDriveRoot}
-                                    className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                                >
-                                    Save
-                                </button>
-                            </div>
-                            <p className="text-[10px] text-gray-400 mt-1">Only files within this folder will be shown in Finder.</p>
-                        </div>
-                    </div>
+                    <ChatConfigTab
+                        chatPresets={chatPresets}
+                        setChatPresets={setChatPresets}
+                        chatPresetContext={chatPresetContext}
+                        setChatPresetContext={setChatPresetContext}
+                        presetLabel={presetLabel}
+                        setPresetLabel={setPresetLabel}
+                        presetPrompt={presetPrompt}
+                        setPresetPrompt={setPresetPrompt}
+                        ragFaqs={ragFaqs}
+                        setRagFaqs={setRagFaqs}
+                    />
                 )}
             </div>
         </div>
