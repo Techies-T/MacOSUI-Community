@@ -44,3 +44,16 @@
 ### 3-2. M2M (Machine to Machine) 認証
 - `[ ]` **TC-SKILL-10**: MacOSUIから外部のSkill APIエンドポイントにリクエストを投げる際、リクエストヘッダに有効な署名付き `JWT` が自動的に付与されていること。
 - `[ ]` **TC-SKILL-11**: 不正なスコープや権限外の操作をSkillが要求した場合、ZTAポリシーゲートウェイによってアクセスが拒否（403 Forbidden等）されること。
+
+---
+
+## 4. MCP App Runner 連携復旧 (Local Testing)
+※ MCPサーバーとのローカル接続検証
+
+### 4-1. 設定の柔軟性とエラーハンドリング
+- `[ ]` **TC-MCP-01**: System Settings にて、「MCP Server Endpoint URL」のみを入力し、OAuth情報（Token URLなど）を空欄のままエラーなく保存できること。
+- `[ ]` **TC-MCP-02**: Endpointが未設定、または接続不可能なURLの場合、App Runner Dashboardを開いた際に「System Settings から MCP Server Endpoint を設定してください」等の分かりやすいエラーメッセージがUI上に表示されること。
+
+### 4-2. 認証バイパスとデータ取得の正常系
+- `[ ]` **TC-MCP-03**: OAuth情報が未設定の状態で、MacOSUIのバックエンド（`mcpClient.cjs`）が `Authorization` ヘッダなしでローカルのSSEエンドポイントに正常に接続できること。
+- `[ ]` **TC-MCP-04**: ローカルのMCPサーバーが正常稼働している状態で App Runner Dashboard を開くと、`get_apprunner_services` ツールが正常に呼び出され、サービス一覧（またはモックデータ）が画面に表示されること。
