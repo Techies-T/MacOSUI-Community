@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import SkillsTab from './SystemSettings/tabs/SkillsTab';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
@@ -137,6 +138,7 @@ const SystemSettings = ({ user }) => {
     }, []);
 
     
+
 
     // Fetch users and invitations when Users tab is active
     useEffect(() => {
@@ -448,6 +450,7 @@ const SystemSettings = ({ user }) => {
         }
     };
 
+
     const handleSaveNanoBananaPrompt = async () => {
         try {
             const res = await fetch('/api/config', {
@@ -509,6 +512,7 @@ const SystemSettings = ({ user }) => {
     };
 
     const sidebarItems = [
+        { id: 'Skills', icon: '🧩', label: 'Skills' },
         ...(hasAction('action:manage_system_settings') ? [
             { id: 'General', icon: '⚙️', label: 'General' },
             { id: 'System', icon: '🔒', label: 'System' },
@@ -606,6 +610,8 @@ const SystemSettings = ({ user }) => {
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-8">
                 <h1 className="text-2xl font-bold mb-6">{activeTab}</h1>
+
+                {activeTab === 'Skills' && <SkillsTab />}
 
                 {activeTab === 'Users' && (
                     <div className="space-y-6">

@@ -221,6 +221,9 @@ app.use('/api/research', deepResearchModule.router);
 const knowledgeModule = require('./routes/knowledge.cjs');
 app.use('/api/knowledge', requireAuth, knowledgeModule.router);
 
+// Skill Management Routes
+app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
+
 // MCP Tool Execution Route
 const { callMcpTool } = require('./mcpClient.cjs');
 

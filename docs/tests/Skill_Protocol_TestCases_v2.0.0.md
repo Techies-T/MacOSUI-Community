@@ -30,9 +30,9 @@
 ※ DB連携とシステム設定UIの拡張
 
 ### 2-1. Skillの追加・削除
-- `[N/A]` **TC-SKILL-06**: System Settings の新しい「Skill Management」タブから、外部マニフェストURL（`skill.json`）を入力して新規Skillをインストールできること。
-- `[N/A]` **TC-SKILL-07**: インストールされたSkillが即座にDockに反映され、設定されたアイコンと名前で起動できること。
-- `[N/A]` **TC-SKILL-08**: インストールしたSkillをアンインストール（削除）でき、Dockからも消去されること。
+- `[✅]` **TC-SKILL-06**: System Settings の新しい「Skill Management」タブから、外部マニフェストURL（`skill.json`）を入力して新規Skillをインストールできること。
+- `[✅]` **TC-SKILL-07**: インストールされたSkillが即座にDockに反映され、設定されたアイコンと名前で起動できること。
+- `[✅]` **TC-SKILL-08**: インストールしたSkillをアンインストール（削除）でき、Dockからも消去されること。
 
 ---
 

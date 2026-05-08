@@ -6,9 +6,30 @@ import StickiesLayer from '../apps/Stickies';
 
 const Desktop = ({ user, onLogout, config }) => {
   const [windows, setWindows] = useState([]);
+  const [customSkills, setCustomSkills] = useState([]);
   const saveTimeoutRef = useRef(null);
   const isInitialMount = useRef(true);
   const stickiesRef = useRef(null);
+
+  // Load installed skills
+  const fetchSkills = async () => {
+    try {
+      const res = await fetch('/api/skills');
+      if (res.ok) {
+        const data = await res.json();
+        setCustomSkills(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch skills:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSkills();
+    const handleUpdate = () => fetchSkills();
+    window.addEventListener('skills-updated', handleUpdate);
+    return () => window.removeEventListener('skills-updated', handleUpdate);
+  }, []);
 
   // Load window state on mount
   useEffect(() => {
@@ -170,12 +191,20 @@ const Desktop = ({ user, onLogout, config }) => {
         windows={windows}
         user={user}
         config={config}
+        customSkills={customSkills}
         onAppClick={(id) => {
           if (id === 'stickies') {
             if (stickiesRef.current) {
               stickiesRef.current.addNote();
             }
             return;
+          }
+
+          // Check if it's a dynamic custom skill
+          const customSkill = customSkills.find(s => s.id === id);
+          if (customSkill) {
+             openWindow(id, 'external-skill', customSkill.name, { url: customSkill.entrypoint_url });
+             return;
           }
 
           // Simple mapping for demo purposes

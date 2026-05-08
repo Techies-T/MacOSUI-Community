@@ -152,6 +152,17 @@ function initDb() {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(author_id) REFERENCES users(id)
     )`);
+
+    // External Skills
+    db.run(`CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        icon_url TEXT,
+        entrypoint_url TEXT NOT NULL,
+        manifest_url TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 }
 
 const { encrypt, decrypt } = require('./crypto.cjs');

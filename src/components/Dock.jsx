@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-const Dock = ({ onAppClick, windows = [], user, config }) => {
+const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => {
     const apps = [
         { id: 'finder', name: 'Finder', icon: '😊' }, // Placeholder icons
         { id: 'browser', name: 'Browser', icon: '🌎' },
@@ -53,7 +53,19 @@ const Dock = ({ onAppClick, windows = [], user, config }) => {
     const rolePolicy = policies[userRole] || {};
     const allowedWidgets = rolePolicy.allowed_widgets || [];
 
-    const visibleApps = apps.filter(app => {
+    const dynamicApps = customSkills.map(skill => ({
+        id: skill.id,
+        name: skill.name,
+        icon: skill.icon_url && (skill.icon_url.startsWith('http') || skill.icon_url.startsWith('data:image')) 
+              ? <img src={skill.icon_url} alt={skill.name} style={{ width: '36px', height: '36px', objectFit: 'contain' }} /> 
+              : (skill.icon_url || '🧩'),
+        isCustom: true
+    }));
+
+    const allApps = [...apps, ...dynamicApps];
+
+    const visibleApps = allApps.filter(app => {
+        if (app.isCustom) return true; // Custom skills are visible to everyone for now (RBAC in Phase 4)
         return allowedWidgets.includes('*') || allowedWidgets.includes(`app:${app.id}`);
     });
 
