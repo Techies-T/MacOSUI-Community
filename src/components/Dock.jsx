@@ -38,6 +38,7 @@ const Dock = ({ onAppClick, windows = [], user, config }) => {
                 </svg>
             )
         },
+        { id: 'demo-skill', name: 'Demo Skill', icon: '🤖' },
     ];
 
     const handleAppClick = (appId) => {

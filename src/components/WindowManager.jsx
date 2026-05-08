@@ -11,6 +11,7 @@ import HtmlEditor from '../apps/HtmlEditor';
 import DeepResearch from '../apps/DeepResearch';
 import AppRunnerDashboard from '../apps/AppRunnerDashboard';
 import KnowledgeBase from '../apps/KnowledgeBase';
+import ExternalWidget from '../apps/ExternalWidget';
 
 const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate, user }) => {
     const renderApp = (win) => {
@@ -28,6 +29,7 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'deep-research': return <DeepResearch onOpen={onOpen} />;
             case 'knowledge-base': return <KnowledgeBase />;
             case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
+            case 'demo-skill': return <ExternalWidget url="/demo-skill.html" title="Demo Skill" />;
             default: return null;
         }
     };

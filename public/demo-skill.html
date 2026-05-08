@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Skill Widget</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        /* Dark mode support (assuming MacOSUI might inject class or prefers-color-scheme) */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: linear-gradient(135deg, #2c3e50 0%, #000000 100%);
+                color: #ecf0f1;
+            }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 24px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+            text-align: center;
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        p {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: inherit;
+            opacity: 0.8;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: linear-gradient(90deg, #00c6ff 0%, #0072ff 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 114, 255, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        #response-container {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: left;
+            font-size: 0.85rem;
+            min-height: 60px;
+            display: none;
+            overflow-y: auto;
+            max-height: 200px;
+            white-space: pre-wrap;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>🤖 Demo Skill</h2>
+        <p>This is an external widget running in a secure Iframe. It communicates with MacOSUI via postMessage.</p>
+        
+        <button id="ask-btn">Ask MacOSUI AI a Joke</button>
+        
+        <div id="response-container"></div>
+    </div>
+
+    <script>
+        const btn = document.getElementById('ask-btn');
+        const responseContainer = document.getElementById('response-container');
+
+        // 1. MacOSUI (親ウィンドウ) にリクエストを送信
+        btn.addEventListener('click', () => {
+            const prompt = "Please tell a short, funny joke about programmers.";
+            
+            // UI更新
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Thinking...';
+            responseContainer.style.display = 'block';
+            responseContainer.innerText = 'Sending request to host OS...';
+
+            // postMessageでホストへメッセージ送信
+            // セキュリティのため、本来は '*' ではなくホストのオリジンを指定しますが、
+            // ウィジェット側からは汎用的に動作させるため '*' を使うのが一般的です。
+            window.parent.postMessage({
+                source: 'demo-skill',
+                type: 'AI_REQUEST',
+                payload: {
+                    prompt: prompt
+                }
+            }, '*');
+        });
+
+        // 2. MacOSUI (親ウィンドウ) からの応答を受信
+        window.addEventListener('message', (event) => {
+            // セキュリティ: 必要に応じて event.origin をチェックします
+
+            const data = event.data;
+            if (data && data.type === 'AI_RESPONSE') {
+                // UI復元
+                btn.disabled = false;
+                btn.innerHTML = 'Ask Another Joke';
+                
+                // 結果表示
+                if (data.payload.error) {
+                    responseContainer.style.color = '#e74c3c';
+                    responseContainer.innerText = `Error: ${data.payload.error}`;
+                } else {
+                    responseContainer.style.color = 'inherit';
+                    responseContainer.innerText = data.payload.result;
+                }
+            }
+        });
+    </script>
+</body>
+</html>
