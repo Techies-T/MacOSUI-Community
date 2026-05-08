@@ -16,14 +16,16 @@ let tokenCache = {
 async function getOAuthToken() {
     const tokenUrl = await db.getSetting('MCP_TOKEN_URL');
     if (!tokenUrl) {
-        throw new Error("MCP_TOKEN_URL is not configured.");
+        console.log("MCP_TOKEN_URL is not configured. Proceeding without OAuth token.");
+        return null;
     }
     
     const clientId = await db.getSetting('MCP_CLIENT_ID');
     const clientSecret = await db.getSetting('MCP_CLIENT_SECRET');
 
     if (!clientId || !clientSecret) {
-        throw new Error("MCP Client credentials are missing. Please configure them in System Settings.");
+        console.log("MCP Client credentials are missing. Proceeding without OAuth token.");
+        return null;
     }
 
     try {
@@ -91,15 +93,18 @@ async function ensureConnection() {
         // SDK internally uses `requestInit.headers` to inject headers into SSE fetch calls.
         // Also pass the token as ?access_token= as a fallback (some servers may prefer it).
         const sseUrl = new URL(endpoint);
-        sseUrl.searchParams.set('access_token', token);
+        let requestInit = {};
 
-        mcpTransport = new SSEClientTransport(sseUrl, {
-            requestInit: {
+        if (token) {
+            sseUrl.searchParams.set('access_token', token);
+            requestInit = {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
-            }
-        });
+            };
+        }
+
+        mcpTransport = new SSEClientTransport(sseUrl, { requestInit });
 
         mcpClientInstance = new Client(
             {

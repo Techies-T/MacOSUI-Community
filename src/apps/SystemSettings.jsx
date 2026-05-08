@@ -1361,7 +1361,7 @@ const SystemSettings = ({ user }) => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">OAuth Token URL</label>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">OAuth Token URL (Optional for Local)</label>
                                     <input
                                         type="text"
                                         value={mcpTokenUrl}
@@ -1372,7 +1372,7 @@ const SystemSettings = ({ user }) => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client ID</label>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client ID (Optional)</label>
                                     <input
                                         type="text"
                                         value={mcpClientId}
@@ -1383,7 +1383,7 @@ const SystemSettings = ({ user }) => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client Secret</label>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">MCP Client Secret (Optional)</label>
                                     <input
                                         type="password"
                                         value={mcpClientSecret}

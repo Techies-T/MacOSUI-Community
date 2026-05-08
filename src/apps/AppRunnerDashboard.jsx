@@ -22,6 +22,9 @@ const AppRunnerDashboard = ({ windowId }) => {
         
         if (!res.ok) {
            const errText = await res.text();
+           if (errText.includes('MCP_SERVER_ENDPOINT is not configured')) {
+               throw new Error('MCP Server is not configured. Please set the Endpoint URL in System Settings (Server Monitor tab).');
+           }
            throw new Error(`Failed to fetch services: ${errText}`);
         }
         
