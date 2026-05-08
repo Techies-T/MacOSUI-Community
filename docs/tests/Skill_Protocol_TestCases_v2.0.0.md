@@ -62,3 +62,9 @@
 ### 4-2. 認証バイパスとデータ取得の正常系
 - `[✅]` **TC-MCP-03**: OAuth情報が未設定の状態で、MacOSUIのバックエンド（`mcpClient.cjs`）が `Authorization` ヘッダなしでローカルのSSEエンドポイントに正常に接続できること。
 - `[✅]` **TC-MCP-04**: ローカルのMCPサーバーが正常稼働している状態で App Runner Dashboard を開くと、`get_apprunner_services` ツールが正常に呼び出され、サービス一覧（またはモックデータ）が画面に表示されること。
+
+#### 📝 実行記録 (2026-05-08)
+- **結果**: 全項目 パス (Pass)
+- **エビデンス**:
+  - ターミナルログにて `Connecting to MCP Server at http://host.docker.internal:8085/mcp...` および `MCP Client connected successfully.` を確認。
+  - UI上で `customer-agent-portal-production-public [RUNNING]` のステータスおよびメトリクス（CPU/Memory使用率）が正常に取得・描画されたことを確認。
