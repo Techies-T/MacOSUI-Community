@@ -347,21 +347,21 @@ const SystemSettings = ({ user }) => {
         }
     };
 
-    const handleSaveRagFolders = async () => {
+
+    const saveRagFoldersToApi = async (folders) => {
         try {
             await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ googleDriveRagFolders: ragFolders })
+                body: JSON.stringify({ googleDriveRagFolders: folders })
             });
-            alert('RAG Folders saved!');
         } catch (err) {
             console.error("Failed to save RAG folders", err);
             alert('Failed to save.');
         }
     };
 
-    const handleAddRagFolder = () => {
+    const handleAddRagFolder = async () => {
         if (!newRagFolderId || !newRagFolderName) return;
         
         // Prevent duplicate folder IDs
@@ -370,13 +370,17 @@ const SystemSettings = ({ user }) => {
             return;
         }
 
-        setRagFolders([...ragFolders, { id: newRagFolderId, name: newRagFolderName }]);
+        const newFolders = [...ragFolders, { id: newRagFolderId, name: newRagFolderName }];
+        setRagFolders(newFolders);
         setNewRagFolderId('');
         setNewRagFolderName('');
+        await saveRagFoldersToApi(newFolders);
     };
 
-    const handleRemoveRagFolder = (idToRemove) => {
-        setRagFolders(ragFolders.filter(f => f.id !== idToRemove));
+    const handleRemoveRagFolder = async (id) => {
+        const newFolders = ragFolders.filter(f => f.id !== id);
+        setRagFolders(newFolders);
+        await saveRagFoldersToApi(newFolders);
     };
 
     const handleSaveResearchFolder = async () => {
@@ -896,7 +900,6 @@ const SystemSettings = ({ user }) => {
                         setNewRagFolderId={setNewRagFolderId}
                         handleAddRagFolder={handleAddRagFolder}
                         handleRemoveRagFolder={handleRemoveRagFolder}
-                        handleSaveRagFolders={handleSaveRagFolders}
                         handleSyncRag={handleSyncRag}
                         isSyncing={isSyncing}
                         lastRagSyncTime={lastRagSyncTime}

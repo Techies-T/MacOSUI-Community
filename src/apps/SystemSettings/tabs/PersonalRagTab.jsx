@@ -8,7 +8,6 @@ const PersonalRagTab = ({
     setNewRagFolderId,
     handleAddRagFolder,
     handleRemoveRagFolder,
-    handleSaveRagFolders,
     handleSyncRag,
     isSyncing,
     lastRagSyncTime
@@ -66,12 +65,6 @@ const PersonalRagTab = ({
                         </div>
                     </div>
                     
-                    <button
-                        onClick={handleSaveRagFolders}
-                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors w-full mt-2"
-                    >
-                        Save Configuration
-                    </button>
                 </div>
 
                 <div className="pt-4 border-t border-gray-100">
