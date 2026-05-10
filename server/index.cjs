@@ -187,10 +187,7 @@ app.post('/api/config', requirePermission('action:manage_system_settings'), asyn
         if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
         
         if (req.body.rbacPolicies) {
-            let currentPolicies = {};
-            try { currentPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}'); } catch(e){}
-            const rolePolicy = currentPolicies[req.user.role || 'user'] || {};
-            const allowedActions = rolePolicy.allowed_actions || [];
+            const allowedActions = req.user.allowed_actions || [];
             if (!allowedActions.includes('*') && !allowedActions.includes('action:manage_roles')) {
                 return res.status(403).json({ error: 'Permission denied. Requires action:manage_roles' });
             }
@@ -215,11 +212,11 @@ const { google } = require('googleapis');
 
 // Import new Deep Research route
 const deepResearchModule = require('./routes/deepResearch.cjs');
-app.use('/api/research', deepResearchModule.router);
+app.use('/api/research', requireWidgetAccess('app:deep-research'), deepResearchModule.router);
 
 // Import new Knowledge Base route
 const knowledgeModule = require('./routes/knowledge.cjs');
-app.use('/api/knowledge', requireAuth, knowledgeModule.router);
+app.use('/api/knowledge', requireWidgetAccess('app:knowledge-base'), knowledgeModule.router);
 
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
@@ -227,7 +224,7 @@ app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
 // MCP Tool Execution Route
 const { callMcpTool } = require('./mcpClient.cjs');
 
-app.post('/api/mcp/tool', async (req, res) => {
+app.post('/api/mcp/tool', requireWidgetAccess('app:gemini'), requirePermission('action:use_mcp_tools'), async (req, res) => {
     const { name, args } = req.body;
     
     if (!name) {
@@ -276,7 +273,38 @@ app.post('/api/auth/google', async (req, res) => {
         db.get("SELECT * FROM users WHERE google_id = ? OR email = ?", [googleId, email], (err, existingUser) => {
             if (err) return res.status(500).json({ error: 'Database error' });
 
-            const proceedWithLogin = (role) => {
+            const proceedWithLogin = async (role) => {
+                let rbacPolicies = {};
+                try {
+                    const rbacJson = await db.getSetting('RBAC_POLICIES');
+                    if (rbacJson) rbacPolicies = JSON.parse(rbacJson);
+                } catch (e) {
+                    console.error("Failed to fetch RBAC_POLICIES for JWT generation", e);
+                }
+
+                const roles = (role || 'user').split(',').map(r => r.trim());
+                let allowed_widgets_set = new Set();
+                let allowed_actions_set = new Set();
+                let allowed_models_set = new Set();
+                let hasWildcardModels = false;
+
+                roles.forEach(r => {
+                    const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
+                    (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
+                    (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+                    (policy.allowed_models || []).forEach(m => {
+                        if (m === '*') hasWildcardModels = true;
+                        allowed_models_set.add(m);
+                    });
+                });
+
+                // Enforce Universal Default Widgets
+                ['app:settings', 'app:gemini', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+
+                const allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
+                const allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
+                const allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
+
                 db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role, token_expiry) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
                     ON CONFLICT(google_id) DO UPDATE SET 
@@ -292,11 +320,11 @@ app.post('/api/auth/google', async (req, res) => {
                         const userId = existingUser ? existingUser.id : this.lastID;
 
                         // Delete from invitations if they just joined via an invite
-                        db.run("DELETE FROM invitations WHERE email = ?", [email]);
+                        db.run("DELETE FROM invitations WHERE email = ? AND ? != 'admin'", [email, role]);
 
-                        // Create Session JWT
+                        // Create Session JWT (ZTA PDP Action: Embedding Claims)
                         const token = jwt.sign(
-                            { id: userId, googleId, email, name, avatarUrl, role },
+                            { id: userId, googleId, email, name, avatarUrl, role, allowed_widgets, allowed_actions, allowed_models },
                             process.env.JWT_SECRET || 'secret',
                             { expiresIn: '7d' }
                         );
@@ -307,7 +335,7 @@ app.post('/api/auth/google', async (req, res) => {
                             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
                         });
 
-                        res.json({ user: { id: userId, googleId, email, name, avatarUrl, role } });
+                        res.json({ user: { id: userId, googleId, email, name, avatarUrl, role, allowed_widgets, allowed_actions, allowed_models } });
                     }
                 );
             };
@@ -362,8 +390,52 @@ app.get('/api/auth/me', (req, res) => {
 
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
         if (err) return res.status(403).json({ error: 'Invalid token' });
-        db.get("SELECT * FROM users WHERE id = ?", [decoded.id], (dbErr, user) => {
+        db.get("SELECT * FROM users WHERE id = ?", [decoded.id], async (dbErr, user) => {
             if (user) {
+                // Fetch fresh RBAC policies to act as a dynamic PEP
+                let rbacPolicies = {};
+                try {
+                    const rbacJson = await db.getSetting('RBAC_POLICIES');
+                    if (rbacJson) rbacPolicies = JSON.parse(rbacJson);
+                } catch (e) {
+                    console.error("Failed to fetch RBAC_POLICIES in /api/auth/me", e);
+                }
+
+                const roles = (user.role || 'user').split(',').map(r => r.trim());
+                let allowed_widgets_set = new Set();
+                let allowed_actions_set = new Set();
+                let allowed_models_set = new Set();
+                let hasWildcardModels = false;
+
+                roles.forEach(r => {
+                    const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
+                    (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
+                    (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+                    (policy.allowed_models || []).forEach(m => {
+                        if (m === '*') hasWildcardModels = true;
+                        allowed_models_set.add(m);
+                    });
+                });
+
+                // Enforce Universal Default Widgets
+                ['app:settings', 'app:gemini', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+
+                user.allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
+                user.allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
+                user.allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
+
+                // Re-issue JWT to ensure subsequent API calls (PEP) succeed with fresh permissions
+                const newToken = jwt.sign(
+                    { id: user.id, googleId: user.google_id, email: user.email, name: user.name, avatarUrl: user.avatar_url, role: user.role, allowed_widgets: user.allowed_widgets, allowed_actions: user.allowed_actions, allowed_models: user.allowed_models },
+                    process.env.JWT_SECRET || 'secret',
+                    { expiresIn: '7d' }
+                );
+                res.cookie('token', newToken, {
+                    httpOnly: true,
+                    secure: process.env.NODE_ENV === 'production',
+                    maxAge: 7 * 24 * 60 * 60 * 1000
+                });
+
                 res.json({ user });
             } else {
                 res.json({ user: decoded }); // Fallback
@@ -376,6 +448,49 @@ app.get('/api/auth/me', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('token');
     res.json({ message: 'Logged out' });
+});
+
+// Auth: Token Exchange (RFC 8693) for Agent-to-Agent (A2A) authentication
+app.post('/api/auth/token-exchange', requireAuth, (req, res) => {
+    const { grant_type, audience, requested_token_type } = req.body;
+    
+    // According to RFC 8693, grant_type must be urn:ietf:params:oauth:grant-type:token-exchange
+    if (grant_type !== 'urn:ietf:params:oauth:grant-type:token-exchange') {
+        return res.status(400).json({ error: 'unsupported_grant_type' });
+    }
+    if (!audience) {
+        return res.status(400).json({ error: 'invalid_request', error_description: 'audience is required' });
+    }
+
+    // Verify if the user is actually allowed to access the requested audience (widget/skill)
+    const allowedWidgets = req.user.allowed_widgets || [];
+    const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(audience);
+    
+    if (!hasAccess) {
+        return res.status(403).json({ error: 'access_denied', error_description: `User does not have access to audience: ${audience}` });
+    }
+
+    // Issue a short-lived, downscoped Agent Token
+    const agentToken = jwt.sign(
+        { 
+            sub: req.user.googleId,
+            email: req.user.email,
+            name: req.user.name,
+            aud: audience,
+            role: req.user.role,
+            // Downscope: remove allowed_widgets and allowed_actions to prevent the agent from acting laterally
+            type: 'agent_token'
+        },
+        process.env.JWT_SECRET || 'secret',
+        { expiresIn: '1h' } // Short-lived token for security
+    );
+
+    res.json({
+        access_token: agentToken,
+        issued_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+        token_type: 'Bearer',
+        expires_in: 3600
+    });
 });
 
 // Middleware to check user auth
@@ -425,37 +540,46 @@ function requireAuthPage(req, res, next) {
 }
 
 // Middleware to check admin role
+// Middleware to check action permission (PEP)
 function requirePermission(action) {
-    return async (req, res, next) => {
+    return (req, res, next) => {
         const token = req.cookies.token;
         if (!token) return res.status(401).json({ error: 'Not authenticated' });
         
-        jwt.verify(token, process.env.JWT_SECRET || 'secret', async (err, decoded) => {
+        jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
             if (err) return res.status(401).json({ error: 'Invalid token' });
             
-            const userRole = decoded.role || 'user';
+            const allowedActions = decoded.allowed_actions || [];
+            const hasPermission = allowedActions.includes('*') || allowedActions.includes(action);
             
-            try {
-                let rbacPolicies = {};
-                const rbacJson = await db.getSetting('RBAC_POLICIES');
-                if (rbacJson) {
-                    rbacPolicies = JSON.parse(rbacJson);
-                }
-                const rolePolicy = rbacPolicies[userRole] || {};
-                const allowedActions = rolePolicy.allowed_actions || [];
-                
-                const hasPermission = allowedActions.includes('*') || allowedActions.includes(action);
-                
-                if (!hasPermission) {
-                    return res.status(403).json({ error: `Permission denied. Requires ${action}` });
-                }
-                
-                req.user = decoded;
-                next();
-            } catch (e) {
-                console.error("Failed to check permissions", e);
-                return res.status(500).json({ error: 'Internal Server Error during permission check' });
+            if (!hasPermission) {
+                return res.status(403).json({ error: `Permission denied. Requires action: ${action}` });
             }
+            
+            req.user = decoded;
+            next();
+        });
+    };
+}
+
+// Middleware to check widget access (PEP)
+function requireWidgetAccess(widgetId) {
+    return (req, res, next) => {
+        const token = req.cookies.token;
+        if (!token) return res.status(401).json({ error: 'Not authenticated' });
+        
+        jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+            if (err) return res.status(401).json({ error: 'Invalid token' });
+            
+            const allowedWidgets = decoded.allowed_widgets || [];
+            const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
+            
+            if (!hasAccess) {
+                return res.status(403).json({ error: `Access denied. Requires widget access: ${widgetId}` });
+            }
+            
+            req.user = decoded;
+            next();
         });
     };
 }
@@ -581,7 +705,7 @@ app.get('/api/gemini/job/:jobId', (req, res) => {
 
 
 
-app.post('/api/gemini/tts', async (req, res) => {
+app.post('/api/gemini/tts', requireWidgetAccess('app:gemini'), async (req, res) => {
     try {
         const { text } = req.body;
         if (!text) return res.status(400).json({ error: 'Text is required' });
@@ -619,7 +743,7 @@ app.post('/api/gemini/tts', async (req, res) => {
     }
 });
 
-app.post('/api/gemini/proxy', async (req, res) => {
+app.post('/api/gemini/proxy', requireWidgetAccess('app:gemini'), async (req, res) => {
     try {
         const targetUrl = req.query.target;
         if (!targetUrl) return res.status(400).json({ error: 'Target URL is required' });
@@ -659,7 +783,7 @@ app.post('/api/gemini/proxy', async (req, res) => {
 // Retrieving 'google' from googleapis is needed for Drive API usage inside the job.
 // Google Drive API endpoints (google import moved to top)
 
-app.post('/api/gemini', async (req, res) => {
+app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
     const { message, history, config, images } = req.body;
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
@@ -669,23 +793,28 @@ app.post('/api/gemini', async (req, res) => {
             return res.status(500).json({ error: 'Gemini API Key not configured' });
         }
 
+        // ZTA: Enforce Model Access (PEP)
+        let requestedModel = modelName;
+        const mode = config?.mode || 'rag';
+        if (mode === 'research') {
+            requestedModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
+        } else if (mode === 'nanobanana') {
+            requestedModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
+        } else if (mode === 'html_svg') {
+            requestedModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
+        }
+
+        const allowedModels = req.user.allowed_models || [];
+        const hasModelAccess = allowedModels.includes('*') || allowedModels.includes(`model:${requestedModel}`);
+        if (!hasModelAccess) {
+            return res.status(403).json({ error: `Access denied. Requires model access: ${requestedModel}` });
+        }
+
         const crypto = require('crypto');
         const jobId = crypto.randomUUID();
 
-        // Get user's Google ID for Drive Save
-        const token = req.cookies.token;
-        let googleId = null;
-        if (token) {
-            try {
-                const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-                googleId = decoded.googleId;
-            } catch (e) {
-                console.error("JWT Verify Error:", e.message);
-            }
-        }
-
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, modelName, config, googleId, images);
+        processGeminiJob(jobId, message, history, apiKey, requestedModel, config, req.user.googleId, images);
 
         // Track RAG query usage for FAQ feature
         if (config?.mode === 'rag' && message.trim()) {

@@ -227,7 +227,7 @@ async function autoActivate() {
                     "name": "Researcher",
                     "allowed_widgets": ["app:deep-research", "app:knowledge-base", "app:gemini", "app:browser", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor"],
                     "allowed_models": ["*"],
-                    "allowed_actions": ["action:generate_infographic"]
+                    "allowed_actions": ["action:generate_infographic", "action:use_mcp_tools"]
                 },
                 "user": {
                     "name": "General User",

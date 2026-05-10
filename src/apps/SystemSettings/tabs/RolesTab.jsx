@@ -1,6 +1,25 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
+    const [skills, setSkills] = useState([]);
+
+    useEffect(() => {
+        fetch('/api/skills')
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setSkills(data);
+                }
+            })
+            .catch(err => console.error("Failed to fetch skills:", err));
+    }, []);
+
+    const dynamicWidgets = [
+        { id: 'app:deep-research', label: 'Deep Research' },
+        { id: 'app:knowledge-base', label: 'Knowledge Base' },
+        { id: 'app:app-monitor', label: 'Server Monitor' },
+        ...skills.map(s => ({ id: `skill:${s.id}`, label: `Skill: ${s.name}` }))
+    ];
 
     const handleToggleWidgetPermission = (roleKey, widgetId) => {
         const role = rbacPolicies[roleKey];
@@ -81,9 +100,10 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
                                     <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">🖥️ Widgets / Apps</td>
                                 </tr>
                                 {[
-                                    { id: 'app:gemini', label: 'Gemini AI Chat' },
-                                    { id: 'app:skills', label: 'External Skills (Hello World)' },
-                                    { id: 'app:settings', label: 'System Settings' }
+                                    { id: 'app:deep-research', label: 'Deep Research' },
+                                    { id: 'app:knowledge-base', label: 'Knowledge Base' },
+                                    { id: 'app:app-monitor', label: 'Server Monitor' },
+                                    ...skills.map(s => ({ id: `skill:${s.id}`, label: `Skill: ${s.name}` }))
                                 ].map(widget => (
                                     <tr key={widget.id} className="hover:bg-blue-50/30 transition-colors">
                                         <td className="px-4 py-2 border-r border-gray-200 sticky left-0 bg-inherit text-gray-700 pl-6">

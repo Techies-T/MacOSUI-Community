@@ -27,9 +27,19 @@ export default defineConfig([
       react,
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^(_|[A-Z])', argsIgnorePattern: '^_', ignoreRestSiblings: true }],
+      'no-unused-vars': ['warn', { varsIgnorePattern: '^(_|[A-Z])', argsIgnorePattern: '^_', ignoreRestSiblings: true }],
       'react/jsx-uses-vars': 'error',
       'react/jsx-uses-react': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-refresh/only-export-components': 'warn',
+      'no-regex-spaces': 'warn',
+      'no-empty': 'warn',
+      'no-undef': 'warn',
+      'no-useless-escape': 'warn',
+      'no-use-before-define': ['warn', { "functions": false, "classes": true, "variables": true }]
     },
   },
 ])

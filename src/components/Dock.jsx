@@ -48,10 +48,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
         }
     };
 
-    const userRole = user?.role || 'user';
-    const policies = config?.rbacPolicies || {};
-    const rolePolicy = policies[userRole] || {};
-    const allowedWidgets = rolePolicy.allowed_widgets || [];
+    const allowedWidgets = user?.allowed_widgets || [];
 
     const dynamicApps = customSkills.map(skill => ({
         id: skill.id,
@@ -65,8 +62,10 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
     const allApps = [...apps, ...dynamicApps];
 
     const visibleApps = allApps.filter(app => {
+        if (app.id === 'settings') return true; // Settings is universally available for profile management
         if (app.isCustom) return true; // Custom skills are visible to everyone for now (RBAC in Phase 4)
-        return allowedWidgets.includes('*') || allowedWidgets.includes(`app:${app.id}`);
+        const prefix = app.id === 'demo-skill' ? 'skill:' : 'app:';
+        return allowedWidgets.includes('*') || allowedWidgets.includes(`${prefix}${app.id}`);
     });
 
     return (

@@ -1,5 +1,6 @@
 import React from 'react';
 import Window from './Window';
+import ErrorBoundary from './ErrorBoundary';
 import Calculator from '../apps/Calculator';
 import Notes from '../apps/Notes';
 import Finder from '../apps/Finder';
@@ -29,8 +30,8 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'deep-research': return <DeepResearch onOpen={onOpen} />;
             case 'knowledge-base': return <KnowledgeBase />;
             case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
-            case 'demo-skill': return <ExternalWidget url="/demo-skill.html" title="Demo Skill" />;
-            case 'external-skill': return <ExternalWidget url={win.props.url} title={win.title} />;
+            case 'demo-skill': return <ExternalWidget url="/demo-skill.html" title="Demo Skill" widgetId="skill:demo-skill" />;
+            case 'external-skill': return <ExternalWidget url={win.props.url} title={win.title} widgetId={win.appId || 'external-skill'} />;
             default: return null;
         }
     };
@@ -53,7 +54,9 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
                     onUpdate={onUpdate}
                     minimized={win.minimized}
                 >
-                    {renderApp(win)}
+                    <ErrorBoundary>
+                        {renderApp(win)}
+                    </ErrorBoundary>
                 </Window>
             ))}
         </div>

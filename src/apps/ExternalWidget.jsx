@@ -1,9 +1,47 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const ExternalWidget = ({ url, title = "External Widget" }) => {
+const ExternalWidget = ({ url, title = "External Widget", widgetId = "unknown" }) => {
     const iframeRef = useRef(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [agentToken, setAgentToken] = useState(null);
+
+    // ZTA: Perform Token Exchange for A2A Auth
+    useEffect(() => {
+        const fetchAgentToken = async () => {
+            try {
+                const res = await fetch('/api/auth/token-exchange', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+                        audience: widgetId
+                    })
+                });
+                
+                if (!res.ok) {
+                    if (res.status === 403) {
+                        throw new Error(`Access Denied: You do not have permission to access ${title}.`);
+                    }
+                    throw new Error("Failed to obtain agent authentication token.");
+                }
+                
+                const data = await res.json();
+                setAgentToken(data.access_token);
+            } catch (err) {
+                console.error("Token Exchange Error:", err);
+                setError(err.message);
+                setIsLoading(false);
+            }
+        };
+
+        if (widgetId && widgetId !== 'unknown') {
+            fetchAgentToken();
+        } else {
+            // For generic widgets without explicit ZTA tracking (should be avoided in production)
+            console.warn("ExternalWidget loaded without explicit widgetId for ZTA.");
+        }
+    }, [widgetId, title]);
 
     useEffect(() => {
         // 外部ウィジェット（子Iframe）からのメッセージを受信するリスナー
@@ -91,6 +129,13 @@ const ExternalWidget = ({ url, title = "External Widget" }) => {
 
     const handleIframeLoad = () => {
         setIsLoading(false);
+        // Send the agent token to the external widget so it can verify the user's identity
+        if (iframeRef.current && iframeRef.current.contentWindow && agentToken) {
+            iframeRef.current.contentWindow.postMessage({
+                type: 'ZTA_AUTH_TOKEN',
+                payload: { token: agentToken }
+            }, '*');
+        }
     };
 
     const handleIframeError = () => {

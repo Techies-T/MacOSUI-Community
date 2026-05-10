@@ -6,6 +6,8 @@ import DeepResearchTab from './SystemSettings/tabs/DeepResearchTab';
 import ImageGenTab from './SystemSettings/tabs/ImageGenTab';
 import ServerMonitorTab from './SystemSettings/tabs/ServerMonitorTab';
 import ChatConfigTab from './SystemSettings/tabs/ChatConfigTab';
+import UsersTab from './SystemSettings/tabs/UsersTab';
+import RolesTab from './SystemSettings/tabs/RolesTab';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
@@ -143,68 +145,6 @@ const SystemSettings = ({ user }) => {
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
 
-    
-
-
-    // Fetch users and invitations when Users tab is active
-    useEffect(() => {
-        if (activeTab === 'Users' && user?.role === 'admin') {
-            fetchUsersList();
-            fetchInvitations();
-        }
-    }, [activeTab, user?.role]);
-
-    const fetchUsersList = async () => {
-        try {
-            const res = await fetch('/api/users');
-            if (res.ok) setUsersList(await res.json());
-        } catch (e) { console.error(e); }
-    };
-
-    const fetchInvitations = async () => {
-        try {
-            const res = await fetch('/api/invitations');
-            if (res.ok) setInvitations(await res.json());
-        } catch (e) { console.error(e); }
-    };
-
-    const handleInviteUser = async () => {
-        if (!inviteEmail) return;
-        try {
-            const res = await fetch('/api/invitations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: inviteEmail })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                setInviteEmail('');
-                fetchInvitations();
-                alert('User invited successfully!');
-            } else {
-                alert(data.error || 'Failed to invite user');
-            }
-        } catch (e) { console.error(e); }
-    };
-
-    const handleRoleChange = async (id, newRole) => {
-        try {
-            const res = await fetch(`/api/users/${id}/role`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role: newRole })
-            });
-            if (res.ok) {
-                setUsersList(prev => prev.map(u => u.id === id ? { ...u, role: newRole } : u));
-            } else {
-                const data = await res.json();
-                alert(data.error || 'Failed to update user role');
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    };
-    
     const handleSaveRbacPolicies = async (updatedPolicies) => {
         setRbacPolicies(updatedPolicies);
         try {
@@ -218,80 +158,33 @@ const SystemSettings = ({ user }) => {
         }
     };
 
-    const handleToggleWidgetPermission = (roleKey, widgetId) => {
-        const role = rbacPolicies[roleKey];
-        if (!role) return;
-        
-        let allowed = [...(role.allowed_widgets || [])];
-        if (allowed.includes('*')) {
-            // If they have all, explicitly list what they have to allow toggling off one
-            // Simple way: alert them that '*' means everything. For now just handle simple arrays
-            alert("This role has '*' (all permissions). To restrict, you must reset it to specific items.");
-            return;
-        }
-
-        if (allowed.includes(widgetId)) {
-            allowed = allowed.filter(w => w !== widgetId);
-        } else {
-            allowed.push(widgetId);
-        }
-
-        const newPolicies = {
-            ...rbacPolicies,
-            [roleKey]: {
-                ...role,
-                allowed_widgets: allowed
-            }
-        };
-        handleSaveRbacPolicies(newPolicies);
-    };
-
-    const handleToggleActionPermission = (roleKey, actionId) => {
-        const role = rbacPolicies[roleKey];
-        if (!role) return;
-        
-        let allowed = [...(role.allowed_actions || [])];
-        if (allowed.includes('*')) {
-            alert("This role has '*' (all permissions). To restrict, you must reset it to specific items.");
-            return;
-        }
-
-        if (allowed.includes(actionId)) {
-            allowed = allowed.filter(w => w !== actionId);
-        } else {
-            allowed.push(actionId);
-        }
-
-        const newPolicies = {
-            ...rbacPolicies,
-            [roleKey]: {
-                ...role,
-                allowed_actions: allowed
-            }
-        };
-        handleSaveRbacPolicies(newPolicies);
-    };
-
-
-    const handleCancelInvite = async (email) => {
-        if (!confirm(`Cancel invitation for ${email}?`)) return;
+    const handleSaveSettings = async () => {
         try {
-            const res = await fetch(`/api/invitations/${encodeURIComponent(email)}`, { method: 'DELETE' });
-            if (res.ok) fetchInvitations();
-        } catch (e) { console.error(e); }
-    };
-
-    const handleRemoveUser = async (id, email) => {
-        if (!confirm(`Are you sure you want to remove user ${email}?`)) return;
-        try {
-            const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    geminiApiKey,
+                    googleClientId,
+                    deepResearchPrompt,
+                    htmlSvgPrompt,
+                    nanoBananaPrompt,
+                    researchFolderId,
+                    mcpServerEndpoint,
+                    mcpTokenUrl,
+                    mcpClientId,
+                    mcpClientSecret
+                })
+            });
             if (res.ok) {
-                fetchUsersList();
+                alert('Settings saved successfully!');
             } else {
-                const data = await res.json();
-                alert(data.error || 'Failed to remove user');
+                alert('Failed to save settings.');
             }
-        } catch (e) { console.error(e); }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to save settings.');
+        }
     };
 
     const handleModelChange = async (modelName) => {
@@ -515,10 +408,13 @@ const SystemSettings = ({ user }) => {
     };
 
     const hasAction = (action) => {
-        if (!user || !user.role) return false;
-        const policy = rbacPolicies[user.role] || {};
-        const allowed = policy.allowed_actions || [];
+        const allowed = user?.allowed_actions || [];
         return allowed.includes('*') || allowed.includes(action);
+    };
+
+    const hasWidget = (widget) => {
+        const allowed = user?.allowed_widgets || [];
+        return allowed.includes('*') || allowed.includes(widget);
     };
 
     const sidebarItems = [
@@ -526,14 +422,18 @@ const SystemSettings = ({ user }) => {
         ...(hasAction('action:manage_system_settings') ? [
             { id: 'General', icon: '⚙️', label: 'General' },
             { id: 'System', icon: '🔒', label: 'System' },
-            { id: 'Image Generation', icon: '🖼️', label: 'Image Gen' },
+            { id: 'Image Generation', icon: '🖼️', label: 'Image Gen' }
+        ] : []),
+        ...(hasWidget('app:deep-research') || hasAction('action:manage_system_settings') ? [
             {
                 id: 'Deep Research', icon: (
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-indigo-500">
                         <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 100 13.5 6.75 6.75 0 000-13.5zM2.25 10.5a8.25 8.25 0 1114.59 5.28l4.69 4.69a.75.75 0 11-1.06 1.06l-4.69-4.69A8.25 8.25 0 012.25 10.5z" clipRule="evenodd" />
                     </svg>
                 ), label: 'Deep Research'
-            },
+            }
+        ] : []),
+        ...(hasWidget('app:app-monitor') || hasAction('action:manage_system_settings') ? [
             {
                 id: 'Server Monitor', icon: (
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-emerald-500">
@@ -563,9 +463,7 @@ const SystemSettings = ({ user }) => {
         },
         { id: 'Finder', icon: '📁', label: 'Finder' },
         { id: 'Chat Config', icon: '💬', label: 'Chat Presets & FAQ' },
-        ...(hasAction('action:manage_users') ? [
-            { id: 'Users', icon: '👥', label: 'Users & Groups' }
-        ] : []),
+        { id: 'Users', icon: '👥', label: hasAction('action:manage_users') ? 'Users & Groups' : 'Profile' },
         ...(hasAction('action:manage_roles') ? [
             { id: 'Roles', icon: '🛡️', label: 'Roles & Permissions' }
         ] : [])
@@ -592,8 +490,12 @@ const SystemSettings = ({ user }) => {
             <div className="w-48 flex-shrink-0 bg-[#e8e8ed]/50 border-r border-gray-300/50 pt-4 px-2 flex flex-col gap-1 backdrop-blur-xl">
                 <div className="px-3 mb-2">
                     <div className="flex items-center gap-2 mb-4">
-                        <div className="w-8 h-8 bg-gray-300 rounded-full overflow-hidden">
-                            <img src={user?.avatarUrl || "https://github.com/shadcn.png"} alt="User" className="w-full h-full object-cover" />
+                        <div className="w-8 h-8 bg-gray-300 rounded-full overflow-hidden flex items-center justify-center font-medium text-gray-700 shadow-inner">
+                            {user?.avatar_url || user?.avatarUrl ? (
+                                <img src={user?.avatar_url || user?.avatarUrl} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                                <span>{user?.name?.charAt(0) || user?.email?.charAt(0) || '?'}</span>
+                            )}
                         </div>
                         <div className="flex flex-col">
                             <span className="font-semibold text-xs truncate w-24">{user?.name || 'User'}</span>
@@ -623,220 +525,13 @@ const SystemSettings = ({ user }) => {
 
                 {activeTab === 'Skills' && <SkillsTab />}
 
+
                 {activeTab === 'Users' && (
-                    <div className="space-y-6">
-                        {/* Current User Card */}
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-                            <div className="w-16 h-16 bg-gray-200 rounded-full overflow-hidden">
-                                <img src={user?.avatarUrl || "https://github.com/shadcn.png"} alt="User" className="w-full h-full object-cover" />
-                            </div>
-                            <div>
-                                <div className="font-semibold text-lg">{user?.name || 'User'}</div>
-                                <div className="text-gray-500">{user?.email || 'user@example.com'}</div>
-                                <div className="mt-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded inline-block font-medium">
-                                    {user?.role === 'admin' ? 'Admin' : 'User'}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Invite User */}
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                                    <h2 className="font-semibold mb-3">Invite User (ドメイン外ユーザーも可能)</h2>
-                                    <p className="text-xs text-gray-500 mb-4">
-                                        新しいユーザーを招待します。ここに登録されたメールアドレスの持ち主だけがログイン可能になります（ホワイトリスト方式）。
-                                    </p>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="email"
-                                            value={inviteEmail}
-                                            onChange={(e) => setInviteEmail(e.target.value)}
-                                            placeholder="Enter email address"
-                                            className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm text-gray-900 focus:outline-none focus:border-blue-500"
-                                        />
-                                        <button
-                                            onClick={handleInviteUser}
-                                            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm font-medium transition-colors"
-                                        >
-                                            Send Invite
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Pending Invitations */}
-                                {invitations.length > 0 && (
-                                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                                        <h2 className="font-semibold mb-3">Pending Invitations</h2>
-                                        <div className="space-y-2">
-                                            {invitations.map(inv => (
-                                                <div key={inv.email} className={`flex items-center justify-between p-2 border rounded ${inv.status === 'Expired' ? 'border-red-200 bg-red-50/50' : 'border-orange-200 bg-orange-50/50'}`}>
-                                                    <div>
-                                                        <div className="text-sm font-medium text-gray-800 flex items-center gap-2">
-                                                            {inv.email}
-                                                            {inv.status === 'Expired' && <span className="text-[10px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded">Expired</span>}
-                                                        </div>
-                                                        <div className="text-[10px] text-gray-500">Invited: {new Date(inv.created_at).toLocaleDateString()}</div>
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => handleCancelInvite(inv.email)}
-                                                        className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded border border-red-200 transition-colors"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Registered Users List */}
-                                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                                    <h2 className="font-semibold mb-3">Registered Users ({usersList.length})</h2>
-                                    <div className="space-y-3">
-                                        {usersList.map(u => (
-                                            <div key={u.id} className="flex items-center gap-3 p-2 border-b border-gray-100 last:border-0">
-                                                <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden flex-shrink-0">
-                                                    <img src={u.avatar_url || "https://github.com/shadcn.png"} alt={u.name} className="w-full h-full object-cover" />
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-sm font-medium text-gray-800 flex items-center gap-2">
-                                                        {u.name}
-                                                        {u.role === 'admin' && <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Admin</span>}
-                                                    </div>
-                                                    <div className="text-xs text-gray-500 truncate">{u.email}</div>
-                                                </div>
-                                                <div className="flex items-center gap-4">
-                                                    {u.id !== user?.id && (
-                                                        <select 
-                                                            value={u.role || 'user'}
-                                                            onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                                                            className="text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 outline-none"
-                                                        >
-                                                            {Object.keys(rbacPolicies).length > 0 ? (
-                                                                Object.keys(rbacPolicies).map(k => (
-                                                                    <option key={k} value={k}>{rbacPolicies[k].name}</option>
-                                                                ))
-                                                            ) : (
-                                                                <>
-                                                                    <option value="admin">Admin</option>
-                                                                    <option value="researcher">Researcher</option>
-                                                                    <option value="user">User</option>
-                                                                </>
-                                                            )}
-                                                        </select>
-                                                    )}
-                                                    {u.id !== user?.id && (
-                                                        <button 
-                                                            onClick={() => handleRemoveUser(u.id, u.email)}
-                                                            className="text-xs text-red-500 hover:underline flex-shrink-0"
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    </div>
-                                </div>
+                    <UsersTab user={user} rbacPolicies={rbacPolicies} hasAction={hasAction} />
                 )}
 
                 {activeTab === 'Roles' && (
-                    <div className="space-y-6 animate-fadeIn pb-20">
-                        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                            <div className="bg-slate-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xl">🛡️</span>
-                                    <h2 className="font-semibold text-slate-800">Role-Based Access Control (RBAC) Matrix</h2>
-                                </div>
-                            </div>
-                            <div className="p-4">
-                                <p className="text-xs text-gray-600 mb-6">
-                                    各ロールに対する機能権限を設定します。ここで設定されたポリシーによってウィジェットの表示やアクションが制御されます。
-                                </p>
-                                <div className="overflow-x-auto border border-gray-100 rounded">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="text-xs text-slate-600 bg-slate-100 border-b border-gray-200">
-                                            <tr>
-                                                <th className="px-4 py-3 border-r border-gray-200 font-semibold sticky left-0 bg-slate-100 z-10 w-48">機能 (Capabilities)</th>
-                                                {Object.keys(rbacPolicies).map(roleKey => (
-                                                    <th key={roleKey} className="px-4 py-3 text-center border-r border-gray-200 last:border-0 min-w-[120px]">
-                                                        {rbacPolicies[roleKey].name}
-                                                    </th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="bg-white text-xs divide-y divide-gray-100">
-                                            <tr className="bg-gray-50/50">
-                                                <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">🖥️ Widgets / Apps</td>
-                                            </tr>
-                                            {[
-                                                { id: 'app:deep-research', label: 'Deep Research' },
-                                                { id: 'app:knowledge-base', label: 'Knowledge Base' },
-                                                { id: 'app:gemini', label: 'Gemini Chat' },
-                                                { id: 'app:app-monitor', label: 'Server Monitor' },
-                                                { id: 'app:settings', label: 'System Settings' }
-                                            ].map(widget => (
-                                                <tr key={widget.id} className="hover:bg-blue-50/30 transition-colors">
-                                                    <td className="px-4 py-2 border-r border-gray-200 sticky left-0 bg-inherit text-gray-700 pl-6">
-                                                        {widget.label}
-                                                    </td>
-                                                    {Object.keys(rbacPolicies).map(roleKey => {
-                                                        const allowed = rbacPolicies[roleKey].allowed_widgets || [];
-                                                        const isChecked = allowed.includes('*') || allowed.includes(widget.id);
-                                                        const isDisabled = allowed.includes('*') && roleKey === 'admin'; // Admin gets everything
-                                                        return (
-                                                            <td key={roleKey} className="px-4 py-2 text-center border-r border-gray-200 last:border-0">
-                                                                <input 
-                                                                    type="checkbox" 
-                                                                    checked={isChecked}
-                                                                    disabled={isDisabled}
-                                                                    onChange={() => !isDisabled && handleToggleWidgetPermission(roleKey, widget.id)}
-                                                                    className={`w-3.5 h-3.5 rounded cursor-pointer ${isDisabled ? 'text-gray-400 opacity-50' : 'text-blue-600 focus:ring-blue-500'}`}
-                                                                />
-                                                            </td>
-                                                        );
-                                                    })}
-                                                </tr>
-                                            ))}
-
-                                            <tr className="bg-gray-50/50">
-                                                <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">⚡ Actions / Logic</td>
-                                            </tr>
-                                            {[
-                                                { id: 'action:edit_workflow', label: 'Edit Workflows & Models' },
-                                                { id: 'action:generate_infographic', label: 'Generate Infographic' },
-                                                { id: 'action:manage_users', label: 'Manage Users & Groups' },
-                                                { id: 'action:manage_roles', label: 'Manage Roles & Permissions' },
-                                                { id: 'action:manage_system_settings', label: 'Manage System Settings (API Keys)' }
-                                            ].map(action => (
-                                                <tr key={action.id} className="hover:bg-blue-50/30 transition-colors">
-                                                    <td className="px-4 py-2 border-r border-gray-200 sticky left-0 bg-inherit text-gray-700 pl-6">
-                                                        {action.label}
-                                                    </td>
-                                                    {Object.keys(rbacPolicies).map(roleKey => {
-                                                        const allowed = rbacPolicies[roleKey].allowed_actions || [];
-                                                        const isChecked = allowed.includes('*') || allowed.includes(action.id);
-                                                        const isDisabled = allowed.includes('*') && roleKey === 'admin';
-                                                        return (
-                                                            <td key={roleKey} className="px-4 py-2 text-center border-r border-gray-200 last:border-0">
-                                                                <input 
-                                                                    type="checkbox" 
-                                                                    checked={isChecked}
-                                                                    disabled={isDisabled}
-                                                                    onChange={() => !isDisabled && handleToggleActionPermission(roleKey, action.id)}
-                                                                    className={`w-3.5 h-3.5 rounded cursor-pointer ${isDisabled ? 'text-gray-400 opacity-50' : 'text-emerald-600 focus:ring-emerald-500'}`}
-                                                                />
-                                                            </td>
-                                                        );
-                                                    })}
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <RolesTab user={user} rbacPolicies={rbacPolicies} onSaveRbacPolicies={handleSaveRbacPolicies} />
                 )}
 
                 {activeTab === 'Appearance' && (
