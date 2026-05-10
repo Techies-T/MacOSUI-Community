@@ -6,7 +6,7 @@ const DeepResearch = ({ onOpen }) => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [stage, setStage] = useState('idle'); // 'idle', 'history_warning', 'planning', 'confirming', 'researching', 'generating', 'validating', 'saving'
-    
+
     // For confirmation phase
     const [pipelineType, setPipelineType] = useState('infographic');
     const [pendingQuery, setPendingQuery] = useState('');
@@ -17,7 +17,7 @@ const DeepResearch = ({ onOpen }) => {
 
     const [config, setConfig] = useState(null);
     const messagesEndRef = useRef(null);
-    
+
     // Drive File Selection
     const [selectedDriveFile, setSelectedDriveFile] = useState(null);
     const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
@@ -55,13 +55,10 @@ const DeepResearch = ({ onOpen }) => {
             .then(data => {
                 if (data.user) {
                     setUserAuth(data.user);
-                    const userRole = data.user.role || 'user';
-                    const policies = loadedConfig?.rbacPolicies || {};
-                    const rolePolicy = policies[userRole] || {};
-                    const allowedWidgets = rolePolicy.allowed_widgets || [];
-                    
+                    const allowedWidgets = data.user.allowed_widgets || [];
+
                     const hasWidgetAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:deep-research');
-                    
+
                     if (!hasWidgetAccess) {
                         setHasAccess(false);
                         setMessages([{ role: 'system', text: '🔒 Deep Researchの実行権限がありません。システム管理者にリクエストしてください。' }]);
@@ -87,7 +84,7 @@ const DeepResearch = ({ onOpen }) => {
     // Phase 1: Planning and Confirmation
     const requestPipeline = async (type, bypassHistory = false, explicitQuery = null) => {
         if (!hasAccess) return;
-        
+
         const userQuery = bypassHistory ? (explicitQuery || pendingQuery) : input.trim();
         if ((!userQuery && !selectedDriveFile) || isLoading) return;
 
@@ -102,26 +99,26 @@ const DeepResearch = ({ onOpen }) => {
                 const newArray = [...prev];
                 const lastMessage = newArray[newArray.length - 1];
                 if (lastMessage && lastMessage.component) {
-                    lastMessage.component = undefined; 
+                    lastMessage.component = undefined;
                 }
                 return newArray;
             });
         }
-        
+
         setPipelineType(type);
-        
+
         if (!workflowIdRef.current || bypassHistory) {
             workflowIdRef.current = crypto.randomUUID();
         }
-        
+
         // Reset counters for new pipeline execution
         totalInputTokensRef.current = 0;
         totalOutputTokensRef.current = 0;
 
         if (selectedDriveFile || type === 'direct_html') {
-             // Bypass Deep Research Task 1
-             executePipeline(userQuery, type, null, selectedDriveFile);
-             return;
+            // Bypass Deep Research Task 1
+            executePipeline(userQuery, type, null, selectedDriveFile);
+            return;
         }
 
         // History Check Phase
@@ -131,7 +128,7 @@ const DeepResearch = ({ onOpen }) => {
             try {
                 const hRes = await fetch(`/api/research/check-history?q=${encodeURIComponent(userQuery)}`);
                 const hData = await hRes.json();
-                
+
                 if (hData.matches && hData.matches.length > 0) {
                     setMessages(prev => [...prev, {
                         role: 'model',
@@ -160,9 +157,9 @@ const DeepResearch = ({ onOpen }) => {
 
         try {
             setMessages(prev => [...prev, { role: 'system', text: '📋 Task 0: 調査計画を作成中...' }]);
-            
+
             const prompt = `あなたは優秀なリサーチャーです。ユーザーが以下のテーマについてディープリサーチを希望しています。どのようなキーワードでWeb検索し、どのような情報を収集してまとめる予定か、3〜5点の箇条書きで簡単な『調査計画』を作成してください。\n出力は調査計画の箇条書きのみを出力してください。\n\nテーマ: ${userQuery}`;
-            
+
             const req = await fetch('/api/gemini', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -172,7 +169,7 @@ const DeepResearch = ({ onOpen }) => {
             if (!req.ok) throw new Error(data.error || "Failed to generate plan");
 
             const planText = await pollGeminiJob(data.jobId, handleUsage);
-            
+
             // Save checkpoint
             await fetch('/api/research/workflow/save', {
                 method: 'POST',
@@ -187,15 +184,15 @@ const DeepResearch = ({ onOpen }) => {
                     total_output_tokens: totalOutputTokensRef.current
                 })
             }).catch(e => console.error(e));
-            
+
             // Show plan and confirmation options
             setStage('confirming');
             setIsLoading(false);
-            
+
             setMessages(prev => {
                 const newMsgs = prev.filter(m => m.type !== 'system');
-                return [...newMsgs, { 
-                    role: 'model', 
+                return [...newMsgs, {
+                    role: 'model',
                     text: `${planText}\n\n**この計画に沿ってDeep Researchを開始しますか？**\n（※Google検索を複数回実行するため数分かかる場合があります）`,
                     component: (
                         <div className="mt-4 flex gap-3">
@@ -210,7 +207,7 @@ const DeepResearch = ({ onOpen }) => {
                 }];
             });
 
-        } catch(error) {
+        } catch (error) {
             console.error("Planning Error:", error);
             setMessages(prev => [...prev, { role: 'model', type: 'error', text: `計画作成に失敗しました: ${error.message}` }]);
             setIsLoading(false);
@@ -220,13 +217,13 @@ const DeepResearch = ({ onOpen }) => {
 
     const cancelPipeline = () => {
         setStage('idle');
-        
+
         // Remove confirmation buttons from previous message by stripping the component
         setMessages(prev => {
             const newArray = [...prev];
             const lastMessage = newArray[newArray.length - 1];
             if (lastMessage && lastMessage.component) {
-                lastMessage.component = undefined; 
+                lastMessage.component = undefined;
             }
             return newArray;
         });
@@ -245,17 +242,17 @@ const DeepResearch = ({ onOpen }) => {
         }
         setIsLoading(true);
         setStage('researching');
-        
+
         const pipelineStartTime = Date.now();
         const isDirectHtml = type === 'direct_html' || !!attachedFile;
         const actualType = type === 'direct_html' ? 'html' : type;
-        
+
         // Remove confirmation buttons from previous message by stripping the component
         setMessages(prev => {
             const newArray = [...prev];
             const lastMessage = newArray[newArray.length - 1];
             if (lastMessage && lastMessage.component) {
-                lastMessage.component = undefined; 
+                lastMessage.component = undefined;
             }
             return newArray;
         });
@@ -269,13 +266,13 @@ const DeepResearch = ({ onOpen }) => {
 
             if (!reportText && !isDirectHtml) {
                 setMessages(prev => [...prev, { role: 'system', text: '🔍 Task 1: リサーチを実行中...' }]);
-                
+
                 const researchReq = await fetch('/api/research/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        query: userQuery, 
-                        systemInstruction: config?.deepResearchPrompt || "" 
+                    body: JSON.stringify({
+                        query: userQuery,
+                        systemInstruction: config?.deepResearchPrompt || ""
                     })
                 });
                 const researchData = await researchReq.json();
@@ -316,7 +313,7 @@ const DeepResearch = ({ onOpen }) => {
                 });
 
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 1 完了！レポートが生成されました。" }]);
-                
+
                 // Save checkpoint
                 await fetch('/api/research/workflow/save', {
                     method: 'POST',
@@ -330,20 +327,20 @@ const DeepResearch = ({ onOpen }) => {
                     })
                 }).catch(e => console.error(e));
             } else if (attachedFile) {
-                 setMessages(prev => [...prev, { role: 'system', text: `📎 ドライブからドキュメントを読み込んでいます: ${attachedFile.name}` }]);
-                 const readReq = await fetch(`/api/drive/read?fileId=${attachedFile.id}`);
-                 const readData = await readReq.json();
-                 if (!readReq.ok) throw new Error("Failed to read file");
-                 
-                 reportText = readData.content;
-                 if (readData.type === 'html') {
-                     const tmp = document.createElement('div');
-                     tmp.innerHTML = reportText;
-                     reportText = tmp.innerText || tmp.textContent;
-                 }
-                 documentTitle = attachedFile.name.replace(/\.[^/.]+$/, "");
-                 if (documentTitle.length > 50) documentTitle = documentTitle.substring(0, 50) + "...";
-                 setMessages(prev => [...prev, { role: 'model', text: `✅ ドキュメントの読み込みが完了しました。(${reportText.length.toLocaleString()} 文字)` }]);
+                setMessages(prev => [...prev, { role: 'system', text: `📎 ドライブからドキュメントを読み込んでいます: ${attachedFile.name}` }]);
+                const readReq = await fetch(`/api/drive/read?fileId=${attachedFile.id}`);
+                const readData = await readReq.json();
+                if (!readReq.ok) throw new Error("Failed to read file");
+
+                reportText = readData.content;
+                if (readData.type === 'html') {
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = reportText;
+                    reportText = tmp.innerText || tmp.textContent;
+                }
+                documentTitle = attachedFile.name.replace(/\.[^/.]+$/, "");
+                if (documentTitle.length > 50) documentTitle = documentTitle.substring(0, 50) + "...";
+                setMessages(prev => [...prev, { role: 'model', text: `✅ ドキュメントの読み込みが完了しました。(${reportText.length.toLocaleString()} 文字)` }]);
             } else if (isDirectHtml) {
                 // Skip Task 1
                 const lines = userQuery.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -351,13 +348,13 @@ const DeepResearch = ({ onOpen }) => {
                 documentTitle = firstLine.replace(/^(#|\*|=|\-|テーマ:|===)+/gi, '').trim() || "既存レポートからの生成";
                 if (documentTitle.length > 50) documentTitle = documentTitle.substring(0, 50) + "...";
                 reportText = userQuery;
-                
+
                 setMessages(prev => [...prev, { role: 'system', text: '⏭️ Task 1: 既存レポートが入力されたため、リサーチプロセスをスキップします。' }]);
                 await new Promise(r => setTimeout(r, 1000));
             } else {
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 1: 保存済みのリサーチ結果を復元しました。" }]);
             }
-            
+
             // Extract a title for saving if not direct html
             if (!isDirectHtml) {
                 const headingMatch = reportText.match(/^#\s+(.+)$/m);
@@ -369,10 +366,10 @@ const DeepResearch = ({ onOpen }) => {
             // Task 2: Generation (Infographic OR HTML/SVG)
             // ==========================================
             setStage('generating');
-            
+
             let finalGeneratedPayload = resumeData?.generated_payload || null; // Either image JSON or HTML string
             let mimeType = 'text/html';
-            
+
             // Clean report text to remove noise (Sources, Token summaries) and allow longer context
             const cleanReportForPrompt = reportText
                 .replace(/\n+\s*(\*\*Sources:\*\*|Sources:|---[\s\n]*\*\*Deep Research Usage Summary\*\*)[\s\S]*$/i, '')
@@ -382,7 +379,7 @@ const DeepResearch = ({ onOpen }) => {
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2: 保存済みの生成結果を復元しました。" }]);
             } else if (actualType === 'infographic') {
                 setMessages(prev => [...prev, { role: 'system', text: '🎨 Task 2: インフォグラフィックを生成中...' }]);
-                
+
                 const defaultNanoPrompt = "以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}";
                 let promptTemplate = config?.nanoBananaPrompt || defaultNanoPrompt;
                 if (!promptTemplate.includes('{{report}}')) promptTemplate += "\n\n{{report}}";
@@ -402,24 +399,24 @@ const DeepResearch = ({ onOpen }) => {
 
                 finalGeneratedPayload = await pollGeminiJob(genData.jobId, handleUsage);
                 mimeType = 'image/png';
-                
+
                 // Determine layout (parse the JSON from gemini job reply)
                 let imgData;
-                try { imgData = JSON.parse(finalGeneratedPayload); } catch(e) { throw new Error("Invalid image payload returned from model."); }
-                
-                setMessages(prev => [...prev, { 
-                    role: 'model', 
+                try { imgData = JSON.parse(finalGeneratedPayload); } catch (e) { throw new Error("Invalid image payload returned from model."); }
+
+                setMessages(prev => [...prev, {
+                    role: 'model',
                     component: (
                         <div className="mt-4">
                             <p className="font-semibold mb-2">✅ Task 2 完了！画像が生成されました:</p>
                             <img src={`data:${imgData.mimeType};base64,${imgData.data}`} alt="Generated Infographic" className="rounded-lg shadow-md max-w-full h-auto" />
                         </div>
-                    ) 
+                    )
                 }]);
 
             } else if (actualType === 'html') {
                 setMessages(prev => [...prev, { role: 'system', text: '📊 Task 2: HTML/SVG ナレッジを生成中...' }]);
-                
+
                 const defaultHtmlPrompt = `以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}`;
                 let promptTemplate = config?.htmlSvgPrompt || defaultHtmlPrompt;
                 if (!promptTemplate.includes('{{report}}')) promptTemplate += "\n\n=== テーマ: {{title}} ===\n\n{{report}}";
@@ -451,8 +448,8 @@ const DeepResearch = ({ onOpen }) => {
                 mimeType = 'text/html';
 
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2 完了！HTML/SVGファイルが生成されました。" }]);
-                
-                
+
+
                 // (HTML Editor popups have been removed in favor of the summary)
             }
 
@@ -498,7 +495,7 @@ const DeepResearch = ({ onOpen }) => {
             let finalName = actualType === 'infographic' ? `${documentTitle} (Infographic).png` : `${documentTitle} (Presentation).html`;
             let finalContent = finalGeneratedPayload;
             let publishId = null;
-            
+
             // For HTML type, publish it natively to the server
             if (actualType === 'html') {
                 try {
@@ -515,7 +512,7 @@ const DeepResearch = ({ onOpen }) => {
                     if (publishReq.ok) {
                         publishId = publishData.id;
                     }
-                    
+
 
                 } catch (e) {
                     console.error("Failed to publish natively:", e);
@@ -523,11 +520,11 @@ const DeepResearch = ({ onOpen }) => {
             }
 
             if (actualType === 'infographic') {
-                 // The payload is JSON containing base64 data
-                 const parsed = JSON.parse(finalGeneratedPayload);
-                 finalContent = parsed.data; // Just the base64 string
+                // The payload is JSON containing base64 data
+                const parsed = JSON.parse(finalGeneratedPayload);
+                finalContent = parsed.data; // Just the base64 string
             }
-            
+
             const saveFileReq = await fetch('/api/drive/upload', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -546,11 +543,11 @@ const DeepResearch = ({ onOpen }) => {
             // Task 4: Auto-Index to Library (Knowledge Base)
             // ==========================================
             let indexingSuccess = false;
-            
+
             const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
             const infographicModel = config?.geminiInfographicModel || 'models/gemini-2.5-pro';
             const htmlSvgModel = config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro';
-            
+
             const totalSeconds = Math.round((Date.now() - pipelineStartTime) / 1000);
             const minutes = Math.floor(totalSeconds / 60);
             const seconds = totalSeconds % 60;
@@ -572,7 +569,7 @@ const DeepResearch = ({ onOpen }) => {
                     const nativeUrl = `${window.location.origin}/reports/${publishId}.html`;
                     markdownLinks += `\n- [🌐 **Webページとして開く (Secure URL)**](${nativeUrl})`;
                 }
-                
+
                 const indexQueryText = isDirectHtml ? "既存レポートからのHTML/SVG直接変換" : userQuery.replace(/\n/g, '\n> ');
 
                 const indexContent = `**実行日時:** ${new Date().toLocaleString()}
@@ -591,13 +588,13 @@ ${reportText.substring(0, 1500)}...`;
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: reportText })
                 });
-                
+
                 let knowledgeTags = ['DeepResearch', actualType === 'html' ? 'HTML' : 'Infographic'];
                 if (isDirectHtml) knowledgeTags.push('Direct Conversion');
                 if (extractReq.ok) {
                     const extracted = await extractReq.json();
                     if (extracted.tags && Array.isArray(extracted.tags)) {
-                         knowledgeTags = [...knowledgeTags, ...extracted.tags];
+                        knowledgeTags = [...knowledgeTags, ...extracted.tags];
                     }
                 }
 
@@ -610,7 +607,7 @@ ${reportText.substring(0, 1500)}...`;
                         tags: Array.from(new Set(knowledgeTags)) // Deduplicate
                     })
                 });
-                
+
                 if (postIndexReq.ok) indexingSuccess = true;
             } catch (indexError) {
                 console.error("Auto-Indexing Failed:", indexError);
@@ -630,14 +627,14 @@ ${reportText.substring(0, 1500)}...`;
                     linksText += `- [📝 レポートドキュメントを開く](${saveDocData.webViewLink})\n`;
                 }
                 linksText += `- [📎 ドライブ保存ファイルを開く](${saveFileData.webViewLink})`;
-                
+
                 if (indexingSuccess) {
                     linksText += `\n\n📚 **図書館のインデックス（ナレッジベース）へ自動登録しました！**\nこちらからナレッジベースに移動して、登録された記事の中にあるリンクから閲覧してください。`;
                 }
 
-                return [...newMsgs, { 
-                    role: 'model', 
-                    text: linksText 
+                return [...newMsgs, {
+                    role: 'model',
+                    text: linksText
                 }];
             });
 
@@ -732,7 +729,7 @@ ${reportText.substring(0, 1500)}...`;
                                 <h4 className="text-amber-800 font-bold text-sm">前回中断されたリサーチがあります</h4>
                                 <p className="text-amber-700 text-xs mt-1">テーマ: {incompleteWorkflow.query_text}</p>
                                 <p className="text-amber-600 text-[10px] mt-1">
-                                    ステータス: {incompleteWorkflow.status === 'generating' ? 'レポート作成完了' : incompleteWorkflow.status === 'saving' ? 'HTML/画像化完了' : incompleteWorkflow.status} | 
+                                    ステータス: {incompleteWorkflow.status === 'generating' ? 'レポート作成完了' : incompleteWorkflow.status === 'saving' ? 'HTML/画像化完了' : incompleteWorkflow.status} |
                                     消費トークン: {(incompleteWorkflow.total_input_tokens + incompleteWorkflow.total_output_tokens).toLocaleString()}
                                 </p>
                                 <div className="mt-3 flex gap-2">
@@ -754,26 +751,26 @@ ${reportText.substring(0, 1500)}...`;
                         </div>
                         <h3 className="text-lg font-bold text-gray-800 mb-2">Automated Research Pipeline</h3>
                         <p className="text-sm text-gray-500 leading-relaxed max-w-md mx-auto">
-                            リサーチしたいテーマを入力してください。<br/>
-                            「画像化」 または 「HTML化」 のルートを選択することで、<br/>
+                            リサーチしたいテーマを入力してください。<br />
+                            「画像化」 または 「HTML化」 のルートを選択することで、<br />
                             リサーチ・生成・Drive保存までを全自動で行います。
                         </p>
                     </div>
                 ) : (
                     messages.map((msg, index) => (
-                        <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideInUp`} style={{animationDelay: `${index * 50}ms`}}>
+                        <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideInUp`} style={{ animationDelay: `${index * 50}ms` }}>
                             {msg.role === 'model' && msg.type !== 'system' && (
                                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center mr-3 mt-1 shadow-sm flex-shrink-0">
                                     <span className="text-white text-xs">🤖</span>
                                 </div>
                             )}
-                            
+
                             <div className={`
                                 max-w-[85%] rounded-2xl px-5 py-3.5 
-                                ${msg.role === 'user' ? 'bg-gray-900 text-white shadow-md' : 
-                                 msg.type === 'error' ? 'bg-red-50 border border-red-200 text-red-700' : 
-                                 msg.type === 'system' ? 'w-full bg-blue-50 border border-blue-100 text-blue-700 mx-10 text-sm font-medium flex items-center justify-center shadow-sm' :
-                                 'bg-white border border-gray-100 text-gray-800 shadow-sm'}
+                                ${msg.role === 'user' ? 'bg-gray-900 text-white shadow-md' :
+                                    msg.type === 'error' ? 'bg-red-50 border border-red-200 text-red-700' :
+                                        msg.type === 'system' ? 'w-full bg-blue-50 border border-blue-100 text-blue-700 mx-10 text-sm font-medium flex items-center justify-center shadow-sm' :
+                                            'bg-white border border-gray-100 text-gray-800 shadow-sm'}
                             `}>
                                 {msg.component ? msg.component : (
                                     <div className="whitespace-pre-wrap text-[13px] leading-relaxed break-words font-medium markdown-body" dangerouslySetInnerHTML={{
@@ -797,10 +794,10 @@ ${reportText.substring(0, 1500)}...`;
                                 <div className="w-2 h-2 rounded-full bg-fuchsia-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
                             </div>
                             <span className="text-xs font-semibold text-gray-500 tracking-wide">
-                                {stage === 'planning' ? 'Creating Research Plan...' : 
-                                 stage === 'researching' ? 'Deep Research Running...' : 
-                                 stage === 'generating' ? 'Visualizing Data...' : 
-                                 stage === 'saving' ? 'Saving to Drive...' : 'Processing...'}
+                                {stage === 'planning' ? 'Creating Research Plan...' :
+                                    stage === 'researching' ? 'Deep Research Running...' :
+                                        stage === 'generating' ? 'Visualizing Data...' :
+                                            stage === 'saving' ? 'Saving to Drive...' : 'Processing...'}
                             </span>
                         </div>
                     </div>
@@ -826,7 +823,7 @@ ${reportText.substring(0, 1500)}...`;
                         disabled={isLoading || !hasAccess}
                     />
                     {/* Attachment Button */}
-                    <button 
+                    <button
                         onClick={() => setIsDriveModalOpen(true)}
                         disabled={isLoading || !hasAccess}
                         className="absolute bottom-3 right-3 p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
@@ -835,13 +832,11 @@ ${reportText.substring(0, 1500)}...`;
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                     </button>
                 </div>
-                
+
                 {/* Action Buttons */}
                 <div className="flex items-center gap-3 mt-3">
-                    { (() => {
-                        const userRole = userAuth?.role || 'user';
-                        const policies = config?.rbacPolicies || {};
-                        const allowedActions = (policies[userRole] || {}).allowed_actions || [];
+                    {(() => {
+                        const allowedActions = userAuth?.allowed_actions || [];
                         const canGenerateInfographic = allowedActions.includes('*') || allowedActions.includes('action:generate_infographic');
 
                         return (
@@ -852,38 +847,38 @@ ${reportText.substring(0, 1500)}...`;
                                         disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
                                         className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
                                                 ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
-                                                    ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
-                                                    : 'bg-gradient-to-b from-indigo-50 to-white text-indigo-700 border-indigo-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
+                                                : 'bg-gradient-to-b from-indigo-50 to-white text-indigo-700 border-indigo-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                                     >
                                         <span className="text-lg group-hover:scale-110 transition-transform">🎨</span>
                                         <span>画像化ワークフローで実行</span>
                                     </button>
                                 )}
-                                
+
                                 <button
                                     onClick={() => requestPipeline('html')}
                                     disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
                                     className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
                                             ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
-                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
-                                                : 'bg-gradient-to-b from-emerald-50 to-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                            ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
+                                            : 'bg-gradient-to-b from-emerald-50 to-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                                 >
                                     <span className="text-lg group-hover:scale-110 transition-transform">📊</span>
                                     <span>HTML化ワークフローで実行</span>
                                 </button>
-                                
+
                                 <button
                                     onClick={() => requestPipeline('direct_html')}
                                     disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
                                     className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
                                             ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
-                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none' 
-                                                : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                            ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
+                                            : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
                                 >
                                     <span className="text-lg group-hover:scale-110 transition-transform">📄</span>
                                     <span>既存レポートからHTML化</span>
                                 </button>
-                                
+
 
                             </>
                         );
@@ -891,10 +886,10 @@ ${reportText.substring(0, 1500)}...`;
                 </div>
             </div>
             {isDriveModalOpen && (
-                <DrivePickerModal 
-                    isOpen={isDriveModalOpen} 
-                    onClose={() => setIsDriveModalOpen(false)} 
-                    onSelect={(f) => setSelectedDriveFile(f)} 
+                <DrivePickerModal
+                    isOpen={isDriveModalOpen}
+                    onClose={() => setIsDriveModalOpen(false)}
+                    onSelect={(f) => setSelectedDriveFile(f)}
                     defaultFolderId={config?.geminiResearchFolderId}
                 />
             )}
@@ -905,10 +900,10 @@ ${reportText.substring(0, 1500)}...`;
 const DrivePickerModal = ({ isOpen, onClose, onSelect, defaultFolderId }) => {
     const [files, setFiles] = useState([]);
     const [loading, setLoading] = useState(false);
-    
+
     const initialFolderId = defaultFolderId || 'root';
     const initialFolderName = initialFolderId !== 'root' ? 'DeepResearch 出力先' : 'ルート (共有ドライブ)';
-    
+
     const [currentFolder, setCurrentFolder] = useState(initialFolderId);
     const [folderHistory, setFolderHistory] = useState([{ id: initialFolderId, name: initialFolderName }]);
 
@@ -951,7 +946,7 @@ const DrivePickerModal = ({ isOpen, onClose, onSelect, defaultFolderId }) => {
                     </h3>
                     <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-xl font-bold cursor-pointer">×</button>
                 </div>
-                
+
                 {/* Breadcrumbs / Navigation */}
                 <div className="px-4 py-2 border-b bg-white flex items-center gap-2 overflow-x-auto text-sm">
                     {folderHistory.length > 1 && (
@@ -985,8 +980,8 @@ const DrivePickerModal = ({ isOpen, onClose, onSelect, defaultFolderId }) => {
                                 if (!isAFolder && isBFolder) return 1;
                                 return a.name.localeCompare(b.name);
                             }).map(f => (
-                                <div 
-                                    key={f.id} 
+                                <div
+                                    key={f.id}
                                     onClick={() => handleItemClick(f)}
                                     className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-white shadow-sm hover:bg-indigo-50 hover:border-indigo-200 hover:shadow cursor-pointer transition-all active:scale-[0.98]"
                                 >

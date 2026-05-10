@@ -35,7 +35,7 @@
   - **手順**: System Settings > Roles & Permissions タブを開き、「Widgets / Apps」の行にある `Skill: Demo Skill` について、`its` ロールのチェックボックスをONにして保存する。
   - **期待結果**: エラーなく保存され、画面をリロードしてもチェックボックスがONのままであること。
 
-- `[ ]` **TC-P5-05: UIからのSkill連携（External Widget）確認**
+- `[✅]` **TC-P5-05: UIからのSkill連携（External Widget）確認**
   - **前提**: `its` ロール（または `its,researcher` 等）を持つアカウントでログインし直す。
   - **手順**: Dockに新しく「Demo Skill（🤖）」のアイコンが表示されていることを確認し、クリックしてウィンドウを開く。
   - **期待結果**: ウィンドウ内に「Hello, World! I am a demo skill iframe.」等のコンテンツが正常に表示されること（= UI上で「Access Denied」と表示されないこと）。
