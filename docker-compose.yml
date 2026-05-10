@@ -34,3 +34,13 @@ services:
     depends_on:
       - web
     restart: unless-stopped
+
+  app-server:
+    image: ${APP_SERVER_IMAGE:-ghcr.io/minoru61/apprunner-mcp-server:latest}
+    container_name: apprunner-mcp-server
+    # 本番・ステージング運用時はコンテナ内のdbファイルと、環境に合わせたenvファイルをマウントする
+    env_file:
+      - ./server/${ENV_FILE:-development.env}
+    ports:
+      - "8085:8080"
+    restart: unless-stopped
