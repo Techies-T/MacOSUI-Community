@@ -70,6 +70,16 @@ jobs:
             
             cd ~/MacOSUI
             
+            # --- Database Backup ---
+            if [ -f server/database.sqlite ]; then
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              cp server/database.sqlite server/database_backup_${TIMESTAMP}.sqlite
+              echo "Backed up database to server/database_backup_${TIMESTAMP}.sqlite"
+              
+              # Keep only the 5 most recent backups to save disk space
+              ls -t server/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs rm -f
+            fi
+            
             # Start/Restart Docker Compose using GHCR image and staging config
             export WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest
             # Fetch latest image
