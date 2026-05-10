@@ -40,7 +40,7 @@
   - **手順**: Dockに新しく「Demo Skill（🤖）」のアイコンが表示されていることを確認し、クリックしてウィンドウを開く。
   - **期待結果**: ウィンドウ内に「Hello, World! I am a demo skill iframe.」等のコンテンツが正常に表示されること（= UI上で「Access Denied」と表示されないこと）。
 
-- `[ ]` **TC-P5-06: Skill用トークン交換（Token Exchange）の自動実行確認**
+- `[✅]` **TC-P5-06: Skill用トークン交換（Token Exchange）の自動実行確認**
   - **前提**: 上記 TC-P5-05 でウィンドウを開いた直後の状態。
   - **手順**: ブラウザの開発者ツール > Network タブを開き、`token-exchange` へのリクエストが成功（`200 OK`）していることを確認する。
   - **期待結果**: リクエストのPayload（Audience）が `skill:demo-skill` となっており、レスポンスとしてダウンスコープされた新しい `access_token` が返却されていること。これによりZTAのA2A（Agent-to-Agent）認証が正しく機能していることが証明される。
