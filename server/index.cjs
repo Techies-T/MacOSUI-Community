@@ -168,7 +168,7 @@ app.post('/api/config', requirePermission('action:manage_system_settings'), asyn
             }
         }
 
-        if (googleClientId) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
+        if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
         if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
         if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
         if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);

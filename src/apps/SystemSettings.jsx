@@ -89,9 +89,6 @@ const SystemSettings = ({ user }) => {
                 if (data.googleDriveRagFolders) {
                     setRagFolders(data.googleDriveRagFolders);
                 }
-                if (data.maskedClientId) {
-                    setGoogleClientId(data.maskedClientId);
-                }
                 if (data.isConfigured) {
                     setIsConfigured(data.isConfigured);
                 }
