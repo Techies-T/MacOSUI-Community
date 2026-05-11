@@ -3,7 +3,6 @@ import SkillsTab from './SystemSettings/tabs/SkillsTab';
 import SystemTab from './SystemSettings/tabs/SystemTab';
 import PersonalRagTab from './SystemSettings/tabs/PersonalRagTab';
 import DeepResearchTab from './SystemSettings/tabs/DeepResearchTab';
-import ImageGenTab from './SystemSettings/tabs/ImageGenTab';
 import ServerMonitorTab from './SystemSettings/tabs/ServerMonitorTab';
 import ChatConfigTab from './SystemSettings/tabs/ChatConfigTab';
 import UsersTab from './SystemSettings/tabs/UsersTab';
@@ -226,6 +225,19 @@ const SystemSettings = ({ user }) => {
         }
     };
 
+    const handleHtmlSvgModelChange = async (modelName) => {
+        setCurrentHtmlSvgModel(modelName);
+        try {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ geminiHtmlSvgModel: modelName })
+            });
+        } catch (err) {
+            console.error("Failed to save html/svg model selection", err);
+        }
+    };
+
     const handleSaveDriveRoot = async () => {
         try {
             await fetch('/api/config', {
@@ -421,8 +433,7 @@ const SystemSettings = ({ user }) => {
         { id: 'Skills', icon: '🧩', label: 'Skills' },
         ...(hasAction('action:manage_system_settings') ? [
             { id: 'General', icon: '⚙️', label: 'General' },
-            { id: 'System', icon: '🔒', label: 'System' },
-            { id: 'Image Generation', icon: '🖼️', label: 'Image Gen' }
+            { id: 'System', icon: '🔒', label: 'System' }
         ] : []),
         ...(hasWidget('app:deep-research') || hasAction('action:manage_system_settings') ? [
             {
@@ -605,35 +616,22 @@ const SystemSettings = ({ user }) => {
                     <DeepResearchTab
                         activeDrTab={activeDrTab}
                         setActiveDrTab={setActiveDrTab}
+                        models={models}
+                        currentResearchModel={currentResearchModel}
+                        handleResearchModelChange={handleResearchModelChange}
+                        currentNanoBananaModel={currentNanoBananaModel}
+                        handleNanoBananaModelChange={handleNanoBananaModelChange}
+                        currentHtmlSvgModel={currentHtmlSvgModel}
+                        handleHtmlSvgModelChange={handleHtmlSvgModelChange}
                         deepResearchPrompt={deepResearchPrompt}
                         setDeepResearchPrompt={setDeepResearchPrompt}
+                        nanoBananaPrompt={nanoBananaPrompt}
+                        setNanoBananaPrompt={setNanoBananaPrompt}
                         htmlSvgPrompt={htmlSvgPrompt}
                         setHtmlSvgPrompt={setHtmlSvgPrompt}
                         researchFolderId={researchFolderId}
                         setResearchFolderId={setResearchFolderId}
-                        mcpServerEndpoint={mcpServerEndpoint}
-                        setMcpServerEndpoint={setMcpServerEndpoint}
-                        mcpTokenUrl={mcpTokenUrl}
-                        setMcpTokenUrl={setMcpTokenUrl}
-                        mcpClientId={mcpClientId}
-                        setMcpClientId={setMcpClientId}
-                        mcpClientSecret={mcpClientSecret}
-                        setMcpClientSecret={setMcpClientSecret}
-                        isMcpSecretConfigured={isMcpSecretConfigured}
                         handleSaveSettings={handleSaveSettings}
-                    />
-                )}
-
-                {activeTab === 'Image Generation' && (
-                    <ImageGenTab
-                        models={models}
-                        searchTerm={searchTerm}
-                        setSearchTerm={setSearchTerm}
-                        filteredModels={filteredModels}
-                        currentNanoBananaModel={currentNanoBananaModel}
-                        handleNanoBananaModelChange={handleNanoBananaModelChange}
-                        currentResearchModel={currentResearchModel}
-                        handleResearchModelChange={handleResearchModelChange}
                     />
                 )}
 
