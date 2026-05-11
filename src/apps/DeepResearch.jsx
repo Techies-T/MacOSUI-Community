@@ -901,28 +901,65 @@ const DrivePickerModal = ({ isOpen, onClose, onSelect, defaultFolderId }) => {
     const [files, setFiles] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    const initialFolderId = defaultFolderId || 'root';
-    const initialFolderName = initialFolderId !== 'root' ? 'DeepResearch 出力先' : 'ルート (共有ドライブ)';
-
-    const [currentFolder, setCurrentFolder] = useState(initialFolderId);
-    const [folderHistory, setFolderHistory] = useState([{ id: initialFolderId, name: initialFolderName }]);
+    const [currentFolder, setCurrentFolder] = useState('root');
+    const [folderHistory, setFolderHistory] = useState([{ id: 'root', name: 'ルート (共有ドライブ)' }]);
 
     useEffect(() => {
         if (isOpen) {
-            setLoading(true);
-            fetch(`/api/drive/list?folderId=${currentFolder}`)
-                .then(r => r.json())
-                .then(d => { setFiles(d.files || []); setLoading(false); })
-                .catch(() => setLoading(false));
-        }
-    }, [isOpen, currentFolder]);
+            const initFolder = async () => {
+                setLoading(true);
+                let startFolderId = 'root';
+                let startHistory = [{ id: 'root', name: 'ルート (共有ドライブ)' }];
 
-    if (!isOpen) return null;
+                if (defaultFolderId && defaultFolderId !== 'root') {
+                    try {
+                        const infoRes = await fetch(`/api/drive/folder_info?folderId=${defaultFolderId}`);
+                        if (infoRes.ok) {
+                            const infoData = await infoRes.json();
+                            startFolderId = defaultFolderId;
+                            startHistory.push({ id: defaultFolderId, name: infoData.name });
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch default folder info', e);
+                    }
+                }
+
+                setCurrentFolder(startFolderId);
+                setFolderHistory(startHistory);
+
+                try {
+                    const listRes = await fetch(`/api/drive/list?folderId=${startFolderId}`);
+                    const listData = await listRes.json();
+                    setFiles(listData.files || []);
+                } catch (e) {
+                    console.error('Failed to fetch files', e);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            initFolder();
+        }
+    }, [isOpen, defaultFolderId]);
+
+    // Handle navigation when currentFolder changes (but not on initial open, which is handled above)
+    const fetchFolderContent = async (folderId) => {
+        setLoading(true);
+        try {
+            const listRes = await fetch(`/api/drive/list?folderId=${folderId}`);
+            const listData = await listRes.json();
+            setFiles(listData.files || []);
+        } catch (e) {
+            console.error('Failed to fetch files', e);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleItemClick = (f) => {
         if (f.mimeType === 'application/vnd.google-apps.folder') {
             setFolderHistory(prev => [...prev, { id: f.id, name: f.name }]);
             setCurrentFolder(f.id);
+            fetchFolderContent(f.id);
         } else {
             onSelect(f);
             onClose();
@@ -933,9 +970,13 @@ const DrivePickerModal = ({ isOpen, onClose, onSelect, defaultFolderId }) => {
         if (folderHistory.length > 1) {
             const newHistory = folderHistory.slice(0, -1);
             setFolderHistory(newHistory);
-            setCurrentFolder(newHistory[newHistory.length - 1].id);
+            const prevFolderId = newHistory[newHistory.length - 1].id;
+            setCurrentFolder(prevFolderId);
+            fetchFolderContent(prevFolderId);
         }
     };
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
@@ -950,7 +991,7 @@ const DrivePickerModal = ({ isOpen, onClose, onSelect, defaultFolderId }) => {
                 {/* Breadcrumbs / Navigation */}
                 <div className="px-4 py-2 border-b bg-white flex items-center gap-2 overflow-x-auto text-sm">
                     {folderHistory.length > 1 && (
-                        <button onClick={handleBack} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded transition flex items-center">
+                        <button onClick={handleBack} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded transition flex items-center shrink-0">
                             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
                             戻る
                         </button>
