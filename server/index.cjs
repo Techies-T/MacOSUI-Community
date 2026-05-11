@@ -974,7 +974,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
         const config = {
             temperature: customConfig?.temperature ?? 0.7,
-            maxOutputTokens: customConfig?.maxOutputTokens ?? 8192,
+            maxOutputTokens: customConfig?.maxOutputTokens ?? 32768,
             topP: customConfig?.topP,
             topK: customConfig?.topK,
             tools: tools.length > 0 ? tools : undefined
