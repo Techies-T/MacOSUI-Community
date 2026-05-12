@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const McpChat = () => {
     const [messages, setMessages] = useState([]);
@@ -197,8 +199,16 @@ const McpChat = () => {
                                 </div>
                                 
                                 {/* Bubble */}
-                                <div className={`max-w-[80%] px-4 py-3 text-[15px] leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none'}`}>
-                                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                                <div className={`max-w-[80%] px-4 py-3 text-[15px] leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none overflow-x-auto'}`}>
+                                    {msg.role === 'user' ? (
+                                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                                    ) : (
+                                        <div className="prose prose-sm prose-indigo max-w-none prose-p:leading-relaxed prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-th:bg-gray-100 prose-th:px-3 prose-th:py-2 prose-td:border prose-td:border-gray-200 prose-td:px-3 prose-td:py-2 prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-200">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                {msg.text}
+                                            </ReactMarkdown>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}
