@@ -3,7 +3,7 @@ import SkillsTab from './SystemSettings/tabs/SkillsTab';
 import SystemTab from './SystemSettings/tabs/SystemTab';
 import PersonalRagTab from './SystemSettings/tabs/PersonalRagTab';
 import DeepResearchTab from './SystemSettings/tabs/DeepResearchTab';
-import ServerMonitorTab from './SystemSettings/tabs/ServerMonitorTab';
+import McpConnectionsTab from './SystemSettings/tabs/McpConnectionsTab';
 import ChatConfigTab from './SystemSettings/tabs/ChatConfigTab';
 import UsersTab from './SystemSettings/tabs/UsersTab';
 import RolesTab from './SystemSettings/tabs/RolesTab';
@@ -156,21 +156,23 @@ const SystemSettings = ({ user }) => {
 
     const handleSaveSettings = async () => {
         try {
+            const payload = {
+                googleClientId,
+                deepResearchPrompt,
+                htmlSvgPrompt,
+                nanoBananaPrompt,
+                researchFolderId,
+                mcpServerEndpoint,
+                mcpTokenUrl,
+                mcpClientId
+            };
+            if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
+            if (mcpClientSecret) payload.mcpClientSecret = mcpClientSecret;
+
             const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    geminiApiKey,
-                    googleClientId,
-                    deepResearchPrompt,
-                    htmlSvgPrompt,
-                    nanoBananaPrompt,
-                    researchFolderId,
-                    mcpServerEndpoint,
-                    mcpTokenUrl,
-                    mcpClientId,
-                    mcpClientSecret
-                })
+                body: JSON.stringify(payload)
             });
             if (res.ok) {
                 alert('Settings saved successfully!');
@@ -449,7 +451,7 @@ const SystemSettings = ({ user }) => {
                         <path d="M12 12v9"></path>
                         <path d="m8 17 4 4 4-4"></path>
                     </svg>
-                ), label: 'Server Monitor'
+                ), label: 'MCP Connections'
             }
         ] : []),
         { id: 'Appearance', icon: '🎨', label: 'Appearance' },
@@ -633,18 +635,7 @@ const SystemSettings = ({ user }) => {
                 )}
 
                 {activeTab === 'Server Monitor' && (
-                    <ServerMonitorTab
-                        mcpServerEndpoint={mcpServerEndpoint}
-                        setMcpServerEndpoint={setMcpServerEndpoint}
-                        mcpTokenUrl={mcpTokenUrl}
-                        setMcpTokenUrl={setMcpTokenUrl}
-                        mcpClientId={mcpClientId}
-                        setMcpClientId={setMcpClientId}
-                        mcpClientSecret={mcpClientSecret}
-                        setMcpClientSecret={setMcpClientSecret}
-                        isMcpSecretConfigured={isMcpSecretConfigured}
-                        handleSaveMcpConfig={handleSaveMcpConfig}
-                    />
+                    <McpConnectionsTab />
                 )}
 
                 {activeTab === 'Chat Config' && (

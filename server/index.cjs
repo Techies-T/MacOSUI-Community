@@ -220,6 +220,8 @@ app.use('/api/knowledge', requireWidgetAccess('app:knowledge-base'), knowledgeMo
 
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
+app.use('/api/mcp/servers', requirePermission('action:manage_system_settings'), require('./routes/mcpServers.cjs'));
+app.use('/api/mcp/chat', requireWidgetAccess('app:gemini'), require('./routes/mcpChat.cjs'));
 
 // MCP Tool Execution Route
 const { callMcpTool } = require('./mcpClient.cjs');

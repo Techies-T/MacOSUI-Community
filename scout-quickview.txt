@@ -1,10 +1,10 @@
 
 
- Target             │  macosui-local:latest  │    1C     7H    13M     1L  
-   digest           │  28fef2dcabda          │                             
- Base image         │  node:24-alpine        │    0C     1H     3M     0L  
- Updated base image │  node:slim             │    0C     1H     3M    26L  
-                    │                        │                        +26  
+ Target             │  macosui-local:latest  │    0C     3H     8M     2L  
+   digest           │  05a02ff9343c          │                             
+ Base image         │  node:24-alpine        │    0C     1H     4M     0L  
+ Updated base image │  node:25-alpine        │    0C     1H     4M     0L  
+                    │                        │                             
 
 What's next:
     View vulnerabilities → docker scout cves macosui-local

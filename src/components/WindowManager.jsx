@@ -13,6 +13,7 @@ import DeepResearch from '../apps/DeepResearch';
 import AppRunnerDashboard from '../apps/AppRunnerDashboard';
 import KnowledgeBase from '../apps/KnowledgeBase';
 import ExternalWidget from '../apps/ExternalWidget';
+import McpChat from '../apps/McpChat';
 
 const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate, user }) => {
     const renderApp = (win) => {
@@ -30,6 +31,7 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'deep-research': return <DeepResearch onOpen={onOpen} />;
             case 'knowledge-base': return <KnowledgeBase />;
             case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
+            case 'mcp-chat': return <McpChat />;
             case 'demo-skill': return <ExternalWidget url="/demo-skill.html" title="Demo Skill" widgetId="skill:demo-skill" />;
             case 'external-skill': return <ExternalWidget url={win.props.url} title={win.title} widgetId={win.appId || 'external-skill'} />;
             default: return null;

@@ -112,6 +112,9 @@ const Desktop = ({ user, onLogout, config }) => {
       } else if (type === 'app-monitor') {
         width = 650;
         height = 450;
+      } else if (type === 'mcp-chat') {
+        width = 1000;
+        height = 650;
       } else if (type === 'knowledge-base') {
         width = 900;
         height = 650;
@@ -215,6 +218,7 @@ const Desktop = ({ user, onLogout, config }) => {
             gemini: 'Gemini AI',
             'knowledge-base': 'Knowledge Base',
             'deep-research': 'Deep Research',
+            'mcp-chat': 'MCP Chat Client',
             settings: 'System Settings',
             browser: 'Safari',
             'html-editor': 'HTML Editor'

@@ -163,6 +163,17 @@ function initDb() {
         manifest_url TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+    // MCP Servers (Multiple)
+    db.run(`CREATE TABLE IF NOT EXISTS mcp_servers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        endpoint_url TEXT NOT NULL,
+        token_url TEXT,
+        client_id TEXT,
+        client_secret TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 }
 
 const { encrypt, decrypt } = require('./crypto.cjs');
@@ -254,6 +265,33 @@ async function autoActivate() {
             }
             console.log('DEBUG: Auto-activation complete.');
         }
+
+        // Migrate existing MCP settings to mcp_servers table
+        db.get("SELECT COUNT(*) as count FROM mcp_servers", async (err, row) => {
+            if (!err && row && row.count === 0) {
+                const endpointUrl = await db.getSetting('MCP_SERVER_ENDPOINT');
+                if (endpointUrl) {
+                    console.log('DEBUG: Migrating existing MCP settings to mcp_servers table...');
+                    const tokenUrl = await db.getSetting('MCP_TOKEN_URL');
+                    const clientId = await db.getSetting('MCP_CLIENT_ID');
+                    const clientSecret = await db.getSetting('MCP_CLIENT_SECRET'); // decrypted automatically
+                    
+                    let encryptedSecret = null;
+                    if (clientSecret) {
+                        encryptedSecret = encrypt(clientSecret);
+                    }
+
+                    db.run(`INSERT INTO mcp_servers (name, endpoint_url, token_url, client_id, client_secret) VALUES (?, ?, ?, ?, ?)`,
+                        ['AppRunner MCP (Migrated)', endpointUrl, tokenUrl, clientId, encryptedSecret],
+                        (err) => {
+                            if (err) console.error('Failed to migrate MCP settings', err);
+                            else console.log('DEBUG: MCP settings migrated successfully.');
+                        }
+                    );
+                }
+            }
+        });
+
     } catch (error) {
         console.error('Error during auto-activation:', error);
     }

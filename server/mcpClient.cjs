@@ -1,43 +1,81 @@
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { SSEClientTransport } = require("@modelcontextprotocol/sdk/client/sse.js");
 const db = require('./db.cjs');
+const { decrypt } = require('./crypto.cjs');
 
-// Memory store for multiple connections (if ever needed) or caching state
-let mcpClientInstance = null;
-let mcpTransport = null;
-let tokenCache = {
-    accessToken: null,
-    expiresAt: null
-};
+// State maps
+const serverConnections = new Map(); // serverId -> Connection Object
+const toolServerMap = new Map(); // toolName -> serverId
 
 /**
- * Fetches an OAuth token using Client Credentials
+ * Loads all MCP servers from the database and initializes them if not already connected.
  */
-async function getOAuthToken() {
-    const tokenUrl = await db.getSetting('MCP_TOKEN_URL');
-    if (!tokenUrl) {
-        console.log("MCP_TOKEN_URL is not configured. Proceeding without OAuth token.");
+async function refreshConnections() {
+    return new Promise((resolve, reject) => {
+        db.all("SELECT * FROM mcp_servers", [], async (err, rows) => {
+            if (err) return reject(err);
+            
+            for (const row of rows) {
+                if (!serverConnections.has(row.id)) {
+                    let clientSecret = row.client_secret;
+                    if (clientSecret) {
+                        try {
+                            clientSecret = decrypt(clientSecret);
+                        } catch(e) {
+                            console.error(`[MCP] Failed to decrypt secret for server ${row.name}`);
+                            clientSecret = null;
+                        }
+                    }
+
+                    const connState = {
+                        id: row.id,
+                        name: row.name,
+                        endpoint_url: row.endpoint_url,
+                        token_url: row.token_url,
+                        client_id: row.client_id,
+                        client_secret: clientSecret,
+                        mcpClientInstance: null,
+                        mcpTransport: null,
+                        tokenCache: { accessToken: null, expiresAt: null },
+                        tools: []
+                    };
+                    serverConnections.set(row.id, connState);
+                }
+                
+                // Ensure connection is established in the background
+                try {
+                    await ensureConnection(serverConnections.get(row.id));
+                } catch (e) {
+                    console.error(`[MCP] Failed to connect to MCP Server ${row.name}:`, e.message);
+                }
+            }
+            resolve();
+        });
+    });
+}
+
+/**
+ * Fetches an OAuth token using Client Credentials for a specific server
+ */
+async function getOAuthToken(connState) {
+    if (!connState.token_url) {
         return null;
     }
     
-    const clientId = await db.getSetting('MCP_CLIENT_ID');
-    const clientSecret = await db.getSetting('MCP_CLIENT_SECRET');
-
-    if (!clientId || !clientSecret) {
-        console.log("MCP Client credentials are missing. Proceeding without OAuth token.");
+    if (!connState.client_id || !connState.client_secret) {
         return null;
     }
 
     try {
-        const response = await fetch(tokenUrl, {
+        const response = await fetch(connState.token_url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: new URLSearchParams({
                 'grant_type': 'client_credentials',
-                'client_id': clientId,
-                'client_secret': clientSecret
+                'client_id': connState.client_id,
+                'client_secret': connState.client_secret
             })
         });
 
@@ -48,51 +86,43 @@ async function getOAuthToken() {
 
         const data = await response.json();
         
-        tokenCache.accessToken = data.access_token;
-        // set expiry 5 minutes before actual expiry for buffer
+        connState.tokenCache.accessToken = data.access_token;
         const expiresIn = data.expires_in || 3600; 
-        tokenCache.expiresAt = Date.now() + (expiresIn - 300) * 1000; 
+        connState.tokenCache.expiresAt = Date.now() + (expiresIn - 300) * 1000; 
 
-        console.log("MCP OAuth Token successfully acquired.");
-        return tokenCache.accessToken;
+        console.log(`[MCP ${connState.name}] OAuth Token successfully acquired.`);
+        return connState.tokenCache.accessToken;
 
     } catch (error) {
-        console.error("OAuth Token Acquisition Error:", error);
+        console.error(`[MCP ${connState.name}] OAuth Token Acquisition Error:`, error);
         throw error;
     }
 }
 
 /**
- * Returns a valid access token, fetching a new one if necessary.
+ * Returns a valid access token for a server
  */
-async function getValidToken() {
-    if (tokenCache.accessToken && tokenCache.expiresAt && Date.now() < tokenCache.expiresAt) {
-        return tokenCache.accessToken;
+async function getValidToken(connState) {
+    if (connState.tokenCache.accessToken && connState.tokenCache.expiresAt && Date.now() < connState.tokenCache.expiresAt) {
+        return connState.tokenCache.accessToken;
     }
-    return await getOAuthToken();
+    return await getOAuthToken(connState);
 }
 
 /**
- * Ensures the MCP client is connected. Re-connects if token changed or connection lost.
+ * Ensures the MCP client is connected for a specific server
  */
-async function ensureConnection() {
-    const endpoint = await db.getSetting('MCP_SERVER_ENDPOINT');
-    if (!endpoint) {
-        throw new Error("MCP_SERVER_ENDPOINT is not configured.");
+async function ensureConnection(connState) {
+    if (!connState.endpoint_url) {
+        throw new Error("Endpoint URL is not configured.");
     }
 
-    const token = await getValidToken();
+    const token = await getValidToken(connState);
 
-    // If already connected and transport exists, verify it (basic check). 
-    // Usually SSE Client reconnects automatically or throws if failed. 
-    // We will recreate if it's completely null.
-    
-    if (!mcpClientInstance || !mcpTransport) {
-        console.log(`Connecting to MCP Server at ${endpoint}...`);
+    if (!connState.mcpClientInstance || !connState.mcpTransport) {
+        console.log(`[MCP ${connState.name}] Connecting to MCP Server at ${connState.endpoint_url}...`);
         
-        // SDK internally uses `requestInit.headers` to inject headers into SSE fetch calls.
-        // Also pass the token as ?access_token= as a fallback (some servers may prefer it).
-        const sseUrl = new URL(endpoint);
+        const sseUrl = new URL(connState.endpoint_url);
         let requestInit = {};
 
         if (token) {
@@ -104,9 +134,9 @@ async function ensureConnection() {
             };
         }
 
-        mcpTransport = new SSEClientTransport(sseUrl, { requestInit });
+        connState.mcpTransport = new SSEClientTransport(sseUrl, { requestInit });
 
-        mcpClientInstance = new Client(
+        connState.mcpClientInstance = new Client(
             {
                 name: "macos-ui-client",
                 version: "1.0.0"
@@ -116,38 +146,124 @@ async function ensureConnection() {
             }
         );
 
-        await mcpClientInstance.connect(mcpTransport);
-        console.log("MCP Client connected successfully.");
+        await connState.mcpClientInstance.connect(connState.mcpTransport);
+        console.log(`[MCP ${connState.name}] Client connected successfully.`);
+        
+        // Fetch tools to populate routing map
+        try {
+            const toolsList = await connState.mcpClientInstance.listTools();
+            if (toolsList && toolsList.tools) {
+                connState.tools = toolsList.tools;
+                for (const tool of toolsList.tools) {
+                    toolServerMap.set(tool.name, connState.id);
+                    console.log(`[MCP Router] Registered tool '${tool.name}' to server ${connState.name}`);
+                }
+            }
+        } catch (e) {
+            console.error(`[MCP ${connState.name}] Failed to list tools:`, e.message);
+        }
     }
 
-    return mcpClientInstance;
+    return connState.mcpClientInstance;
 }
 
 /**
- * Calls a tool on the connected MCP server.
+ * Calls a tool, routing it to the correct MCP server
  */
 async function callMcpTool(name, args) {
+    if (serverConnections.size === 0) {
+        await refreshConnections();
+    }
+
+    const serverId = toolServerMap.get(name);
+    if (!serverId) {
+        await refreshConnections();
+        if (!toolServerMap.has(name)) {
+            throw new Error(`Tool '${name}' is not registered by any connected MCP Server.`);
+        }
+    }
+
+    const connState = serverConnections.get(toolServerMap.get(name));
+    if (!connState) {
+        throw new Error(`Server for tool '${name}' is not available.`);
+    }
+
     try {
-        const client = await ensureConnection();
+        const client = await ensureConnection(connState);
         const result = await client.callTool({
             name: name,
             arguments: args || {}
         });
         return result;
     } catch (error) {
-        console.error(`Error calling MCP Tool ${name}:`, error);
+        console.error(`[MCP ${connState.name}] Error calling Tool ${name}:`, error);
         
-        // Basic error recovery: reset connection state so it tries again next time
-        if (mcpTransport) {
-             try { await mcpTransport.close(); } catch(e) {}
-             mcpTransport = null;
+        if (connState.mcpTransport) {
+             try { await connState.mcpTransport.close(); } catch(e) {}
+             connState.mcpTransport = null;
         }
-        mcpClientInstance = null;
+        connState.mcpClientInstance = null;
         
         throw error;
     }
 }
 
+/**
+ * Disconnects a specific server (e.g. when deleted or updated via API)
+ */
+function disconnectServer(serverId) {
+    const connState = serverConnections.get(serverId);
+    if (connState) {
+        if (connState.mcpTransport) {
+            try { connState.mcpTransport.close(); } catch(e) {}
+        }
+        serverConnections.delete(serverId);
+        
+        for (const [toolName, sid] of toolServerMap.entries()) {
+            if (sid === serverId) {
+                toolServerMap.delete(toolName);
+            }
+        }
+    }
+}
+
+/**
+ * Gets all tools from all connected MCP servers formatted for Gemini functionDeclarations
+ */
+async function getAllMcpToolsForGemini() {
+    if (serverConnections.size === 0) {
+        await refreshConnections();
+    }
+    
+    const functionDeclarations = [];
+    
+    for (const [id, conn] of serverConnections.entries()) {
+        if (conn.tools) {
+            for (const tool of conn.tools) {
+                const funcDecl = {
+                    name: tool.name.replace(/[^a-zA-Z0-9_]/g, '_'), // Gemini only allows a-z, A-Z, 0-9, and _
+                    description: tool.description || `MCP Tool: ${tool.name}`,
+                };
+                
+                if (tool.inputSchema) {
+                    // MCP uses JSON Schema. Gemini supports a subset of JSON Schema.
+                    funcDecl.parameters = tool.inputSchema;
+                }
+                
+                functionDeclarations.push(funcDecl);
+            }
+        }
+    }
+    
+    return functionDeclarations;
+}
+
+// Auto-init on load
+setTimeout(() => refreshConnections(), 2000);
+
 module.exports = {
-    callMcpTool
+    callMcpTool,
+    refreshConnections,
+    disconnectServer,
+    getAllMcpToolsForGemini
 };
