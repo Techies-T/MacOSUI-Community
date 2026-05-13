@@ -107,7 +107,7 @@ const Browser = ({ initialUrl, driveFileId, liveContent }) => {
     };
 
     const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
             handleNavigate();
         }
     };
