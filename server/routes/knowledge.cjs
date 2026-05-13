@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/', (req, res) => {
     const { tag } = req.query;
     let query = `
-        SELECT k.id, k.title, k.tags, k.author_id, k.created_at, k.updated_at, u.name as author_name 
+        SELECT k.id, k.title, k.tags, k.author_id, k.created_at, k.updated_at, u.name as author_name, u.avatar_url as author_avatar 
         FROM knowledge_articles k
         LEFT JOIN users u ON k.author_id = u.id
     `;
@@ -44,7 +44,7 @@ router.get('/', (req, res) => {
 // GET: 単一記事の詳細取得
 router.get('/:id', (req, res) => {
     db.get(`
-        SELECT k.*, u.name as author_name 
+        SELECT k.*, u.name as author_name, u.avatar_url as author_avatar 
         FROM knowledge_articles k
         LEFT JOIN users u ON k.author_id = u.id
         WHERE k.id = ?

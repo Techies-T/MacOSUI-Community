@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import ErrorBoundary from './ErrorBoundary';
 
+const UserAvatar = ({ url, name, size = 'w-5 h-5' }) => {
+    if (url) {
+        return <img src={url} alt={name || 'User'} className={`${size} rounded-full object-cover border border-[#444] shadow-sm`} />;
+    }
+    const initial = (name || 'S')[0].toUpperCase();
+    return (
+        <div className={`${size} rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] border border-[#444] shadow-sm`}>
+            {initial}
+        </div>
+    );
+};
+
 
 const KnowledgeBase = () => {
     const [articles, setArticles] = useState([]);
@@ -287,7 +299,10 @@ const KnowledgeBase = () => {
                                 className={`p-3 border-b border-[#2d2d2d] cursor-pointer hover:bg-[#2a2d2e] rounded mb-1 transition-colors ${selectedArticleId === article.id ? 'bg-[#37373d]' : ''}`}
                                 onClick={() => handleSelectArticle(article)}
                             >
-                                <div className="font-medium text-sm truncate">{article.title}</div>
+                                <div className="flex items-center gap-2 mb-1.5">
+                                    <UserAvatar url={article.author_avatar} name={article.author_name} size="w-5 h-5" />
+                                    <div className="font-medium text-sm truncate">{article.title}</div>
+                                </div>
                                 <div className="text-xs text-gray-400 mt-1 truncate">
                                     {(article.content || 'No content').substring(0, 50)}
                                 </div>
@@ -358,7 +373,8 @@ const KnowledgeBase = () => {
                                 <div className="flex-1">
                                     <h1 className="text-3xl font-bold text-white mb-3 tracking-tight">{selectedArticle?.title}</h1>
                                     <div className="flex items-center gap-3 text-xs text-gray-400">
-                                        <span>Author: {selectedArticle?.author_name || 'System'}</span>
+                                        <UserAvatar url={selectedArticle?.author_avatar} name={selectedArticle?.author_name} size="w-6 h-6" />
+                                        <span className="font-medium">Author: {selectedArticle?.author_name || 'System'}</span>
                                         <span>•</span>
                                         <span>{new Date(selectedArticle?.updated_at || Date.now()).toLocaleString()}</span>
                                     </div>
