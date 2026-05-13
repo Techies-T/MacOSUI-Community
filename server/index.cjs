@@ -310,7 +310,7 @@ app.post('/api/auth/google', async (req, res) => {
                 db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role, token_expiry) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
                     ON CONFLICT(google_id) DO UPDATE SET 
-                    email=excluded.email, name=excluded.name, avatar_url=excluded.avatar_url, access_token=excluded.access_token, token_expiry=excluded.token_expiry` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
+                    email=excluded.email, name=excluded.name, avatar_url = CASE WHEN users.avatar_url LIKE 'data:image%' THEN users.avatar_url ELSE excluded.avatar_url END, access_token=excluded.access_token, token_expiry=excluded.token_expiry` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
                     [googleId, email, name, avatarUrl, accessToken, refreshToken || null, role, expiryDate],
                     function (err) {
                         if (err) {
@@ -326,7 +326,7 @@ app.post('/api/auth/google', async (req, res) => {
 
                         // Create Session JWT (ZTA PDP Action: Embedding Claims)
                         const token = jwt.sign(
-                            { id: userId, googleId, email, name, avatarUrl, role, allowed_widgets, allowed_actions, allowed_models },
+                            { id: userId, googleId, email, name, role, allowed_widgets, allowed_actions, allowed_models },
                             process.env.JWT_SECRET || 'secret',
                             { expiresIn: '7d' }
                         );
@@ -337,7 +337,16 @@ app.post('/api/auth/google', async (req, res) => {
                             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
                         });
 
-                        res.json({ user: { id: userId, googleId, email, name, avatarUrl, role, allowed_widgets, allowed_actions, allowed_models } });
+                        db.get("SELECT * FROM users WHERE id = ?", [userId], (err, finalUser) => {
+                            if (err || !finalUser) {
+                                return res.json({ user: { id: userId, googleId, email, name, role, allowed_widgets, allowed_actions, allowed_models } });
+                            }
+                            // Also set the allowed sets for the frontend
+                            finalUser.allowed_widgets = allowed_widgets;
+                            finalUser.allowed_actions = allowed_actions;
+                            finalUser.allowed_models = allowed_models;
+                            res.json({ user: finalUser });
+                        });
                     }
                 );
             };
@@ -428,7 +437,7 @@ app.get('/api/auth/me', (req, res) => {
 
                 // Re-issue JWT to ensure subsequent API calls (PEP) succeed with fresh permissions
                 const newToken = jwt.sign(
-                    { id: user.id, googleId: user.google_id, email: user.email, name: user.name, avatarUrl: user.avatar_url, role: user.role, allowed_widgets: user.allowed_widgets, allowed_actions: user.allowed_actions, allowed_models: user.allowed_models },
+                    { id: user.id, googleId: user.google_id, email: user.email, name: user.name, role: user.role, allowed_widgets: user.allowed_widgets, allowed_actions: user.allowed_actions, allowed_models: user.allowed_models },
                     process.env.JWT_SECRET || 'secret',
                     { expiresIn: '7d' }
                 );
@@ -601,6 +610,16 @@ app.put('/api/users/:id/role', requirePermission('action:manage_roles'), (req, r
         if (err) return res.status(500).json({ error: 'Database error' });
         if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
         res.json({ success: true, role });
+    });
+});
+
+app.put('/api/users/me/avatar', requireAuth, (req, res) => {
+    const { avatar_url } = req.body;
+    if (!avatar_url) return res.status(400).json({ error: 'Avatar URL is required' });
+    
+    db.run("UPDATE users SET avatar_url = ? WHERE id = ?", [avatar_url, req.user.id], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json({ success: true, avatar_url });
     });
 });
 
@@ -1016,7 +1035,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                             config: {
                                 numberOfImages: 1,
                                 outputMimeType: "image/png",
-                                aspectRatio: "16:9" // A4横長・スライド向けアスペクト比
+                                aspectRatio: customConfig?.aspectRatio || "16:9" // Support dynamic aspect ratio for avatars
                             }
                         }),
                         createTimeout()

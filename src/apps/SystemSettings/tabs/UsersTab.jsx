@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import AvatarCreatorModal from '../../../components/AvatarCreatorModal';
 
 const UsersTab = ({ user, rbacPolicies, hasAction }) => {
     const [usersList, setUsersList] = useState([]);
     const [invitations, setInvitations] = useState([]);
     const [inviteEmail, setInviteEmail] = useState('');
     const [selectedRolesToAdd, setSelectedRolesToAdd] = useState({});
+    const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
 
     console.log("UsersTab render! User:", user);
     console.log("UsersTab hasAction('action:manage_users'):", hasAction ? hasAction('action:manage_users') : 'undefined');
@@ -114,13 +116,22 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
             {/* Current User Card */}
             <div className="bg-white/5 p-4 rounded-xl border border-white/10 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    {user?.avatar_url || user?.avatarUrl ? (
-                        <img src={user?.avatar_url || user?.avatarUrl} alt="Profile" className="w-12 h-12 rounded-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                        <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-lg font-medium shadow-inner">
-                            {user?.name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                    <button 
+                        onClick={() => setIsAvatarModalOpen(true)}
+                        className="relative w-12 h-12 rounded-full overflow-hidden group border border-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        title="アバターを変更"
+                    >
+                        {user?.avatar_url || user?.avatarUrl ? (
+                            <img src={user?.avatar_url || user?.avatarUrl} alt="Profile" className="w-full h-full object-cover transition-transform group-hover:scale-110" referrerPolicy="no-referrer" />
+                        ) : (
+                            <div className="w-full h-full bg-white/20 flex items-center justify-center text-lg font-medium shadow-inner transition-transform group-hover:scale-110">
+                                {user?.name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                            </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">変更</span>
                         </div>
-                    )}
+                    </button>
                     <div>
                         <div className="font-medium">{user?.name}</div>
                         <div className="text-sm opacity-60">{user?.email}</div>
@@ -161,7 +172,7 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                                 <div key={u.id} className="p-4 border-b border-white/10 flex items-center justify-between last:border-0">
                                     <div className="flex items-center gap-3">
                                         {u.avatar_url ? (
-                                            <img src={u.avatar_url} alt="" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                                            <img src={u.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
                                         ) : (
                                             <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
                                                 {u.name?.charAt(0) || u.email.charAt(0)}
@@ -252,6 +263,13 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                         </div>
                     )}
                 </>
+            )}
+
+            {isAvatarModalOpen && (
+                <AvatarCreatorModal 
+                    onClose={() => setIsAvatarModalOpen(false)}
+                    onAvatarUpdate={() => window.location.reload()}
+                />
             )}
         </div>
     );
