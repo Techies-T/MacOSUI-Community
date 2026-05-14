@@ -26,7 +26,7 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
     }
 
     useEffect(() => {
-        if (hasAction && hasAction('action:manage_users')) {
+        if (hasAction && (hasAction('action:manage_users') || hasAction('action:invite_users'))) {
             fetchUsersList();
             fetchInvitations();
         }
@@ -142,7 +142,7 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                 </div>
             </div>
 
-            {hasAction && hasAction('action:manage_users') && (
+            {hasAction && (hasAction('action:manage_users') || hasAction('action:invite_users')) && (
                 <>
                     {/* Invite User */}
                     <div className="bg-white/5 p-4 rounded-xl border border-white/10">
@@ -192,8 +192,8 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                                                     const isProtectedAdmin = roleKey === 'admin' && (u.email === user.email || usersList.filter(us => (us.role||'').includes('admin')).length === 1);
                                                     return (
                                                         <span key={roleKey} className="px-2.5 py-1 text-xs font-medium rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 flex items-center gap-1.5 shadow-sm">
-                                                            {roleInfo.name}
-                                                            {!isProtectedAdmin && (
+                                                            {roleInfo.name || roleKey}
+                                                            {hasAction('action:manage_roles') && !isProtectedAdmin && (
                                                                 <button onClick={() => handleRemoveRole(u, roleKey)} className="hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity flex items-center justify-center rounded-full w-4 h-4 hover:bg-red-500/20">
                                                                     ✕
                                                                 </button>
@@ -203,37 +203,41 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                                                 });
                                             })()}
                                         </div>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <select 
-                                                value={selectedRolesToAdd[u.id] || ''} 
-                                                onChange={(e) => setSelectedRolesToAdd({...selectedRolesToAdd, [u.id]: e.target.value})}
-                                                className="flex-1 bg-black/20 text-xs border border-white/10 rounded-lg px-2.5 py-1.5 outline-none focus:border-blue-500/50 appearance-none"
-                                                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23ffffff60'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1em' }}
-                                            >
-                                                <option value="" disabled>Select role to add...</option>
-                                                {Object.keys(rbacPolicies || {})
-                                                    .filter(k => !(u.role || 'user').split(',').map(r => r.trim()).includes(k))
-                                                    .map(k => (
-                                                        <option key={k} value={k}>{rbacPolicies[k].name}</option>
-                                                ))}
-                                            </select>
-                                            <button 
-                                                onClick={() => handleAddRole(u, selectedRolesToAdd[u.id])}
-                                                disabled={!selectedRolesToAdd[u.id]}
-                                                className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors font-medium whitespace-nowrap"
-                                            >
-                                                Add
-                                            </button>
-                                        </div>
+                                        {hasAction('action:manage_roles') && (
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <select 
+                                                    value={selectedRolesToAdd[u.id] || ''} 
+                                                    onChange={(e) => setSelectedRolesToAdd({...selectedRolesToAdd, [u.id]: e.target.value})}
+                                                    className="flex-1 bg-black/20 text-xs border border-white/10 rounded-lg px-2.5 py-1.5 outline-none focus:border-blue-500/50 appearance-none"
+                                                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23ffffff60'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1em' }}
+                                                >
+                                                    <option value="" disabled>Select role to add...</option>
+                                                    {Object.keys(rbacPolicies || {})
+                                                        .filter(k => !(u.role || 'user').split(',').map(r => r.trim()).includes(k))
+                                                        .map(k => (
+                                                            <option key={k} value={k}>{rbacPolicies[k]?.name || k}</option>
+                                                    ))}
+                                                </select>
+                                                <button 
+                                                    onClick={() => handleAddRole(u, selectedRolesToAdd[u.id])}
+                                                    disabled={!selectedRolesToAdd[u.id]}
+                                                    className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors font-medium whitespace-nowrap"
+                                                >
+                                                    Add
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="flex items-center ml-4">
-                                        <button
-                                            onClick={() => handleRemoveUser(u.id, u.email)}
-                                            disabled={u.email === user.email}
-                                            className="text-red-400 hover:text-red-300 disabled:opacity-30 text-sm"
-                                        >
-                                            Remove
-                                        </button>
+                                        {hasAction('action:manage_users') && (
+                                            <button
+                                                onClick={() => handleRemoveUser(u.id, u.email)}
+                                                disabled={u.email === user.email}
+                                                className="text-red-400 hover:text-red-300 disabled:opacity-30 text-sm"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}

@@ -169,8 +169,11 @@ async function ensureConnection(connState) {
 
 /**
  * Calls a tool, routing it to the correct MCP server
+ * @param {string} name - The tool name
+ * @param {object} args - The arguments for the tool
+ * @param {string[]} allowedWidgets - The user's allowed widgets array to enforce granular permissions
  */
-async function callMcpTool(name, args) {
+async function callMcpTool(name, args, allowedWidgets = ['*']) {
     if (serverConnections.size === 0) {
         await refreshConnections();
     }
@@ -181,6 +184,13 @@ async function callMcpTool(name, args) {
         if (!toolServerMap.has(name)) {
             throw new Error(`Tool '${name}' is not registered by any connected MCP Server.`);
         }
+    }
+
+    // Granular MCP Check
+    const targetServerId = toolServerMap.get(name);
+    const hasWildcard = allowedWidgets.includes('*');
+    if (!hasWildcard && !allowedWidgets.includes(`mcp:${targetServerId}`)) {
+        throw new Error(`Access denied. Requires widget access: mcp:${targetServerId}`);
     }
 
     const connState = serverConnections.get(toolServerMap.get(name));
@@ -229,15 +239,21 @@ function disconnectServer(serverId) {
 
 /**
  * Gets all tools from all connected MCP servers formatted for Gemini functionDeclarations
+ * @param {string[]} allowedWidgets - The user's allowed widgets array to filter the tools
  */
-async function getAllMcpToolsForGemini() {
+async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
     if (serverConnections.size === 0) {
         await refreshConnections();
     }
     
     const functionDeclarations = [];
+    const hasWildcard = allowedWidgets.includes('*');
     
     for (const [id, conn] of serverConnections.entries()) {
+        if (!hasWildcard && !allowedWidgets.includes(`mcp:${id}`)) {
+            continue; // Skip tools from this server if user doesn't have permission
+        }
+
         if (conn.tools) {
             for (const tool of conn.tools) {
                 const funcDecl = {

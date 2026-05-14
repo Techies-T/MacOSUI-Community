@@ -25,8 +25,8 @@ router.post('/', async (req, res) => {
         const client = getGeminiClient(apiKey);
         const modelName = 'gemini-2.5-pro'; // or flash, but pro is better for tools
 
-        // Get MCP Tools
-        const mcpTools = await getAllMcpToolsForGemini();
+        // Get MCP Tools filtered by user's permissions
+        const mcpTools = await getAllMcpToolsForGemini(req.user.allowed_widgets || []);
         
         const tools = [];
         if (mcpTools.length > 0) {
@@ -93,8 +93,8 @@ router.post('/', async (req, res) => {
                     console.log(`[MCP Chat] Executing tool: ${funcName}`, funcArgs);
                     
                     try {
-                        // Execute MCP Tool
-                        const result = await callMcpTool(funcName, funcArgs);
+                        // Execute MCP Tool with user's permissions
+                        const result = await callMcpTool(funcName, funcArgs, req.user.allowed_widgets || []);
                         
                         // Save artifact
                         artifacts.push({

@@ -140,7 +140,7 @@ app.get('/api/config', async (req, res) => {
 });
 
 // Config: Save settings (Activation)
-app.post('/api/config', requirePermission('action:manage_system_settings'), async (req, res) => {
+app.post('/api/config', requireAuth, async (req, res) => {
     const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies } = req.body;
 
     try {
@@ -168,29 +168,48 @@ app.post('/api/config', requirePermission('action:manage_system_settings'), asyn
             }
         }
 
-        if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
-        if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
-        if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
-        if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
-        if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
-        if (googleDriveRagFolders !== undefined) await db.setSetting('GOOGLE_DRIVE_RAG_FOLDERS', JSON.stringify(googleDriveRagFolders));
-        if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
-        if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
-        if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
-        if (geminiHtmlSvgModel) await db.setSetting('GEMINI_HTML_SVG_MODEL', geminiHtmlSvgModel);
-        if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
-        if (deepResearchPrompt !== undefined) await db.setSetting('DEEP_RESEARCH_PROMPT', deepResearchPrompt);
-        if (htmlSvgPrompt !== undefined) await db.setSetting('HTML_SVG_PROMPT', htmlSvgPrompt);
-        if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
-        if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
-        if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
-        if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
-        
+        const allowedActions = req.user.allowed_actions || [];
+        const hasWildcard = allowedActions.includes('*');
+        const hasSysSettings = hasWildcard || allowedActions.includes('action:manage_system_settings');
+        const hasWorkflowEdit = hasWildcard || allowedActions.includes('action:edit_workflow_model') || hasSysSettings;
+        const hasRagManage = hasWildcard || allowedActions.includes('action:manage_rag_folders') || hasSysSettings;
+        const hasRolesManage = hasWildcard || allowedActions.includes('action:manage_roles');
+
+        // Manage System Settings fields
+        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId) {
+            if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
+            if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
+            if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
+            if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
+            if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
+            if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
+            if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
+            if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
+            if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
+        }
+
+        // Manage Workflow Models fields
+        if (geminiModel || nanoBananaModel || geminiResearchModel || geminiHtmlSvgModel || nanoBananaPrompt || deepResearchPrompt || htmlSvgPrompt || geminiResearchFolderId) {
+            if (!hasWorkflowEdit) return res.status(403).json({ error: 'Permission denied. Requires action:edit_workflow_model' });
+            if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
+            if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
+            if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
+            if (geminiHtmlSvgModel) await db.setSetting('GEMINI_HTML_SVG_MODEL', geminiHtmlSvgModel);
+            if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
+            if (deepResearchPrompt !== undefined) await db.setSetting('DEEP_RESEARCH_PROMPT', deepResearchPrompt);
+            if (htmlSvgPrompt !== undefined) await db.setSetting('HTML_SVG_PROMPT', htmlSvgPrompt);
+            if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
+        }
+
+        // Manage RAG Folders fields
+        if (googleDriveRagFolders !== undefined) {
+            if (!hasRagManage) return res.status(403).json({ error: 'Permission denied. Requires action:manage_rag_folders' });
+            await db.setSetting('GOOGLE_DRIVE_RAG_FOLDERS', JSON.stringify(googleDriveRagFolders));
+        }
+
+        // Manage Roles fields
         if (req.body.rbacPolicies) {
-            const allowedActions = req.user.allowed_actions || [];
-            if (!allowedActions.includes('*') && !allowedActions.includes('action:manage_roles')) {
-                return res.status(403).json({ error: 'Permission denied. Requires action:manage_roles' });
-            }
+            if (!hasRolesManage) return res.status(403).json({ error: 'Permission denied. Requires action:manage_roles' });
             await db.setSetting('RBAC_POLICIES', JSON.stringify(req.body.rbacPolicies));
         }
 
@@ -220,21 +239,39 @@ app.use('/api/knowledge', requireWidgetAccess('app:knowledge-base'), knowledgeMo
 
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
-app.use('/api/mcp/servers', requirePermission('action:manage_system_settings'), require('./routes/mcpServers.cjs'));
-app.use('/api/mcp/chat', requireWidgetAccess('app:gemini'), require('./routes/mcpChat.cjs'));
+
+// MCP Servers requires either manage_system_settings or manage_roles (for the RBAC UI)
+app.use('/api/mcp/servers', requireAuth, (req, res, next) => {
+    const allowed = req.user.allowed_actions || [];
+    if (allowed.includes('*') || allowed.includes('action:manage_system_settings') || allowed.includes('action:manage_roles')) {
+        next();
+    } else {
+        res.status(403).json({ error: 'Permission denied' });
+    }
+}, require('./routes/mcpServers.cjs'));
+
+app.use('/api/mcp/chat', requireWidgetAccess('app:mcp-chat'), require('./routes/mcpChat.cjs'));
 
 // MCP Tool Execution Route
 const { callMcpTool } = require('./mcpClient.cjs');
 
-app.post('/api/mcp/tool', requireWidgetAccess('app:gemini'), requirePermission('action:use_mcp_tools'), async (req, res) => {
-    const { name, args } = req.body;
+app.post('/api/mcp/tool', requireWidgetAccess('app:mcp-chat'), requirePermission('action:use_mcp_tools'), async (req, res) => {
+    const { name, args, serverId } = req.body;
     
     if (!name) {
         return res.status(400).json({ error: 'Tool name is required' });
     }
 
+    // Granular MCP Check
+    if (serverId) {
+        const allowedWidgets = req.user.allowed_widgets || [];
+        if (!allowedWidgets.includes('*') && !allowedWidgets.includes(`mcp:${serverId}`)) {
+            return res.status(403).json({ error: `Access denied. Requires widget access: mcp:${serverId}` });
+        }
+    }
+
     try {
-        const result = await callMcpTool(name, args);
+        const result = await callMcpTool(name, args, serverId);
         res.json(result);
     } catch (error) {
         console.error(`MCP Proxy Error for tool ${name}:`, error);
@@ -301,7 +338,7 @@ app.post('/api/auth/google', async (req, res) => {
                 });
 
                 // Enforce Universal Default Widgets
-                ['app:settings', 'app:gemini', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+                ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
 
                 const allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
                 const allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
@@ -429,7 +466,7 @@ app.get('/api/auth/me', (req, res) => {
                 });
 
                 // Enforce Universal Default Widgets
-                ['app:settings', 'app:gemini', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+                ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
 
                 user.allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
                 user.allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
@@ -596,10 +633,63 @@ function requireWidgetAccess(widgetId) {
 }
 
 // --- Users & Invitations API ---
-app.get('/api/users', requirePermission('action:manage_users'), (req, res) => {
+app.get('/api/users', requireAuth, (req, res) => {
+    const allowed = req.user.allowed_actions || [];
+    if (!allowed.includes('*') && !allowed.includes('action:manage_users') && !allowed.includes('action:invite_users')) {
+        return res.status(403).json({ error: 'Permission denied' });
+    }
     db.all("SELECT id, email, name, avatar_url, role, deep_research_enabled, created_at FROM users", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json(rows);
+    });
+});
+
+app.get('/api/users/:id/permissions', requireAuth, (req, res) => {
+    const { id } = req.params;
+    
+    // Admins and the user themselves can view their permissions
+    const isSelf = parseInt(id) === req.user.id;
+    const allowed = req.user.allowed_actions || [];
+    const canManageRoles = allowed.includes('*') || allowed.includes('action:manage_roles');
+    
+    if (!isSelf && !canManageRoles) {
+        return res.status(403).json({ error: 'Permission denied' });
+    }
+
+    db.get("SELECT id, role FROM users WHERE id = ?", [id], async (err, user) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        let rbacPolicies = {};
+        try {
+            const rbacJson = await db.getSetting('RBAC_POLICIES');
+            if (rbacJson) rbacPolicies = JSON.parse(rbacJson);
+        } catch (e) {
+            console.error("Failed to fetch RBAC_POLICIES for permissions API", e);
+        }
+
+        const roles = (user.role || 'user').split(',').map(r => r.trim());
+        let allowed_widgets_set = new Set();
+        let allowed_actions_set = new Set();
+        let allowed_models_set = new Set();
+
+        roles.forEach(r => {
+            const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
+            (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
+            (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+            (policy.allowed_models || []).forEach(m => allowed_models_set.add(m));
+        });
+
+        // Implicit built-in apps
+        ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+
+        res.json({
+            user_id: user.id,
+            roles: roles,
+            allowed_widgets: allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set),
+            allowed_actions: allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set),
+            allowed_models: allowed_models_set.has('*') ? ['*'] : Array.from(allowed_models_set)
+        });
     });
 });
 
@@ -623,7 +713,11 @@ app.put('/api/users/me/avatar', requireAuth, (req, res) => {
     });
 });
 
-app.get('/api/invitations', requirePermission('action:manage_users'), (req, res) => {
+app.get('/api/invitations', requireAuth, (req, res) => {
+    const allowed = req.user.allowed_actions || [];
+    if (!allowed.includes('*') && !allowed.includes('action:manage_users') && !allowed.includes('action:invite_users')) {
+        return res.status(403).json({ error: 'Permission denied' });
+    }
     db.all("SELECT email, invited_by, created_at FROM invitations", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         
@@ -639,7 +733,11 @@ app.get('/api/invitations', requirePermission('action:manage_users'), (req, res)
     });
 });
 
-app.post('/api/invitations', requirePermission('action:manage_users'), (req, res) => {
+app.post('/api/invitations', requireAuth, (req, res) => {
+    const allowed = req.user.allowed_actions || [];
+    if (!allowed.includes('*') && !allowed.includes('action:manage_users') && !allowed.includes('action:invite_users')) {
+        return res.status(403).json({ error: 'Permission denied' });
+    }
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
     
