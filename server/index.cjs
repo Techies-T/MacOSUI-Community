@@ -188,17 +188,37 @@ app.post('/api/config', requireAuth, async (req, res) => {
             if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
         }
 
-        // Manage Workflow Models fields
-        if (geminiModel || nanoBananaModel || geminiResearchModel || geminiHtmlSvgModel || nanoBananaPrompt || deepResearchPrompt || htmlSvgPrompt || geminiResearchFolderId) {
+        const allowedWidgets = req.user.allowed_widgets || [];
+        const hasBase = hasWorkflowEdit || allowedWidgets.includes('workflow:deepresearch_html') || allowedWidgets.includes('workflow:deepresearch_infographic') || allowedWidgets.includes('workflow:deepresearch_full');
+        const hasHtml = hasWorkflowEdit || allowedWidgets.includes('workflow:deepresearch_html') || allowedWidgets.includes('workflow:deepresearch_full');
+        const hasInfo = hasWorkflowEdit || allowedWidgets.includes('workflow:deepresearch_infographic') || allowedWidgets.includes('workflow:deepresearch_full');
+
+        // Manage General Gemini Model
+        if (geminiModel) {
             if (!hasWorkflowEdit) return res.status(403).json({ error: 'Permission denied. Requires action:edit_workflow_model' });
-            if (geminiModel) await db.setSetting('GEMINI_MODEL', geminiModel);
-            if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
+            await db.setSetting('GEMINI_MODEL', geminiModel);
+        }
+
+        // Manage Base Research Model fields
+        if (geminiResearchModel || deepResearchPrompt !== undefined || geminiResearchFolderId !== undefined) {
+            if (!hasBase) return res.status(403).json({ error: 'Permission denied. Requires workflow:deepresearch_*' });
             if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
-            if (geminiHtmlSvgModel) await db.setSetting('GEMINI_HTML_SVG_MODEL', geminiHtmlSvgModel);
-            if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
             if (deepResearchPrompt !== undefined) await db.setSetting('DEEP_RESEARCH_PROMPT', deepResearchPrompt);
-            if (htmlSvgPrompt !== undefined) await db.setSetting('HTML_SVG_PROMPT', htmlSvgPrompt);
             if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
+        }
+
+        // Manage HTML/SVG Model fields
+        if (geminiHtmlSvgModel || htmlSvgPrompt !== undefined) {
+            if (!hasHtml) return res.status(403).json({ error: 'Permission denied. Requires workflow:deepresearch_html' });
+            if (geminiHtmlSvgModel) await db.setSetting('GEMINI_HTML_SVG_MODEL', geminiHtmlSvgModel);
+            if (htmlSvgPrompt !== undefined) await db.setSetting('HTML_SVG_PROMPT', htmlSvgPrompt);
+        }
+
+        // Manage Infographic Model fields
+        if (nanoBananaModel || nanoBananaPrompt !== undefined) {
+            if (!hasInfo) return res.status(403).json({ error: 'Permission denied. Requires workflow:deepresearch_infographic' });
+            if (nanoBananaModel) await db.setSetting('GEMINI_NANO_BANANA_MODEL', nanoBananaModel);
+            if (nanoBananaPrompt !== undefined) await db.setSetting('NANO_BANANA_2_PROMPT', nanoBananaPrompt);
         }
 
         // Manage RAG Folders fields
@@ -541,7 +561,7 @@ app.post('/api/auth/token-exchange', requireAuth, (req, res) => {
     });
 });
 
-// Middleware to check user auth
+// Middleware to check user auth (ZTA Real-time PDP Enforcement)
 function requireAuth(req, res, next) {
     const token = req.cookies.token;
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
@@ -549,8 +569,46 @@ function requireAuth(req, res, next) {
         if (err) {
             return res.status(403).json({ error: 'Invalid or expired token' });
         }
-        req.user = decoded;
-        next();
+        
+        // ZTA Real-time PDP check: Always fetch the latest roles and policies from the database
+        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+            if (err || !row) return res.status(401).json({ error: 'User not found in database' });
+            
+            req.user = decoded;
+            req.user.role = row.role;
+            
+            let rbacPolicies;
+            try {
+                rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+            } catch(e) {
+                rbacPolicies = {};
+            }
+            
+            const roles = (row.role || 'user').split(',').map(r => r.trim());
+            const allowed_widgets_set = new Set();
+            const allowed_actions_set = new Set();
+            let hasWildcardModels = false;
+            const allowed_models_set = new Set();
+            
+            roles.forEach(r => {
+                const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
+                (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
+                (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+                (policy.allowed_models || []).forEach(m => {
+                    if (m === '*') hasWildcardModels = true;
+                    allowed_models_set.add(m);
+                });
+            });
+            
+            // Universal default widgets
+            ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+            
+            req.user.allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
+            req.user.allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
+            req.user.allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
+            
+            next();
+        });
     });
 }
 

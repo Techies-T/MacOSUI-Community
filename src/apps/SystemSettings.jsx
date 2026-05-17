@@ -156,18 +156,38 @@ const SystemSettings = ({ user }) => {
 
     const handleSaveSettings = async () => {
         try {
-            const payload = {
-                googleClientId,
-                deepResearchPrompt,
-                htmlSvgPrompt,
-                nanoBananaPrompt,
-                researchFolderId,
-                mcpServerEndpoint,
-                mcpTokenUrl,
-                mcpClientId
-            };
-            if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
-            if (mcpClientSecret) payload.mcpClientSecret = mcpClientSecret;
+            const allowedWidgets = user?.allowed_widgets || [];
+            const hasWidget = (widgetId) => allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
+            const allowedActions = user?.allowed_actions || [];
+            const hasAction = (actionId) => allowedActions.includes('*') || allowedActions.includes(actionId);
+
+            const isManager = hasAction('action:edit_workflow_model') || hasAction('action:manage_system_settings');
+            const canSeeBase = isManager || hasWidget('workflow:deepresearch_html') || hasWidget('workflow:deepresearch_infographic') || hasWidget('workflow:deepresearch_full');
+            const canSeeHtml = isManager || hasWidget('workflow:deepresearch_html') || hasWidget('workflow:deepresearch_full');
+            const canSeeInfo = isManager || hasWidget('workflow:deepresearch_infographic') || hasWidget('workflow:deepresearch_full');
+            const hasSysSettings = isManager || hasAction('action:manage_system_settings');
+
+            const payload = {};
+            
+            if (hasSysSettings) {
+                payload.googleClientId = googleClientId;
+                payload.mcpServerEndpoint = mcpServerEndpoint;
+                payload.mcpTokenUrl = mcpTokenUrl;
+                payload.mcpClientId = mcpClientId;
+                if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
+                if (mcpClientSecret) payload.mcpClientSecret = mcpClientSecret;
+            }
+
+            if (canSeeBase) {
+                payload.deepResearchPrompt = deepResearchPrompt;
+                payload.researchFolderId = researchFolderId;
+            }
+            if (canSeeHtml) {
+                payload.htmlSvgPrompt = htmlSvgPrompt;
+            }
+            if (canSeeInfo) {
+                payload.nanoBananaPrompt = nanoBananaPrompt;
+            }
 
             const res = await fetch('/api/config', {
                 method: 'POST',

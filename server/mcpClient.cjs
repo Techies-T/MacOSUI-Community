@@ -5,7 +5,7 @@ const { decrypt } = require('./crypto.cjs');
 
 // State maps
 const serverConnections = new Map(); // serverId -> Connection Object
-const toolServerMap = new Map(); // toolName -> serverId
+// toolServerMap is removed as we dynamically lookup tool routing to support ZTA scoping
 
 /**
  * Loads all MCP servers from the database and initializes them if not already connected.
@@ -154,10 +154,7 @@ async function ensureConnection(connState) {
             const toolsList = await connState.mcpClientInstance.listTools();
             if (toolsList && toolsList.tools) {
                 connState.tools = toolsList.tools;
-                for (const tool of toolsList.tools) {
-                    toolServerMap.set(tool.name, connState.id);
-                    console.log(`[MCP Router] Registered tool '${tool.name}' to server ${connState.name}`);
-                }
+                console.log(`[MCP Router] Server ${connState.name} loaded ${toolsList.tools.length} tools.`);
             }
         } catch (e) {
             console.error(`[MCP ${connState.name}] Failed to list tools:`, e.message);
@@ -178,41 +175,38 @@ async function callMcpTool(name, args, allowedWidgets = ['*']) {
         await refreshConnections();
     }
 
-    const serverId = toolServerMap.get(name);
-    if (!serverId) {
-        await refreshConnections();
-        if (!toolServerMap.has(name)) {
-            throw new Error(`Tool '${name}' is not registered by any connected MCP Server.`);
+    // Dynamically find a server that provides this tool AND the user has access to
+    const hasWildcard = allowedWidgets.includes('*');
+    let targetConnState = null;
+
+    for (const [id, conn] of serverConnections.entries()) {
+        if (!hasWildcard && !allowedWidgets.includes(`mcp:${id}`)) continue;
+        
+        if (conn.tools && conn.tools.some(t => t.name === name)) {
+            targetConnState = conn;
+            break; // Found an accessible server providing this tool
         }
     }
 
-    // Granular MCP Check
-    const targetServerId = toolServerMap.get(name);
-    const hasWildcard = allowedWidgets.includes('*');
-    if (!hasWildcard && !allowedWidgets.includes(`mcp:${targetServerId}`)) {
-        throw new Error(`Access denied. Requires widget access: mcp:${targetServerId}`);
-    }
-
-    const connState = serverConnections.get(toolServerMap.get(name));
-    if (!connState) {
-        throw new Error(`Server for tool '${name}' is not available.`);
+    if (!targetConnState) {
+        throw new Error(`Access denied or Tool '${name}' is not registered by any accessible MCP Server.`);
     }
 
     try {
-        const client = await ensureConnection(connState);
+        const client = await ensureConnection(targetConnState);
         const result = await client.callTool({
             name: name,
             arguments: args || {}
         });
         return result;
     } catch (error) {
-        console.error(`[MCP ${connState.name}] Error calling Tool ${name}:`, error);
+        console.error(`[MCP ${targetConnState.name}] Error calling Tool ${name}:`, error);
         
-        if (connState.mcpTransport) {
-             try { await connState.mcpTransport.close(); } catch(e) {}
-             connState.mcpTransport = null;
+        if (targetConnState.mcpTransport) {
+             try { await targetConnState.mcpTransport.close(); } catch(e) {}
+             targetConnState.mcpTransport = null;
         }
-        connState.mcpClientInstance = null;
+        targetConnState.mcpClientInstance = null;
         
         throw error;
     }
@@ -228,12 +222,6 @@ function disconnectServer(serverId) {
             try { connState.mcpTransport.close(); } catch(e) {}
         }
         serverConnections.delete(serverId);
-        
-        for (const [toolName, sid] of toolServerMap.entries()) {
-            if (sid === serverId) {
-                toolServerMap.delete(toolName);
-            }
-        }
     }
 }
 
@@ -247,6 +235,7 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
     }
     
     const functionDeclarations = [];
+    const addedToolNames = new Set();
     const hasWildcard = allowedWidgets.includes('*');
     
     for (const [id, conn] of serverConnections.entries()) {
@@ -256,8 +245,15 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
 
         if (conn.tools) {
             for (const tool of conn.tools) {
+                const safeName = tool.name.replace(/[^a-zA-Z0-9_]/g, '_'); // Gemini only allows a-z, A-Z, 0-9, and _
+                
+                if (addedToolNames.has(safeName)) {
+                    continue; // Skip duplicate tool declarations
+                }
+                addedToolNames.add(safeName);
+
                 const funcDecl = {
-                    name: tool.name.replace(/[^a-zA-Z0-9_]/g, '_'), // Gemini only allows a-z, A-Z, 0-9, and _
+                    name: safeName,
                     description: tool.description || `MCP Tool: ${tool.name}`,
                 };
                 

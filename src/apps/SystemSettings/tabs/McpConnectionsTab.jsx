@@ -6,6 +6,7 @@ const McpConnectionsTab = () => {
     
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [showHelp, setShowHelp] = useState(false);
     const [editingServer, setEditingServer] = useState(null);
     const [formData, setFormData] = useState({
         name: '',
@@ -192,7 +193,31 @@ const McpConnectionsTab = () => {
                                 />
                             </div>
                             <div className="pt-2 border-t border-gray-100">
-                                <h4 className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wider">OAuth Authentication (Optional)</h4>
+                                <div className="flex items-center gap-2 mb-3">
+                                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">OAuth Authentication (Optional)</h4>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowHelp(!showHelp)}
+                                        className="w-5 h-5 rounded-full bg-gray-200 text-gray-500 hover:bg-indigo-100 hover:text-indigo-600 flex items-center justify-center text-xs font-bold transition-colors"
+                                        title="About API Keys & Scopes"
+                                    >
+                                        ?
+                                    </button>
+                                </div>
+                                
+                                {showHelp && (
+                                    <div className="mb-4 bg-indigo-50/80 p-3 rounded-lg border border-indigo-100/50 shadow-inner animate-fadeIn">
+                                        <h4 className="text-xs font-semibold text-indigo-900 mb-1 flex items-center gap-1">
+                                            API Key (Client ID) について
+                                        </h4>
+                                        <ul className="text-[11px] text-indigo-700/80 space-y-1 list-disc list-inside ml-1">
+                                            <li><strong>MCPサーバー</strong>と連携する場合：MCP側で発行されたClient ID/Secretを入力します。</li>
+                                            <li><strong>外部Agent</strong>と連携する場合：Agentプラットフォームで発行されたAgent Tokenを入力します。</li>
+                                            <li className="font-medium text-indigo-800 mt-2">💡 【権限分離のテクニック】<br/>
+                                            同じエンドポイントURLであっても、用途（チャット用・OPS用等）ごとに別々のClient IDで「複数回」登録することで、提供されるツール（Read/Write等）を制御し、ロールごとに割り当てることができます。</li>
+                                        </ul>
+                                    </div>
+                                )}
                                 <div className="space-y-3">
                                     <div>
                                         <label className="block text-xs font-medium text-gray-700 mb-1">Token URL</label>
