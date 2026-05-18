@@ -2,17 +2,66 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
 const { encrypt, decrypt } = require('../crypto.cjs');
-const { refreshConnections, disconnectServer, testMcpConnection } = require('../mcpClient.cjs');
+// POST to test an existing MCP server connection (by ID)
+router.post('/:id/test', async (req, res) => {
+    const { id } = req.params;
+    db.get("SELECT * FROM mcp_servers WHERE id = ?", [id], async (err, row) => {
+        if (err || !row) {
+            return res.status(404).json({ error: 'Server not found' });
+        }
+        
+        let clientSecret = row.client_secret;
+        if (clientSecret) {
+            try {
+                clientSecret = decrypt(clientSecret);
+            } catch (e) {
+                console.error("Failed to decrypt secret for test:", e);
+                clientSecret = null;
+            }
+        }
+        
+        const result = await testMcpConnection({
+            endpoint_url: row.endpoint_url,
+            token_url: row.token_url,
+            client_id: row.client_id,
+            client_secret: clientSecret
+        });
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    });
+});
 
-// POST to test MCP server connection
+// POST to test a new or edited MCP server connection
 router.post('/test', async (req, res) => {
-    const { endpoint_url, token_url, client_id, client_secret } = req.body;
+    const { id, endpoint_url, token_url, client_id, client_secret } = req.body;
     
     if (!endpoint_url) {
         return res.status(400).json({ error: 'Endpoint URL is required' });
     }
 
-    const result = await testMcpConnection({ endpoint_url, token_url, client_id, client_secret });
+    let finalSecret = client_secret;
+
+    // If testing an edit and secret is blank, fetch the existing secret from DB
+    if (!finalSecret && id) {
+        try {
+            const row = await new Promise((resolve, reject) => {
+                db.get("SELECT client_secret FROM mcp_servers WHERE id = ?", [id], (err, row) => {
+                    if (err) reject(err); else resolve(row);
+                });
+            });
+            if (row && row.client_secret) {
+                finalSecret = decrypt(row.client_secret);
+            }
+        } catch (e) {
+            console.error("Failed to fetch/decrypt existing secret for test:", e);
+        }
+    }
+
+    const result = await testMcpConnection({ endpoint_url, token_url, client_id, client_secret: finalSecret });
     if (result.success) {
         res.json(result);
     } else {

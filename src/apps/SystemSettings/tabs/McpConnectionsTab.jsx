@@ -9,6 +9,7 @@ const McpConnectionsTab = () => {
     const [showHelp, setShowHelp] = useState(false);
     const [editingServer, setEditingServer] = useState(null);
     const [formData, setFormData] = useState({
+        id: null,
         name: '',
         endpoint_url: '',
         token_url: '',
@@ -19,6 +20,7 @@ const McpConnectionsTab = () => {
     // Connection Test State
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState(null);
+    const [testingServerId, setTestingServerId] = useState(null); // For inline list testing
 
     const fetchServers = async () => {
         setIsLoading(true);
@@ -43,6 +45,7 @@ const McpConnectionsTab = () => {
         if (server) {
             setEditingServer(server);
             setFormData({
+                id: server.id,
                 name: server.name,
                 endpoint_url: server.endpoint_url,
                 token_url: server.token_url || '',
@@ -52,6 +55,7 @@ const McpConnectionsTab = () => {
         } else {
             setEditingServer(null);
             setFormData({
+                id: null,
                 name: '',
                 endpoint_url: '',
                 token_url: '',
@@ -95,6 +99,23 @@ const McpConnectionsTab = () => {
             setTestResult({ success: false, message: 'Network error or connection refused.' });
         } finally {
             setIsTesting(false);
+        }
+    };
+
+    const handleTestExisting = async (id) => {
+        setTestingServerId(id);
+        try {
+            const res = await fetch(`/api/mcp/servers/${id}/test`, { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert(`✅ Connected successfully!\nLoaded ${data.toolCount} tool(s).`);
+            } else {
+                alert(`❌ Connection failed:\n${data.error || 'Unknown error'}`);
+            }
+        } catch (e) {
+            alert('❌ Network error or connection refused.');
+        } finally {
+            setTestingServerId(null);
         }
     };
 
@@ -172,26 +193,33 @@ const McpConnectionsTab = () => {
                                     <h3 className="font-semibold text-sm text-gray-800">{server.name}</h3>
                                     <p className="text-xs text-gray-500 font-mono mt-1">{server.endpoint_url}</p>
                                     <div className="flex gap-2 mt-2">
-                                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${server.client_id ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>
-                                            {server.client_id ? 'OAuth Configured' : 'No Auth'}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => handleOpenModal(server)}
-                                        className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 transition-colors"
-                                    >
-                                        Edit
-                                    </button>
-                                    <button
-                                        onClick={() => handleDelete(server.id)}
-                                        className="px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded text-xs font-medium hover:bg-red-50 transition-colors"
-                                    >
-                                        Delete
-                                    </button>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${server.client_id ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>
+                                        {server.client_id ? 'OAuth Configured' : 'No Auth'}
+                                    </span>
                                 </div>
                             </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => handleTestExisting(server.id)}
+                                    disabled={testingServerId === server.id}
+                                    className="px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded text-xs font-medium hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                                >
+                                    {testingServerId === server.id ? 'Testing...' : 'Test'}
+                                </button>
+                                <button
+                                    onClick={() => handleOpenModal(server)}
+                                    className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-50 transition-colors"
+                                >
+                                    Edit
+                                </button>
+                                <button
+                                    onClick={() => handleDelete(server.id)}
+                                    className="px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded text-xs font-medium hover:bg-red-50 transition-colors"
+                                >
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
                         ))}
                     </div>
                 )}
