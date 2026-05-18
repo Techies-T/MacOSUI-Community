@@ -270,6 +270,71 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
     return functionDeclarations;
 }
 
+/**
+ * Tests an MCP connection without saving to the database
+ * @param {object} config - The temporary server configuration
+ * @returns {object} Result with success boolean and tool count or error message
+ */
+async function testMcpConnection(config) {
+    const { endpoint_url, token_url, client_id, client_secret } = config;
+    
+    if (!endpoint_url) {
+        return { success: false, error: "Endpoint URL is required." };
+    }
+
+    const tempState = {
+        name: 'TestConnection',
+        endpoint_url,
+        token_url,
+        client_id,
+        client_secret,
+        tokenCache: { accessToken: null, expiresAt: null }
+    };
+
+    let mcpTransport = null;
+    let mcpClientInstance = null;
+
+    try {
+        // 1. Attempt to get Token if configured
+        let token = null;
+        if (token_url && client_id && client_secret) {
+            token = await getOAuthToken(tempState);
+        }
+
+        // 2. Attempt SSE connection
+        const sseUrl = new URL(endpoint_url);
+        let requestInit = {};
+
+        if (token) {
+            sseUrl.searchParams.set('access_token', token);
+            requestInit = {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            };
+        }
+
+        mcpTransport = new SSEClientTransport(sseUrl, { requestInit });
+        mcpClientInstance = new Client({ name: "macos-ui-test", version: "1.0.0" }, { capabilities: {} });
+
+        await mcpClientInstance.connect(mcpTransport);
+        
+        // 3. Fetch tools to verify functionality
+        const toolsList = await mcpClientInstance.listTools();
+        const toolCount = toolsList?.tools?.length || 0;
+
+        return { success: true, toolCount };
+
+    } catch (error) {
+        return { success: false, error: error.message || String(error) };
+    } finally {
+        // Cleanup connection
+        if (mcpTransport) {
+            try { await mcpTransport.close(); } catch(e) {}
+        }
+    }
+}
+
 // Auto-init on load
 setTimeout(() => refreshConnections(), 2000);
 
@@ -277,5 +342,6 @@ module.exports = {
     callMcpTool,
     refreshConnections,
     disconnectServer,
-    getAllMcpToolsForGemini
+    getAllMcpToolsForGemini,
+    testMcpConnection
 };

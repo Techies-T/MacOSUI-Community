@@ -2,7 +2,23 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
 const { encrypt, decrypt } = require('../crypto.cjs');
-const { refreshConnections, disconnectServer } = require('../mcpClient.cjs');
+const { refreshConnections, disconnectServer, testMcpConnection } = require('../mcpClient.cjs');
+
+// POST to test MCP server connection
+router.post('/test', async (req, res) => {
+    const { endpoint_url, token_url, client_id, client_secret } = req.body;
+    
+    if (!endpoint_url) {
+        return res.status(400).json({ error: 'Endpoint URL is required' });
+    }
+
+    const result = await testMcpConnection({ endpoint_url, token_url, client_id, client_secret });
+    if (result.success) {
+        res.json(result);
+    } else {
+        res.status(400).json(result);
+    }
+});
 
 // GET all MCP servers (client_secret is NOT returned)
 router.get('/', (req, res) => {

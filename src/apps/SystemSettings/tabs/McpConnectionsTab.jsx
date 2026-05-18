@@ -15,6 +15,10 @@ const McpConnectionsTab = () => {
         client_id: '',
         client_secret: ''
     });
+    
+    // Connection Test State
+    const [isTesting, setIsTesting] = useState(false);
+    const [testResult, setTestResult] = useState(null);
 
     const fetchServers = async () => {
         setIsLoading(true);
@@ -55,12 +59,43 @@ const McpConnectionsTab = () => {
                 client_secret: ''
             });
         }
+        setTestResult(null); // Reset test result
         setIsModalOpen(true);
     };
 
     const handleCloseModal = () => {
         setIsModalOpen(false);
         setEditingServer(null);
+        setTestResult(null);
+    };
+
+    const handleTestConnection = async () => {
+        if (!formData.endpoint_url) {
+            setTestResult({ success: false, message: 'Endpoint URL is required to test.' });
+            return;
+        }
+
+        setIsTesting(true);
+        setTestResult(null);
+
+        try {
+            const res = await fetch('/api/mcp/servers/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            });
+            const data = await res.json();
+            
+            if (res.ok && data.success) {
+                setTestResult({ success: true, message: `Connected successfully! Loaded ${data.toolCount} tool(s).` });
+            } else {
+                setTestResult({ success: false, message: data.error || 'Failed to connect.' });
+            }
+        } catch (e) {
+            setTestResult({ success: false, message: 'Network error or connection refused.' });
+        } finally {
+            setIsTesting(false);
+        }
     };
 
     const handleSave = async () => {
@@ -252,19 +287,43 @@ const McpConnectionsTab = () => {
                                 </div>
                             </div>
                         </div>
-                        <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3 rounded-b-xl">
-                            <button
-                                onClick={handleCloseModal}
-                                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSave}
-                                className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 shadow-sm"
-                            >
-                                Save Connection
-                            </button>
+                        {testResult && (
+                            <div className={`px-6 py-3 border-t text-sm font-medium ${testResult.success ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+                                {testResult.success ? '✅ ' : '❌ '}
+                                {testResult.message}
+                            </div>
+                        )}
+                        <div className="px-6 py-4 bg-gray-50 flex justify-between gap-3 rounded-b-xl">
+                            <div>
+                                <button
+                                    onClick={handleTestConnection}
+                                    disabled={isTesting || !formData.endpoint_url}
+                                    className="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 disabled:opacity-50 transition-colors flex items-center gap-2"
+                                >
+                                    {isTesting ? (
+                                        <>
+                                            <svg className="animate-spin h-4 w-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                            Testing...
+                                        </>
+                                    ) : (
+                                        'Test Connection'
+                                    )}
+                                </button>
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handleCloseModal}
+                                    className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSave}
+                                    className="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 shadow-sm"
+                                >
+                                    Save Connection
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
