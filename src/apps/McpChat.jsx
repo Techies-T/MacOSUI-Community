@@ -124,8 +124,21 @@ const McpChat = () => {
                     </pre>
                 </div>
                 
-                <div className="flex-1 overflow-auto p-4 custom-scrollbar">
-                    <h3 className="text-xs text-gray-500 mb-2 uppercase tracking-wider">Output</h3>
+                <div className="flex-1 overflow-auto p-4 custom-scrollbar relative group">
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-xs text-gray-500 uppercase tracking-wider">Output</h3>
+                        <button 
+                            onClick={() => {
+                                navigator.clipboard.writeText(displayContent);
+                                // Optional: simple visual feedback could be added here
+                            }}
+                            className="p-1 px-2 bg-[#2d2d2d] border border-[#3d3d3d] hover:bg-[#3d3d3d] text-gray-300 rounded transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1.5 text-xs shadow-sm"
+                            title="Copy output"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                            Copy
+                        </button>
+                    </div>
                     <pre className="whitespace-pre-wrap break-words">{displayContent}</pre>
                 </div>
             </div>
@@ -218,7 +231,16 @@ const McpChat = () => {
                                 </div>
                                 
                                 {/* Bubble */}
-                                <div className={`max-w-[80%] px-4 py-3 text-[15px] leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none overflow-x-auto'}`}>
+                                <div className={`group relative max-w-[80%] px-4 py-3 text-[15px] leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none overflow-x-auto'}`}>
+                                    {msg.role === 'model' && (
+                                        <button 
+                                            onClick={() => navigator.clipboard.writeText(msg.text)}
+                                            className="absolute top-2 right-2 p-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10"
+                                            title="Copy message"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                                        </button>
+                                    )}
                                     {msg.role === 'user' ? (
                                         <p className="whitespace-pre-wrap">{msg.text}</p>
                                     ) : (
