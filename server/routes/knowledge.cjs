@@ -86,18 +86,24 @@ router.get('/:id', (req, res) => {
 
 // POST: 新規記事の作成
 router.post('/', async (req, res) => {
-    const { title, content, tags } = req.body;
+    const { title, content, tags, input_tokens, output_tokens } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     
     const tagsJson = JSON.stringify(tags || []);
     const authorId = req.user.id; // requireAuthによる検証結果を利用
     
-    // Calculate token count asynchronously
-    const tokenCount = await calculateTokens(content);
+    let finalInputTokens = input_tokens || 0;
+    let finalOutputTokens = output_tokens;
+    
+    // Calculate token count asynchronously if not provided (e.g. manual creation)
+    if (finalOutputTokens === undefined || finalOutputTokens === null) {
+        finalOutputTokens = await calculateTokens(content);
+    }
+    const tokenCount = finalInputTokens + finalOutputTokens;
     
     db.run(
-        "INSERT INTO knowledge_articles (title, content, tags, author_id, token_count) VALUES (?, ?, ?, ?, ?)",
-        [title, content, tagsJson, authorId, tokenCount],
+        "INSERT INTO knowledge_articles (title, content, tags, author_id, token_count, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [title, content, tagsJson, authorId, tokenCount, finalInputTokens, finalOutputTokens],
         function (err) {
             if (err) {
                 console.error(err);
@@ -110,17 +116,23 @@ router.post('/', async (req, res) => {
 
 // PUT: 記事の更新
 router.put('/:id', async (req, res) => {
-    const { title, content, tags } = req.body;
+    const { title, content, tags, input_tokens, output_tokens } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     
     const tagsJson = JSON.stringify(tags || []);
     
-    // Calculate token count asynchronously
-    const tokenCount = await calculateTokens(content);
+    let finalInputTokens = input_tokens || 0;
+    let finalOutputTokens = output_tokens;
+    
+    // Calculate token count asynchronously if not provided
+    if (finalOutputTokens === undefined || finalOutputTokens === null) {
+        finalOutputTokens = await calculateTokens(content);
+    }
+    const tokenCount = finalInputTokens + finalOutputTokens;
     
     db.run(
-        "UPDATE knowledge_articles SET title = ?, content = ?, tags = ?, token_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [title, content, tagsJson, tokenCount, req.params.id],
+        "UPDATE knowledge_articles SET title = ?, content = ?, tags = ?, token_count = ?, input_tokens = ?, output_tokens = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [title, content, tagsJson, tokenCount, finalInputTokens, finalOutputTokens, req.params.id],
         function (err) {
             if (err) return res.status(500).json({ error: 'Database error' });
             if (this.changes === 0) return res.status(404).json({ error: 'Article not found' });

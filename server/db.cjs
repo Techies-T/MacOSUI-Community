@@ -149,6 +149,8 @@ function initDb() {
         tags TEXT,
         author_id INTEGER,
         token_count INTEGER DEFAULT 0,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(author_id) REFERENCES users(id)
@@ -156,6 +158,12 @@ function initDb() {
 
     // Migration for knowledge_articles token_count
     db.run("ALTER TABLE knowledge_articles ADD COLUMN token_count INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE knowledge_articles ADD COLUMN input_tokens INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE knowledge_articles ADD COLUMN output_tokens INTEGER DEFAULT 0", (err) => {
         // Ignore error if column exists
     });
 

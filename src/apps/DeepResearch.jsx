@@ -604,7 +604,9 @@ ${reportText.substring(0, 1500)}...`;
                     body: JSON.stringify({
                         title: documentTitle,
                         content: indexContent,
-                        tags: Array.from(new Set(knowledgeTags)) // Deduplicate
+                        tags: Array.from(new Set(knowledgeTags)), // Deduplicate
+                        input_tokens: totalInputTokensRef.current,
+                        output_tokens: totalOutputTokensRef.current
                     })
                 });
 
