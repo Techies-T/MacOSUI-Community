@@ -1,7 +1,29 @@
 const express = require('express');
 const db = require('../db.cjs');
+const { GoogleGenAI } = require('@google/genai');
 
 const router = express.Router();
+
+async function calculateTokens(content) {
+    if (!content) return 0;
+    try {
+        const apiKey = await db.getSetting('GEMINI_API_KEY');
+        if (apiKey) {
+            const ai = new GoogleGenAI({ apiKey: apiKey });
+            const response = await ai.models.countTokens({
+                model: 'gemini-3.1-pro-preview',
+                contents: content
+            });
+            return response.totalTokens || Math.ceil(content.length / 4);
+        }
+    } catch (e) {
+        console.error("Token calculation failed, using fallback:", e.message);
+    }
+    return Math.ceil(content.length / 4);
+}
+
+
+
 
 // GET: 全ナレッジ記事の一覧取得（タグによる絞り込み対応）
 router.get('/', (req, res) => {
@@ -63,16 +85,19 @@ router.get('/:id', (req, res) => {
 });
 
 // POST: 新規記事の作成
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
     const { title, content, tags } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     
     const tagsJson = JSON.stringify(tags || []);
     const authorId = req.user.id; // requireAuthによる検証結果を利用
     
+    // Calculate token count asynchronously
+    const tokenCount = await calculateTokens(content);
+    
     db.run(
-        "INSERT INTO knowledge_articles (title, content, tags, author_id) VALUES (?, ?, ?, ?)",
-        [title, content, tagsJson, authorId],
+        "INSERT INTO knowledge_articles (title, content, tags, author_id, token_count) VALUES (?, ?, ?, ?, ?)",
+        [title, content, tagsJson, authorId, tokenCount],
         function (err) {
             if (err) {
                 console.error(err);
@@ -84,15 +109,18 @@ router.post('/', (req, res) => {
 });
 
 // PUT: 記事の更新
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
     const { title, content, tags } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     
     const tagsJson = JSON.stringify(tags || []);
     
+    // Calculate token count asynchronously
+    const tokenCount = await calculateTokens(content);
+    
     db.run(
-        "UPDATE knowledge_articles SET title = ?, content = ?, tags = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [title, content, tagsJson, req.params.id],
+        "UPDATE knowledge_articles SET title = ?, content = ?, tags = ?, token_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [title, content, tagsJson, tokenCount, req.params.id],
         function (err) {
             if (err) return res.status(500).json({ error: 'Database error' });
             if (this.changes === 0) return res.status(404).json({ error: 'Article not found' });

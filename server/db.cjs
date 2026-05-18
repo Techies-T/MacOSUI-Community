@@ -148,10 +148,16 @@ function initDb() {
         content TEXT,
         tags TEXT,
         author_id INTEGER,
+        token_count INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(author_id) REFERENCES users(id)
     )`);
+
+    // Migration for knowledge_articles token_count
+    db.run("ALTER TABLE knowledge_articles ADD COLUMN token_count INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
 
     // External Skills
     db.run(`CREATE TABLE IF NOT EXISTS skills (
@@ -289,6 +295,21 @@ async function autoActivate() {
                         }
                     );
                 }
+            }
+        });
+
+        // Auto-register Knowledge Base MCP Server
+        db.get("SELECT COUNT(*) as count FROM mcp_servers WHERE name = 'Knowledge Base MCP (Built-in)'", (err, row) => {
+            if (!err && row && row.count === 0) {
+                console.log('DEBUG: Registering Knowledge Base MCP Server...');
+                const endpointUrl = 'http://localhost:8080/api/mcp/knowledge/sse';
+                db.run(`INSERT INTO mcp_servers (name, endpoint_url) VALUES (?, ?)`,
+                    ['Knowledge Base MCP (Built-in)', endpointUrl],
+                    (err) => {
+                        if (err) console.error('Failed to register Knowledge Base MCP Server', err);
+                        else console.log('DEBUG: Knowledge Base MCP Server registered successfully.');
+                    }
+                );
             }
         });
 

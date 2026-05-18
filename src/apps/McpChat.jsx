@@ -193,6 +193,12 @@ const McpChat = () => {
                                 <button onClick={() => setInput("AppRunnerの最新メトリクスを教えてください")} className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors">
                                     AppRunnerのメトリクス
                                 </button>
+                                <button onClick={() => setInput("ナレッジベースのAuthorごとの月別投稿数を教えてください")} className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                                    Authorごとの月別投稿数
+                                </button>
+                                <button onClick={() => setInput("ナレッジベースの記事ごとのトークン数を教えてください")} className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                                    記事ごとのトークン数
+                                </button>
                             </div>
                         </div>
                     )}

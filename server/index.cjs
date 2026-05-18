@@ -257,6 +257,10 @@ app.use('/api/research', requireWidgetAccess('app:deep-research'), deepResearchM
 const knowledgeModule = require('./routes/knowledge.cjs');
 app.use('/api/knowledge', requireWidgetAccess('app:knowledge-base'), knowledgeModule.router);
 
+// Knowledge Base MCP Server route
+const knowledgeMcpModule = require('./routes/knowledgeMcp.cjs');
+app.use('/api/mcp/knowledge', knowledgeMcpModule.router);
+
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
 
