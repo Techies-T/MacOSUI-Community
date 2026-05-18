@@ -33,9 +33,16 @@ router.post('/', async (req, res) => {
             tools.push({ functionDeclarations: mcpTools });
         }
 
+        const toolDescriptions = mcpTools.map(t => `- **${t.name}**: ${t.description}`).join('\n');
+
         const systemInstruction = {
             parts: [{ 
-                text: "You are a helpful IT Operations and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown. If a tool returns JSON or tabular data, format it as a markdown table or code block so the user can easily read it."
+                text: `You are a helpful IT Operations and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown. If a tool returns JSON or tabular data, format it as a markdown table or code block so the user can easily read it.
+
+If the user asks what tools are available or what you can do, explicitly list the exact names and descriptions of the tools provided below:
+
+Available Tools:
+${toolDescriptions}`
             }]
         };
 
