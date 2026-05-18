@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
 const { encrypt, decrypt } = require('../crypto.cjs');
+const { refreshConnections, disconnectServer, testMcpConnection } = require('../mcpClient.cjs');
+
 // POST to test an existing MCP server connection (by ID)
 router.post('/:id/test', async (req, res) => {
     const { id } = req.params;
