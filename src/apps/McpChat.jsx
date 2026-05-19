@@ -10,6 +10,7 @@ const McpChat = () => {
     // Artifact Viewer State
     const [activeArtifact, setActiveArtifact] = useState(null); // The artifact to display on the right pane
     const [allArtifacts, setAllArtifacts] = useState([]);
+    const [quickPrompts, setQuickPrompts] = useState([]);
 
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -20,7 +21,22 @@ const McpChat = () => {
 
     useEffect(() => {
         scrollToBottom();
+        fetchQuickPrompts();
     }, [messages]);
+
+    const fetchQuickPrompts = async () => {
+        try {
+            const res = await fetch('/api/config');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.mcpQuickPrompts && Array.isArray(data.mcpQuickPrompts)) {
+                    setQuickPrompts(data.mcpQuickPrompts);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch config for quick prompts:', e);
+        }
+    };
 
     const handleSend = async () => {
         const textToSend = input.trim();
@@ -200,18 +216,15 @@ const McpChat = () => {
                                 Connect to any external tools using Model Context Protocol. Ask me to monitor your servers, fetch data, or interact with external systems.
                             </p>
                             <div className="flex flex-wrap gap-2 justify-center">
-                                <button onClick={() => setInput("Dockerのコンテナ一覧を取得して表にまとめてください")} className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors">
-                                    Dockerのコンテナ一覧
-                                </button>
-                                <button onClick={() => setInput("AppRunnerの最新メトリクスを教えてください")} className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors">
-                                    AppRunnerのメトリクス
-                                </button>
-                                <button onClick={() => setInput("ナレッジベースのAuthorごとの月別投稿数を教えてください")} className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors">
-                                    Authorごとの月別投稿数
-                                </button>
-                                <button onClick={() => setInput("ナレッジベースの記事ごとのトークン数を教えてください")} className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors">
-                                    記事ごとのトークン数
-                                </button>
+                                {quickPrompts.map((item, idx) => (
+                                    <button 
+                                        key={idx}
+                                        onClick={() => setInput(item.prompt)} 
+                                        className="bg-white border border-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
+                                    >
+                                        {item.label}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     )}
@@ -277,6 +290,21 @@ const McpChat = () => {
 
                 {/* Input Area */}
                 <div className="flex-none p-4 bg-white border-t border-gray-200">
+                    <div className="max-w-4xl mx-auto flex gap-2 overflow-x-auto mb-3 pb-1 scrollbar-thin">
+                        <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold flex items-center mr-1">Quick Prompts</span>
+                        {quickPrompts.map((item, idx) => (
+                            <button 
+                                key={idx}
+                                onClick={() => {
+                                    setInput(item.prompt);
+                                    if (inputRef.current) inputRef.current.focus();
+                                }} 
+                                className="flex-shrink-0 bg-white border border-gray-200 text-gray-600 text-[11px] px-2.5 py-1 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
                     <div className="relative max-w-4xl mx-auto flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-300 transition-all shadow-sm">
                         <textarea
                             ref={inputRef}

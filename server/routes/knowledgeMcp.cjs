@@ -48,6 +48,21 @@ function createMcpServer() {
                         },
                         required: ['groupBy']
                     }
+                },
+                {
+                    name: 'get_knowledge_token_crosstab',
+                    description: 'Get a cross-tabulation (pivot table) of input and output tokens for knowledge base articles, grouped by both time period (rows) and author (columns). Use this when the user asks for a cross-tabulated table.',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            period: {
+                                type: 'string',
+                                enum: ['monthly', 'quarterly', 'half-yearly', 'yearly'],
+                                description: 'The time period for rows'
+                            }
+                        },
+                        required: ['period']
+                    }
                 }
             ]
         };
@@ -98,6 +113,80 @@ function createMcpServer() {
                 db.all(query, [], (err, rows) => {
                     if (err) resolve({ content: [{ type: 'text', text: `Error: ${err.message}` }] });
                     else resolve({ content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] });
+                });
+            });
+        }
+
+        if (name === 'get_knowledge_token_crosstab') {
+            const period = args.period || 'monthly';
+            
+            let dateModifier = "strftime('%Y-%m', k.created_at)";
+            if (period === 'yearly') dateModifier = "strftime('%Y', k.created_at)";
+            else if (period === 'quarterly') dateModifier = "strftime('%Y-Q', k.created_at) || ((cast(strftime('%m', k.created_at) as integer) + 2) / 3)";
+            else if (period === 'half-yearly') dateModifier = "strftime('%Y-H', k.created_at) || ((cast(strftime('%m', k.created_at) as integer) + 5) / 6)";
+
+            const query = `
+                SELECT 
+                    ${dateModifier} as period, 
+                    u.name as author, 
+                    SUM(k.input_tokens) as input_tokens,
+                    SUM(k.output_tokens) as output_tokens
+                FROM knowledge_articles k 
+                LEFT JOIN users u ON k.author_id = u.id 
+                GROUP BY period, u.name 
+                ORDER BY period ASC
+            `;
+
+            return new Promise((resolve, reject) => {
+                db.all(query, [], (err, rows) => {
+                    if (err) {
+                        resolve({ content: [{ type: 'text', text: `Error: ${err.message}` }] });
+                        return;
+                    }
+                    
+                    const authorsSet = new Set();
+                    const periodsMap = new Map();
+
+                    rows.forEach(row => {
+                        const author = row.author || 'Unknown';
+                        authorsSet.add(author);
+                        if (!periodsMap.has(row.period)) {
+                            periodsMap.set(row.period, {});
+                        }
+                        periodsMap.get(row.period)[author] = {
+                            input: row.input_tokens || 0,
+                            output: row.output_tokens || 0
+                        };
+                    });
+
+                    const authors = Array.from(authorsSet).sort();
+                    
+                    const columns = ['Period'];
+                    authors.forEach(author => {
+                        columns.push(`${author} (Input)`);
+                        columns.push(`${author} (Output)`);
+                    });
+                    
+                    const structuredData = {
+                        instruction: "You MUST output exactly ONE markdown table. The table should represent a cross-tabulation where the rows are periods and the columns are the Input and Output tokens for each author. Use the exact columns provided. Show zeros for missing data.",
+                        columns: columns,
+                        table_data: []
+                    };
+
+                    const sortedPeriods = Array.from(periodsMap.keys()).sort();
+                    sortedPeriods.forEach(period => {
+                        const row = { Period: period };
+                        
+                        authors.forEach(author => {
+                            const data = periodsMap.get(period)[author] || { input: 0, output: 0 };
+                            row[`${author} (Input)`] = data.input;
+                            row[`${author} (Output)`] = data.output;
+                        });
+                        
+                        structuredData.table_data.push(row);
+                    });
+
+                    resolve({ content: [{ type: 'text', text: JSON.stringify(structuredData, null, 2) }] });
                 });
             });
         }

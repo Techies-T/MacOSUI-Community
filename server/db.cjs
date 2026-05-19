@@ -162,6 +162,7 @@ function initDb() {
     });
     db.run("ALTER TABLE knowledge_articles ADD COLUMN input_tokens INTEGER DEFAULT 0", (err) => {
         // Ignore error if column exists
+        db.run(`UPDATE knowledge_articles SET input_tokens = CAST(token_count * 0.2 AS INTEGER), output_tokens = CAST(token_count * 0.8 AS INTEGER) WHERE input_tokens = 0 AND output_tokens = 0 AND token_count > 0;`);
     });
     db.run("ALTER TABLE knowledge_articles ADD COLUMN output_tokens INTEGER DEFAULT 0", (err) => {
         // Ignore error if column exists
@@ -320,6 +321,21 @@ async function autoActivate() {
                 );
             }
         });
+
+        // Auto-register Default MCP Quick Prompts
+        const existingPrompts = await db.getSetting('MCP_QUICK_PROMPTS');
+        if (!existingPrompts) {
+            console.log('DEBUG: Initializing default MCP Quick Prompts...');
+            const defaultPrompts = JSON.stringify([
+                { label: "利用可能なツール", prompt: "利用可能なツール一覧を表示してください。" },
+                { label: "Authorごとの月別投稿数", prompt: "ナレッジベースのAuthorごとの月別投稿数を教えてください" },
+                { label: "記事トークン数", prompt: "ナレッジベースの記事ごとのトークン数を教えてください" },
+                { label: "トークン数のクロス集計", prompt: "月別と著者別のインプットトークンとアウトプットトークンをクロス集計して表にして" },
+                { label: "AppRunnerメトリクス", prompt: "AppRunnerの最新メトリクスを教えてください" },
+                { label: "Docker一覧", prompt: "Dockerのコンテナ一覧を取得して表にまとめてください" }
+            ]);
+            await db.setSetting('MCP_QUICK_PROMPTS', defaultPrompts);
+        }
 
     } catch (error) {
         console.error('Error during auto-activation:', error);

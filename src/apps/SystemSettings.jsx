@@ -34,6 +34,7 @@ const SystemSettings = ({ user }) => {
     const [mcpClientId, setMcpClientId] = useState('');
     const [mcpClientSecret, setMcpClientSecret] = useState('');
     const [isMcpSecretConfigured, setIsMcpSecretConfigured] = useState(false);
+    const [mcpQuickPrompts, setMcpQuickPrompts] = useState([]);
     
     // RBAC Policies
     const [rbacPolicies, setRbacPolicies] = useState({});
@@ -134,6 +135,9 @@ const SystemSettings = ({ user }) => {
                 if (data.isMcpSecretConfigured !== undefined) {
                     setIsMcpSecretConfigured(data.isMcpSecretConfigured);
                 }
+                if (data.mcpQuickPrompts) {
+                    setMcpQuickPrompts(data.mcpQuickPrompts);
+                }
                 if (data.rbacPolicies) {
                     setRbacPolicies(data.rbacPolicies);
                 }
@@ -174,6 +178,7 @@ const SystemSettings = ({ user }) => {
                 payload.mcpServerEndpoint = mcpServerEndpoint;
                 payload.mcpTokenUrl = mcpTokenUrl;
                 payload.mcpClientId = mcpClientId;
+                payload.mcpQuickPrompts = mcpQuickPrompts;
                 if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
                 if (mcpClientSecret) payload.mcpClientSecret = mcpClientSecret;
             }
@@ -659,7 +664,11 @@ const SystemSettings = ({ user }) => {
                 )}
 
                 {activeTab === 'Server Monitor' && (
-                    <McpConnectionsTab />
+                    <McpConnectionsTab 
+                        mcpQuickPrompts={mcpQuickPrompts}
+                        setMcpQuickPrompts={setMcpQuickPrompts}
+                        handleSaveSettings={handleSaveSettings}
+                    />
                 )}
 
                 {activeTab === 'Chat Config' && (

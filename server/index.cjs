@@ -111,6 +111,13 @@ app.get('/api/config', async (req, res) => {
         } catch (e) {
             rbacPolicies = {};
         }
+        
+        let mcpQuickPrompts;
+        try {
+            mcpQuickPrompts = JSON.parse(await db.getSetting('MCP_QUICK_PROMPTS') || '[]');
+        } catch (e) {
+            mcpQuickPrompts = [];
+        }
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -131,7 +138,8 @@ app.get('/api/config', async (req, res) => {
             mcpTokenUrl,
             mcpClientId,
             isMcpSecretConfigured,
-            rbacPolicies
+            rbacPolicies,
+            mcpQuickPrompts
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -141,7 +149,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', requireAuth, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -186,6 +194,7 @@ app.post('/api/config', requireAuth, async (req, res) => {
             if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
             if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
             if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
+            if (mcpQuickPrompts !== undefined) await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(mcpQuickPrompts));
         }
 
         const allowedWidgets = req.user.allowed_widgets || [];

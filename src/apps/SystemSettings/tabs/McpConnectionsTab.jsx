@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-const McpConnectionsTab = () => {
+const McpConnectionsTab = ({ mcpQuickPrompts = [], setMcpQuickPrompts, handleSaveSettings }) => {
+    const [activeSubTab, setActiveSubTab] = useState('connections'); // 'connections' | 'prompts'
     const [servers, setServers] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     
@@ -21,6 +22,10 @@ const McpConnectionsTab = () => {
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState(null);
     const [testingServerId, setTestingServerId] = useState(null); // For inline list testing
+
+    // Quick Prompts State
+    const [newPromptLabel, setNewPromptLabel] = useState('');
+    const [newPromptText, setNewPromptText] = useState('');
 
     const fetchServers = async () => {
         setIsLoading(true);
@@ -162,7 +167,122 @@ const McpConnectionsTab = () => {
 
     return (
         <div className="space-y-6">
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+            {/* Sub Tab Navigation */}
+            <div className="flex border-b border-gray-200">
+                <button
+                    onClick={() => setActiveSubTab('connections')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeSubTab === 'connections' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                    Server Connections
+                </button>
+                <button
+                    onClick={() => setActiveSubTab('prompts')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeSubTab === 'prompts' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                    Quick Prompts
+                </button>
+            </div>
+
+            {activeSubTab === 'prompts' && (
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 animate-fadeIn">
+                <div className="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 className="font-semibold text-gray-900">MCP Quick Prompts</h2>
+                        <p className="text-xs text-gray-500">
+                            Configure globally available quick prompts that appear as suggestion buttons in the MCP Chat.
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleSaveSettings}
+                        className="px-4 py-2 bg-indigo-500 text-white rounded text-xs font-medium hover:bg-indigo-600 transition-colors shadow-sm"
+                    >
+                        Save Prompts
+                    </button>
+                </div>
+
+                <div className="space-y-3 mb-4">
+                    {mcpQuickPrompts.map((prompt, index) => (
+                        <div key={index} className="flex flex-col gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg relative group">
+                            <button
+                                onClick={() => setMcpQuickPrompts(prev => prev.filter((_, i) => i !== index))}
+                                className="absolute top-2 right-2 w-6 h-6 rounded bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-sm"
+                                title="Remove prompt"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                            <div>
+                                <label className="text-[10px] font-semibold text-gray-500 uppercase">Button Label</label>
+                                <input
+                                    type="text"
+                                    value={prompt.label}
+                                    onChange={(e) => {
+                                        const newPrompts = [...mcpQuickPrompts];
+                                        newPrompts[index].label = e.target.value;
+                                        setMcpQuickPrompts(newPrompts);
+                                    }}
+                                    className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-semibold text-gray-500 uppercase">Prompt</label>
+                                <textarea
+                                    value={prompt.prompt}
+                                    onChange={(e) => {
+                                        const newPrompts = [...mcpQuickPrompts];
+                                        newPrompts[index].prompt = e.target.value;
+                                        setMcpQuickPrompts(newPrompts);
+                                    }}
+                                    rows={2}
+                                    className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y"
+                                />
+                            </div>
+                        </div>
+                    ))}
+                    {mcpQuickPrompts.length === 0 && (
+                        <div className="text-sm text-gray-400 py-4 text-center italic border-2 border-dashed border-gray-100 rounded-lg">
+                            No quick prompts configured.
+                        </div>
+                    )}
+                </div>
+
+                <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+                    <h4 className="text-xs font-semibold text-indigo-900 mb-2">Add New Quick Prompt</h4>
+                    <div className="flex flex-col gap-2">
+                        <input
+                            type="text"
+                            placeholder="Button Label (e.g., 'Docker Status')"
+                            value={newPromptLabel}
+                            onChange={(e) => setNewPromptLabel(e.target.value)}
+                            className="w-full bg-white border border-indigo-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                        <textarea
+                            placeholder="Prompt text that will be sent to the AI..."
+                            value={newPromptText}
+                            onChange={(e) => setNewPromptText(e.target.value)}
+                            rows={2}
+                            className="w-full bg-white border border-indigo-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y"
+                        />
+                        <div className="flex justify-end mt-1">
+                            <button
+                                onClick={() => {
+                                    if (!newPromptLabel || !newPromptText) return;
+                                    setMcpQuickPrompts([...mcpQuickPrompts, { label: newPromptLabel, prompt: newPromptText }]);
+                                    setNewPromptLabel('');
+                                    setNewPromptText('');
+                                }}
+                                disabled={!newPromptLabel || !newPromptText}
+                                className="px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                            >
+                                Add Prompt
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            )}
+
+            {activeSubTab === 'connections' && (
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 animate-fadeIn">
                 <div className="flex justify-between items-center mb-4">
                     <div>
                         <h2 className="font-semibold text-gray-900">MCP Connections (Phase 2)</h2>
@@ -224,6 +344,7 @@ const McpConnectionsTab = () => {
                     </div>
                 )}
             </div>
+            )}
 
             {/* Modal */}
             {isModalOpen && (
