@@ -23,7 +23,10 @@ router.post('/', async (req, res) => {
         }
 
         const client = getGeminiClient(apiKey);
-        const modelName = 'gemini-2.5-pro'; // or flash, but pro is better for tools
+        const modelName = await db.getSetting('GEMINI_MCP_CHAT_MODEL');
+        if (!modelName) {
+            return res.status(400).json({ error: 'MCPチャットモデルが設定されていません。システム設定の「Server Monitor（MCP Connections）」画面からモデルを選択して保存してください。' });
+        }
 
         // Get MCP Tools filtered by user's permissions
         const mcpTools = await getAllMcpToolsForGemini(req.user.allowed_widgets || []);

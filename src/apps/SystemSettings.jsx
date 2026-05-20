@@ -35,6 +35,7 @@ const SystemSettings = ({ user }) => {
     const [mcpClientSecret, setMcpClientSecret] = useState('');
     const [isMcpSecretConfigured, setIsMcpSecretConfigured] = useState(false);
     const [mcpQuickPrompts, setMcpQuickPrompts] = useState([]);
+    const [currentMcpChatModel, setCurrentMcpChatModel] = useState('');
     
     // RBAC Policies
     const [rbacPolicies, setRbacPolicies] = useState({});
@@ -137,6 +138,11 @@ const SystemSettings = ({ user }) => {
                 }
                 if (data.mcpQuickPrompts) {
                     setMcpQuickPrompts(data.mcpQuickPrompts);
+                }
+                if (data.geminiMcpChatModel) {
+                    setCurrentMcpChatModel(data.geminiMcpChatModel);
+                } else {
+                    setCurrentMcpChatModel('');
                 }
                 if (data.rbacPolicies) {
                     setRbacPolicies(data.rbacPolicies);
@@ -259,6 +265,19 @@ const SystemSettings = ({ user }) => {
             });
         } catch (err) {
             console.error("Failed to save html/svg model selection", err);
+        }
+    };
+
+    const handleMcpChatModelChange = async (modelName) => {
+        setCurrentMcpChatModel(modelName);
+        try {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ geminiMcpChatModel: modelName })
+            });
+        } catch (err) {
+            console.error("Failed to save mcp chat model selection", err);
         }
     };
 
@@ -668,6 +687,9 @@ const SystemSettings = ({ user }) => {
                         mcpQuickPrompts={mcpQuickPrompts}
                         setMcpQuickPrompts={setMcpQuickPrompts}
                         handleSaveSettings={handleSaveSettings}
+                        models={models}
+                        currentMcpChatModel={currentMcpChatModel}
+                        handleMcpChatModelChange={handleMcpChatModelChange}
                     />
                 )}
 

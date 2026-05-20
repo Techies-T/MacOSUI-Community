@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 
-const McpConnectionsTab = ({ mcpQuickPrompts = [], setMcpQuickPrompts, handleSaveSettings }) => {
-    const [activeSubTab, setActiveSubTab] = useState('connections'); // 'connections' | 'prompts'
+const McpConnectionsTab = ({ 
+    mcpQuickPrompts = [], 
+    setMcpQuickPrompts, 
+    handleSaveSettings,
+    models = [],
+    currentMcpChatModel = 'gemini-2.5-pro',
+    handleMcpChatModelChange
+}) => {
+    const [activeSubTab, setActiveSubTab] = useState('connections'); // 'connections' | 'prompts' | 'model'
     const [servers, setServers] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     
@@ -181,6 +188,12 @@ const McpConnectionsTab = ({ mcpQuickPrompts = [], setMcpQuickPrompts, handleSav
                 >
                     Quick Prompts
                 </button>
+                <button
+                    onClick={() => setActiveSubTab('model')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeSubTab === 'model' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                    MCP Chat Model
+                </button>
             </div>
 
             {activeSubTab === 'prompts' && (
@@ -344,6 +357,45 @@ const McpConnectionsTab = ({ mcpQuickPrompts = [], setMcpQuickPrompts, handleSav
                     </div>
                 )}
             </div>
+            )}
+
+            {activeSubTab === 'model' && (
+                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 animate-fadeIn">
+                    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100">
+                        <span className="text-2xl">🤖</span>
+                        <div>
+                            <h2 className="font-semibold text-gray-900">MCP Agent Model Selection</h2>
+                            <p className="text-xs text-gray-500">
+                                Select the Gemini model used by the MCP chat agent. Models with high reasoning capacity (e.g., Gemini Pro) are recommended for complex tool execution.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Active Gemini Model</label>
+                            <select
+                                value={currentMcpChatModel}
+                                onChange={(e) => handleMcpChatModelChange(e.target.value)}
+                                className="w-full max-w-md px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono transition-shadow shadow-sm"
+                            >
+                                <option value="">Select a model...</option>
+                                {models?.map(m => (
+                                    <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-4 mt-6">
+                            <h4 className="text-xs font-semibold text-indigo-900 mb-1.5 flex items-center gap-1.5">
+                                💡 推奨モデルについて
+                            </h4>
+                            <p className="text-xs text-indigo-700/80 leading-relaxed">
+                                MCP（Model Context Protocol）は外部サーバーから提供される関数定義を読み取り、適切に引数を解釈して実行する必要があります。高度なツール呼び出しの正確性を確保するため、<strong>Proモデル</strong>（例: <code>gemini-2.5-pro</code> など）の利用を推奨します。
+                            </p>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Modal */}

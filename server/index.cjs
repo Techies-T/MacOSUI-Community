@@ -96,6 +96,7 @@ app.get('/api/config', async (req, res) => {
         const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
         const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
+        const geminiMcpChatModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || '';
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
         const deepResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
         const htmlSvgPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
@@ -131,6 +132,7 @@ app.get('/api/config', async (req, res) => {
             nanoBananaModel,
             geminiResearchModel,
             geminiHtmlSvgModel,
+            geminiMcpChatModel,
             nanoBananaPrompt,
             deepResearchPrompt,
             htmlSvgPrompt,
@@ -149,7 +151,7 @@ app.get('/api/config', async (req, res) => {
 
 // Config: Save settings (Activation)
 app.post('/api/config', requireAuth, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -206,6 +208,12 @@ app.post('/api/config', requireAuth, async (req, res) => {
         if (geminiModel) {
             if (!hasWorkflowEdit) return res.status(403).json({ error: 'Permission denied. Requires action:edit_workflow_model' });
             await db.setSetting('GEMINI_MODEL', geminiModel);
+        }
+
+        // Manage MCP Chat Model
+        if (geminiMcpChatModel) {
+            if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
+            await db.setSetting('GEMINI_MCP_CHAT_MODEL', geminiMcpChatModel);
         }
 
         // Manage Base Research Model fields
