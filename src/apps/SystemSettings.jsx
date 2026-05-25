@@ -7,6 +7,7 @@ import McpConnectionsTab from './SystemSettings/tabs/McpConnectionsTab';
 import ChatConfigTab from './SystemSettings/tabs/ChatConfigTab';
 import UsersTab from './SystemSettings/tabs/UsersTab';
 import RolesTab from './SystemSettings/tabs/RolesTab';
+import SecurityLogsTab from './SystemSettings/tabs/SecurityLogsTab';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
@@ -476,7 +477,8 @@ const SystemSettings = ({ user }) => {
         { id: 'Skills', icon: '🧩', label: 'Skills' },
         ...(hasAction('action:manage_system_settings') ? [
             { id: 'General', icon: '⚙️', label: 'General' },
-            { id: 'System', icon: '🔒', label: 'System' }
+            { id: 'System', icon: '🔒', label: 'System' },
+            { id: 'Security Logs', icon: '🛡️', label: 'Security Logs' }
         ] : []),
         ...(hasWidget('workflow:deepresearch_html') || hasWidget('workflow:deepresearch_infographic') || hasWidget('workflow:deepresearch_full') || hasAction('action:edit_workflow_model') || hasAction('action:manage_system_settings') ? [
             {
@@ -706,6 +708,10 @@ const SystemSettings = ({ user }) => {
                         ragFaqs={ragFaqs}
                         setRagFaqs={setRagFaqs}
                     />
+                )}
+
+                {activeTab === 'Security Logs' && (
+                    <SecurityLogsTab />
                 )}
             </div>
         </div>

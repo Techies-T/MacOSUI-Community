@@ -1,5 +1,77 @@
 import React, { useState, useRef, useEffect } from 'react';
 
+const SLASH_COMMANDS = [
+    {
+        command: '/inception',
+        title: '🚀 インセプションデッキ作成',
+        description: 'プロジェクトの目的、背景、スコープ外（やらないこと）を定義します。',
+        prompt: `以下のプロジェクトについて、インセプションデッキを作成してください。
+【プロジェクト名】: [プロジェクト名を入力]
+【概要】: [概要を簡単に入力]
+
+以下の項目を含めて、美しく構造化されたMarkdown形式で出力してください：
+1. 我々はなぜここにいるのか（プロジェクトの目的・背景）
+2. エレベーターピッチ
+3. パッケージデザイン（製品のアピールポイント）
+4. やらないことリスト（スコープ外の定義）
+5. ご近所さん（関係者・ステークホルダー）
+6. 技術的なアプローチ
+7. 荒ぶる四天王（期間、品質、コスト、スコープの優先順位）`
+    },
+    {
+        command: '/backlog',
+        title: '📋 アジャイルバックログ設計',
+        description: 'ユーザーストーリーと受け入れ基準（Acceptance Criteria）を詳細に定義します。',
+        prompt: `以下の機能について、アジャイルのバックログ（ユーザーストーリーと受け入れ基準）を詳細に設計してください。
+【機能名】: [機能名を入力]
+【対象ユーザー】: [想定ユーザー]
+【ユーザーのゴール】: [この機能で達成したいこと]
+
+以下のフォーマットで出力してください：
+■ ユーザーストーリー
+「[ユーザーの種類] として、[達成したいこと] をしたい。なぜなら [得られる価値] だからだ。」
+
+■ 受け入れ基準 (Acceptance Criteria / Gherkin記法推奨)
+- 正常系シナリオ:
+  - Given (前提条件): 
+  - When (操作・イベント): 
+  - Then (期待される結果): 
+- 異常系・エッジケースシナリオ:
+  - Given:
+  - When:
+  - Then:
+
+■ 開発時の注意点・技術的要件`
+    },
+    {
+        command: '/split',
+        title: '✂️ タスク自動分割アシスタント',
+        description: '大きなタスクをAgileAgentの分割ロジックに沿ってWBS/子タスクに分解します。',
+        prompt: `以下の大きな開発タスクを、アジャイル開発のプラクティスに基づき、実行可能な最小単位（1〜2日以内で完了するサイズ）のサブタスクに分解してください。
+【大きなタスク】: [ここにタスクを記述]
+
+以下の構成で出力してください：
+1. タスク分解の全体像 (Mermaid図など)
+2. 分割されたサブタスク一覧（各タスクの目的、成果物、見積もり時間）
+3. 実装のステップバイステップ手順
+4. 各サブタスクの検証方法 (DoD: Definition of Done)`
+    },
+    {
+        command: '/container',
+        title: '🐳 コンテナ作成・検証ワークフロー',
+        description: 'Dockerfile / Docker Compose の設計と、ZTA（ゼロトラスト）自動テストを構築します。',
+        prompt: `以下のアプリケーション環境をDockerコンテナ化し、セキュアな自動テストを構築するためのワークフローと構成ファイルを生成してください。
+【アプリケーション構成】: [例: Node.js/Express, React, SQLite]
+【セキュリティ要件】: ゼロトラスト・アーキテクチャ (ZTA)、通信のセキュア共有、APIアクセス制御
+
+以下の内容を生成してください：
+1. アプリケーション用の最適化された 'Dockerfile'
+2. 複数コンテナのオーケストレーションを行う 'docker-compose.yml'
+3. コンテナ間の安全な通信 (A2Aセキュリティ / 認証認可) を検証する統合テストスクリプト ('test_container_zta_a2a.cjs')
+4. ローカル環境でのデプロイ・起動・テスト実行手順のドキュメント`
+    }
+];
+
 const Gemini = () => {
     const [mode, setMode] = useState('normal');
     const [useGrounding, setUseGrounding] = useState(true);
@@ -10,6 +82,9 @@ const Gemini = () => {
     const [targetRagFolderId, setTargetRagFolderId] = useState(null);
     const [ragFolders, setRagFolders] = useState([]);
     const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+    const [showSlashMenu, setShowSlashMenu] = useState(false);
+    const [activeSlashIndex, setActiveSlashIndex] = useState(0);
+    const [filteredSlashCommands, setFilteredSlashCommands] = useState([]);
     const [hasWarnedExpiry, setHasWarnedExpiry] = useState(false);
     const [inputHistory, setInputHistory] = useState([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
@@ -129,8 +204,30 @@ const Gemini = () => {
         checkRagSync();
     }, [mode, lastRagSyncTime, hasWarnedExpiry, isConfigLoaded]);
 
+    const selectSlashCommand = (cmd) => {
+        setInput(cmd.prompt);
+        setShowSlashMenu(false);
+        setActiveSlashIndex(0);
+        setTimeout(() => {
+            inputRef.current?.focus();
+        }, 50);
+    };
+
     const handleInputChange = (e) => {
-        setInput(e.target.value);
+        const val = e.target.value;
+        setInput(val);
+
+        if (val.startsWith('/')) {
+            const searchWord = val.toLowerCase();
+            const filtered = SLASH_COMMANDS.filter(cmd => 
+                cmd.command.toLowerCase().startsWith(searchWord)
+            );
+            setFilteredSlashCommands(filtered);
+            setShowSlashMenu(filtered.length > 0);
+            setActiveSlashIndex(0);
+        } else {
+            setShowSlashMenu(false);
+        }
     };
 
     const handleSend = async () => {
@@ -215,6 +312,32 @@ const Gemini = () => {
     };
 
     const handleKeyDown = (e) => {
+        if (showSlashMenu) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setActiveSlashIndex(prev => 
+                    prev < filteredSlashCommands.length - 1 ? prev + 1 : 0
+                );
+                return;
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setActiveSlashIndex(prev => 
+                    prev > 0 ? prev - 1 : filteredSlashCommands.length - 1
+                );
+                return;
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (filteredSlashCommands[activeSlashIndex]) {
+                    selectSlashCommand(filteredSlashCommands[activeSlashIndex]);
+                }
+                return;
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setShowSlashMenu(false);
+                return;
+            }
+        }
+
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
             e.preventDefault();
             handleSend();
@@ -406,7 +529,47 @@ const Gemini = () => {
                 </div>
 
                 {/* Input Area */}
-                <div className="p-4 pt-2">
+                <div className="p-4 pt-2 relative">
+                    {/* Slash Command Autocomplete Popover */}
+                    {showSlashMenu && filteredSlashCommands.length > 0 && (
+                        <div className="absolute bottom-full left-4 right-4 mb-2 backdrop-blur-xl bg-black/60 border border-white/10 rounded-[18px] shadow-2xl p-2 z-50 animate-fadeIn max-h-[220px] overflow-y-auto scrollbar-hide">
+                            <div className="text-[10px] font-semibold text-white/40 px-3 py-1.5 uppercase tracking-wider border-b border-white/5 mb-1.5">
+                                アジャイル支援ワークフロー
+                            </div>
+                            <div className="space-y-0.5">
+                                {filteredSlashCommands.map((cmd, idx) => {
+                                    const isActive = idx === activeSlashIndex;
+                                    return (
+                                        <div
+                                            key={cmd.command}
+                                            onClick={() => selectSlashCommand(cmd)}
+                                            onMouseEnter={() => setActiveSlashIndex(idx)}
+                                            className={`flex items-start gap-3 px-3 py-2.5 rounded-[12px] cursor-pointer transition-all duration-150 ${
+                                                isActive
+                                                    ? 'bg-[#007AFF] text-white shadow-lg'
+                                                    : 'hover:bg-white/5 text-white/90'
+                                            }`}
+                                        >
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center justify-between">
+                                                    <span className={`text-[14px] font-bold ${isActive ? 'text-white' : 'text-white'}`}>
+                                                        {cmd.title}
+                                                    </span>
+                                                    <span className={`text-[11px] font-mono opacity-60 ml-2 ${isActive ? 'text-white' : 'text-[#007AFF]'}`}>
+                                                        {cmd.command}
+                                                    </span>
+                                                </div>
+                                                <div className={`text-[12px] mt-0.5 leading-normal ${isActive ? 'text-white/80' : 'text-white/60'}`}>
+                                                    {cmd.description}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Preset Button Area */}
                     <div className="flex gap-2 mb-2 px-1">
 

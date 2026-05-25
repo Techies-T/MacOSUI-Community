@@ -6,7 +6,20 @@ const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const db = require('./db.cjs');
+const auditDb = require('./auditDb.cjs');
 const { encrypt, decrypt } = require('./crypto.cjs');
+const crypto = require('crypto');
+
+// クライアントのIPアドレスおよびUser-AgentからZTA用のハッシュを生成するヘルパー関数
+function getContextHashes(req) {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || '';
+    const ua = req.headers['user-agent'] || '';
+    
+    const ipHash = crypto.createHash('sha256').update(ip).digest('hex');
+    const uaHash = crypto.createHash('sha256').update(ua).digest('hex');
+    
+    return { ipHash, uaHash, ip, ua };
+}
 
 // .env と development.env (Docker等でマウントされる名前) の両方をサポート
 const fs = require('fs');
@@ -250,9 +263,32 @@ app.post('/api/config', requireAuth, async (req, res) => {
             await db.setSetting('RBAC_POLICIES', JSON.stringify(req.body.rbacPolicies));
         }
 
+        // 成功を監査ログに記録
+        auditDb.logEvent({
+            userId: req.user.id,
+            userEmail: req.user.email,
+            eventType: 'config_changed',
+            action: 'POST /api/config',
+            status: 'success',
+            req: req,
+            details: { message: 'System configuration settings updated successfully' }
+        });
+
         res.json({ success: true });
     } catch (error) {
         console.error("Save Config Error:", error);
+        
+        // 失敗を監査ログに記録
+        auditDb.logEvent({
+            userId: req?.user?.id || null,
+            userEmail: req?.user?.email || null,
+            eventType: 'config_changed',
+            action: 'POST /api/config',
+            status: 'failure',
+            req: req,
+            details: { error: error.message }
+        });
+
         res.status(500).json({ error: 'Failed to save settings' });
     }
 });
@@ -402,12 +438,35 @@ app.post('/api/auth/google', async (req, res) => {
                         // Delete from invitations if they just joined via an invite
                         db.run("DELETE FROM invitations WHERE email = ? AND ? != 'admin'", [email, role]);
 
-                        // Create Session JWT (ZTA PDP Action: Embedding Claims)
+                        // Create Session JWT (ZTA PDP Action: Embedding Claims with Context Bindings)
+                        const hashes = getContextHashes(req);
                         const token = jwt.sign(
-                            { id: userId, googleId, email, name, role, allowed_widgets, allowed_actions, allowed_models },
+                            { 
+                                id: userId, 
+                                googleId, 
+                                email, 
+                                name, 
+                                role, 
+                                allowed_widgets, 
+                                allowed_actions, 
+                                allowed_models,
+                                ip_hash: hashes.ipHash,
+                                ua_hash: hashes.uaHash
+                            },
                             process.env.JWT_SECRET || 'secret',
                             { expiresIn: '7d' }
                         );
+
+                        // 監査ログに成功を記録
+                        auditDb.logEvent({
+                            userId: userId,
+                            userEmail: email,
+                            eventType: 'login_success',
+                            action: 'Google Authentication',
+                            status: 'success',
+                            req: req,
+                            details: { message: `User logged in successfully with role: ${role}` }
+                        });
 
                         res.cookie('token', token, {
                             httpOnly: true,
@@ -455,10 +514,28 @@ app.post('/api/auth/google', async (req, res) => {
                                     proceedWithLogin('user');
                                 } else {
                                     console.log(`Login Rejected: ${email} invitation has expired.`);
+                                    auditDb.logEvent({
+                                        userId: null,
+                                        userEmail: email,
+                                        eventType: 'login_failed',
+                                        action: 'Google Authentication',
+                                        status: 'failure',
+                                        req: req,
+                                        details: { error: 'Invitation expired' }
+                                    });
                                     res.status(403).json({ error: 'Your invitation has expired (valid for 3 days). Please ask the administrator to invite you again.' });
                                 }
                             } else {
                                 console.log(`Login Rejected: ${email} is not invited.`);
+                                auditDb.logEvent({
+                                    userId: null,
+                                    userEmail: email,
+                                    eventType: 'login_failed',
+                                    action: 'Google Authentication',
+                                    status: 'failure',
+                                    req: req,
+                                    details: { error: 'Not invited' }
+                                });
                                 res.status(403).json({ error: 'You are not invited to use this system.' });
                             }
                         });
@@ -468,6 +545,15 @@ app.post('/api/auth/google', async (req, res) => {
         });
     } catch (error) {
         console.error('Auth Error:', error);
+        auditDb.logEvent({
+            userId: null,
+            userEmail: req.body?.email || null,
+            eventType: 'login_failed',
+            action: 'Google Authentication',
+            status: 'failure',
+            req: req,
+            details: { error: error.message }
+        });
         res.status(500).json({ error: 'Authentication failed' });
     }
 });
@@ -514,8 +600,20 @@ app.get('/api/auth/me', (req, res) => {
                 user.allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
 
                 // Re-issue JWT to ensure subsequent API calls (PEP) succeed with fresh permissions
+                const hashes = getContextHashes(req);
                 const newToken = jwt.sign(
-                    { id: user.id, googleId: user.google_id, email: user.email, name: user.name, role: user.role, allowed_widgets: user.allowed_widgets, allowed_actions: user.allowed_actions, allowed_models: user.allowed_models },
+                    { 
+                        id: user.id, 
+                        googleId: user.google_id, 
+                        email: user.email, 
+                        name: user.name, 
+                        role: user.role, 
+                        allowed_widgets: user.allowed_widgets, 
+                        allowed_actions: user.allowed_actions, 
+                        allowed_models: user.allowed_models,
+                        ip_hash: hashes.ipHash,
+                        ua_hash: hashes.uaHash
+                    },
                     process.env.JWT_SECRET || 'secret',
                     { expiresIn: '7d' }
                 );
@@ -535,6 +633,21 @@ app.get('/api/auth/me', (req, res) => {
 
 // Auth: Logout
 app.post('/api/auth/logout', (req, res) => {
+    const token = req.cookies.token;
+    if (token) {
+        jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+            if (!err && decoded) {
+                auditDb.logEvent({
+                    userId: decoded.id,
+                    userEmail: decoded.email,
+                    eventType: 'logout',
+                    action: 'Logout',
+                    status: 'success',
+                    req: req
+                });
+            }
+        });
+    }
     res.clearCookie('token');
     res.json({ message: 'Logged out' });
 });
@@ -582,7 +695,7 @@ app.post('/api/auth/token-exchange', requireAuth, (req, res) => {
     });
 });
 
-// Middleware to check user auth (ZTA Real-time PDP Enforcement)
+// Middleware to check user auth (ZTA Real-time PDP Enforcement with Dynamic Context Check)
 function requireAuth(req, res, next) {
     const token = req.cookies.token;
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
@@ -591,6 +704,30 @@ function requireAuth(req, res, next) {
             return res.status(403).json({ error: 'Invalid or expired token' });
         }
         
+        // ZTA動的コンテキスト検証 (セッションハイジャック防止)
+        const hashes = getContextHashes(req);
+        const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+        if (!isContextValid) {
+            auditDb.logEvent({
+                userId: decoded.id,
+                userEmail: decoded.email,
+                eventType: 'session_hijacking_detected',
+                action: `${req.method} ${req.originalUrl}`,
+                status: 'blocked',
+                req: req,
+                details: { 
+                    expectedIpHash: decoded.ip_hash, 
+                    gotIpHash: hashes.ipHash, 
+                    expectedUaHash: decoded.ua_hash, 
+                    gotUaHash: hashes.uaHash,
+                    clientIp: hashes.ip,
+                    userAgent: hashes.ua
+                }
+            });
+            res.clearCookie('token');
+            return res.status(403).json({ error: 'Session context mismatch. Security policy requires re-authentication.' });
+        }
+
         // ZTA Real-time PDP check: Always fetch the latest roles and policies from the database
         db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (err, row) => {
             if (err || !row) return res.status(401).json({ error: 'User not found in database' });
@@ -668,18 +805,68 @@ function requireAuthPage(req, res, next) {
 
 // Middleware to check admin role
 // Middleware to check action permission (PEP)
+// Middleware to check action permission (PEP)
 function requirePermission(action) {
     return (req, res, next) => {
+        if (req.user) {
+            const allowedActions = req.user.allowed_actions || [];
+            const hasPermission = allowedActions.includes('*') || allowedActions.includes(action);
+            
+            if (!hasPermission) {
+                auditDb.logEvent({
+                    userId: req.user.id,
+                    userEmail: req.user.email,
+                    eventType: 'permission_denied',
+                    action: `${req.method} ${req.originalUrl}`,
+                    status: 'blocked',
+                    req: req,
+                    details: { requiredAction: action }
+                });
+                return res.status(403).json({ error: `Permission denied. Requires action: ${action}` });
+            }
+            return next();
+        }
+
+        // フォールバック: requireAuth が先にチェーンされていない場合
         const token = req.cookies.token;
         if (!token) return res.status(401).json({ error: 'Not authenticated' });
         
         jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
             if (err) return res.status(401).json({ error: 'Invalid token' });
             
+            const hashes = getContextHashes(req);
+            const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+            if (!isContextValid) {
+                auditDb.logEvent({
+                    userId: decoded.id,
+                    userEmail: decoded.email,
+                    eventType: 'session_hijacking_detected',
+                    action: `${req.method} ${req.originalUrl}`,
+                    status: 'blocked',
+                    req: req,
+                    details: { 
+                        expectedIpHash: decoded.ip_hash, 
+                        gotIpHash: hashes.ipHash, 
+                        clientIp: hashes.ip 
+                    }
+                });
+                res.clearCookie('token');
+                return res.status(403).json({ error: 'Session context mismatch.' });
+            }
+
             const allowedActions = decoded.allowed_actions || [];
             const hasPermission = allowedActions.includes('*') || allowedActions.includes(action);
             
             if (!hasPermission) {
+                auditDb.logEvent({
+                    userId: decoded.id,
+                    userEmail: decoded.email,
+                    eventType: 'permission_denied',
+                    action: `${req.method} ${req.originalUrl}`,
+                    status: 'blocked',
+                    req: req,
+                    details: { requiredAction: action }
+                });
                 return res.status(403).json({ error: `Permission denied. Requires action: ${action}` });
             }
             
@@ -692,16 +879,65 @@ function requirePermission(action) {
 // Middleware to check widget access (PEP)
 function requireWidgetAccess(widgetId) {
     return (req, res, next) => {
+        if (req.user) {
+            const allowedWidgets = req.user.allowed_widgets || [];
+            const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
+            
+            if (!hasAccess) {
+                auditDb.logEvent({
+                    userId: req.user.id,
+                    userEmail: req.user.email,
+                    eventType: 'permission_denied',
+                    action: `${req.method} ${req.originalUrl}`,
+                    status: 'blocked',
+                    req: req,
+                    details: { requiredWidget: widgetId }
+                });
+                return res.status(403).json({ error: `Access denied. Requires widget access: ${widgetId}` });
+            }
+            return next();
+        }
+
+        // フォールバック: requireAuth が先にチェーンされていない場合
         const token = req.cookies.token;
         if (!token) return res.status(401).json({ error: 'Not authenticated' });
         
         jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
             if (err) return res.status(401).json({ error: 'Invalid token' });
             
+            const hashes = getContextHashes(req);
+            const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+            if (!isContextValid) {
+                auditDb.logEvent({
+                    userId: decoded.id,
+                    userEmail: decoded.email,
+                    eventType: 'session_hijacking_detected',
+                    action: `${req.method} ${req.originalUrl}`,
+                    status: 'blocked',
+                    req: req,
+                    details: { 
+                        expectedIpHash: decoded.ip_hash, 
+                        gotIpHash: hashes.ipHash, 
+                        clientIp: hashes.ip 
+                    }
+                });
+                res.clearCookie('token');
+                return res.status(403).json({ error: 'Session context mismatch.' });
+            }
+
             const allowedWidgets = decoded.allowed_widgets || [];
             const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
             
             if (!hasAccess) {
+                auditDb.logEvent({
+                    userId: decoded.id,
+                    userEmail: decoded.email,
+                    eventType: 'permission_denied',
+                    action: `${req.method} ${req.originalUrl}`,
+                    status: 'blocked',
+                    req: req,
+                    details: { requiredWidget: widgetId }
+                });
                 return res.status(403).json({ error: `Access denied. Requires widget access: ${widgetId}` });
             }
             
@@ -776,8 +1012,31 @@ app.put('/api/users/:id/role', requirePermission('action:manage_roles'), (req, r
     const { id } = req.params;
     const { role } = req.body;
     db.run("UPDATE users SET role = ? WHERE id = ?", [role, id], function(err) {
-        if (err) return res.status(500).json({ error: 'Database error' });
+        if (err) {
+            auditDb.logEvent({
+                userId: req.user.id,
+                userEmail: req.user.email,
+                eventType: 'role_changed',
+                action: `PUT /api/users/${id}/role`,
+                status: 'failure',
+                req: req,
+                details: { error: 'Database error', targetUserId: id }
+            });
+            return res.status(500).json({ error: 'Database error' });
+        }
         if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
+        
+        // 成功を監査ログに記録
+        auditDb.logEvent({
+            userId: req.user.id,
+            userEmail: req.user.email,
+            eventType: 'role_changed',
+            action: `PUT /api/users/${id}/role`,
+            status: 'success',
+            req: req,
+            details: { targetUserId: id, newRole: role }
+        });
+        
         res.json({ success: true, role });
     });
 });
@@ -814,7 +1073,17 @@ app.get('/api/invitations', requireAuth, (req, res) => {
 
 app.post('/api/invitations', requireAuth, (req, res) => {
     const allowed = req.user.allowed_actions || [];
-    if (!allowed.includes('*') && !allowed.includes('action:manage_users') && !allowed.includes('action:invite_users')) {
+    const isAuthorized = allowed.includes('*') || allowed.includes('action:manage_users') || allowed.includes('action:invite_users');
+    if (!isAuthorized) {
+        auditDb.logEvent({
+            userId: req.user.id,
+            userEmail: req.user.email,
+            eventType: 'permission_denied',
+            action: 'POST /api/invitations',
+            status: 'blocked',
+            req: req,
+            details: { error: 'User not authorized to invite others' }
+        });
         return res.status(403).json({ error: 'Permission denied' });
     }
     const { email } = req.body;
@@ -825,33 +1094,123 @@ app.post('/api/invitations', requireAuth, (req, res) => {
         if (user) return res.status(400).json({ error: 'User already exists' });
         
         db.run("INSERT INTO invitations (email, invited_by) VALUES (?, ?)", [email, req.user.id], function(err) {
-            if (err) return res.status(500).json({ error: 'Email already invited or DB error' });
+            if (err) {
+                auditDb.logEvent({
+                    userId: req.user.id,
+                    userEmail: req.user.email,
+                    eventType: 'user_invited',
+                    action: 'POST /api/invitations',
+                    status: 'failure',
+                    req: req,
+                    details: { error: 'Email already invited or DB error', inviteeEmail: email }
+                });
+                return res.status(500).json({ error: 'Email already invited or DB error' });
+            }
+            
+            // 成功を監査ログに記録
+            auditDb.logEvent({
+                userId: req.user.id,
+                userEmail: req.user.email,
+                eventType: 'user_invited',
+                action: 'POST /api/invitations',
+                status: 'success',
+                req: req,
+                details: { inviteeEmail: email }
+            });
+            
             res.json({ success: true, email });
         });
     });
 });
 
 app.delete('/api/invitations/:email', requirePermission('action:manage_users'), (req, res) => {
-    db.run("DELETE FROM invitations WHERE email = ?", [req.params.email], function(err) {
-        if (err) return res.status(500).json({ error: 'Database error' });
+    const { email } = req.params;
+    db.run("DELETE FROM invitations WHERE email = ?", [email], function(err) {
+        if (err) {
+            auditDb.logEvent({
+                userId: req.user.id,
+                userEmail: req.user.email,
+                eventType: 'invitation_deleted',
+                action: `DELETE /api/invitations/${email}`,
+                status: 'failure',
+                req: req,
+                details: { error: 'Database error', targetEmail: email }
+            });
+            return res.status(500).json({ error: 'Database error' });
+        }
+        
+        // 成功を監査ログに記録
+        auditDb.logEvent({
+            userId: req.user.id,
+            userEmail: req.user.email,
+            eventType: 'invitation_deleted',
+            action: `DELETE /api/invitations/${email}`,
+            status: 'success',
+            req: req,
+            details: { targetEmail: email }
+        });
+        
         res.json({ success: true });
     });
 });
 
 app.delete('/api/users/:id', requirePermission('action:manage_users'), (req, res) => {
-    if (parseInt(req.params.id) === req.user.id) {
+    const targetId = req.params.id;
+    if (parseInt(targetId) === req.user.id) {
         return res.status(400).json({ error: 'Cannot delete yourself' });
     }
-    db.run("DELETE FROM users WHERE id = ?", [req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: 'Database error' });
-        res.json({ success: true });
+    
+    // メールアドレスを事前に取得して監査ログに記録（削除後も証跡を残すため）
+    db.get("SELECT email FROM users WHERE id = ?", [targetId], (err, user) => {
+        const targetEmail = user ? user.email : 'unknown';
+        
+        db.run("DELETE FROM users WHERE id = ?", [targetId], function(err) {
+            if (err) {
+                auditDb.logEvent({
+                    userId: req.user.id,
+                    userEmail: req.user.email,
+                    eventType: 'user_deleted',
+                    action: `DELETE /api/users/${targetId}`,
+                    status: 'failure',
+                    req: req,
+                    details: { error: 'Database error', targetUserId: targetId, targetUserEmail: targetEmail }
+                });
+                return res.status(500).json({ error: 'Database error' });
+            }
+            
+            // 成功を監査ログに記録
+            auditDb.logEvent({
+                userId: req.user.id,
+                userEmail: req.user.email,
+                eventType: 'user_deleted',
+                action: `DELETE /api/users/${targetId}`,
+                status: 'success',
+                req: req,
+                details: { targetUserId: targetId, targetUserEmail: targetEmail }
+            });
+            
+            res.json({ success: true });
+        });
     });
+});
+
+// Security Audit Logs: Fetch logs (Admin only)
+app.get('/api/security-logs', requireAuth, requirePermission('action:manage_system_settings'), async (req, res) => {
+    try {
+        const logs = await auditDb.getLogs(500);
+        res.json(logs);
+    } catch (error) {
+        console.error("Failed to fetch security logs:", error);
+        res.status(500).json({ error: 'Failed to fetch security logs' });
+    }
 });
 
 
 // Gemini API endpoint
 // Gemini API endpoint
-app.get('/api/gemini/models', async (req, res) => {
+// Gemini API endpoint
+// Gemini API endpoint
+app.get('/api/gemini/models', requireAuth, requireWidgetAccess('app:gemini'), async (req, res) => {
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         console.log("Using API Key:", apiKey ? apiKey.substring(0, 5) + "..." : "None");
@@ -892,11 +1251,24 @@ const geminiJobs = {};
 
 // Background Gemini Job Processor
 
-app.get('/api/gemini/job/:jobId', (req, res) => {
+app.get('/api/gemini/job/:jobId', requireAuth, requireWidgetAccess('app:gemini'), (req, res) => {
     const { jobId } = req.params;
     const job = geminiJobs[jobId];
     if (!job) {
         return res.status(404).json({ error: 'Job not found' });
+    }
+    // ZTAジョブ盗み見防止: ジョブの所有者であることを検証
+    if (job.googleId && job.googleId !== req.user.googleId) {
+        auditDb.logEvent({
+            userId: req.user.id,
+            userEmail: req.user.email,
+            eventType: 'permission_denied',
+            action: `GET /api/gemini/job/${jobId}`,
+            status: 'blocked',
+            req: req,
+            details: { error: 'Job hijacking attempt', details: 'Attempted to view a background job belonging to another user' }
+        });
+        return res.status(403).json({ error: 'Access denied. You do not own this job.' });
     }
     res.json(job);
 });
@@ -1038,7 +1410,7 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
 
 // Background Gemini Job Processor
 async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images) {
-    geminiJobs[jobId] = { state: 'processing', reply: null, error: null };
+    geminiJobs[jobId] = { state: 'processing', reply: null, error: null, googleId };
     console.log(`Starting Gemini Job ${jobId}...`);
     console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
 
@@ -1226,6 +1598,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                         const base64Data = imagePart.inlineData.data;
                         const mimeType = imagePart.inlineData.mimeType;
                         geminiJobs[jobId] = {
+                            ...geminiJobs[jobId],
                             state: 'completed',
                             reply: JSON.stringify({ type: 'image', mimeType, data: base64Data }),
                             error: null
@@ -1397,7 +1770,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                 // No function calls, use the aggregated text from stream
                 if (responseText) {
                     const usageMetadata = fullResult?.usageMetadata || response?.usageMetadata || null;
-                    geminiJobs[jobId] = { state: 'completed', reply: responseText, usageMetadata, error: null };
+                    geminiJobs[jobId] = { ...geminiJobs[jobId], state: 'completed', reply: responseText, usageMetadata, error: null };
                     console.log(`Gemini Job ${jobId} completed.`);
 
                     // Deep Research Auto-Save to Drive
@@ -1484,17 +1857,17 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
                     return;
                 } else {
-                    geminiJobs[jobId] = { state: 'completed', reply: "No content generated.", error: null };
+                    geminiJobs[jobId] = { ...geminiJobs[jobId], state: 'completed', reply: "No content generated.", error: null };
                     return;
                 }
             }
         }
 
-        geminiJobs[jobId] = { state: 'error', reply: null, error: "Max turns exceeded" };
+        geminiJobs[jobId] = { ...geminiJobs[jobId], state: 'error', reply: null, error: "Max turns exceeded" };
 
     } catch (error) {
         console.error(`Gemini Job ${jobId} Failed:`, error);
-        geminiJobs[jobId] = { state: 'error', reply: null, error: error.message };
+        geminiJobs[jobId] = { ...geminiJobs[jobId], state: 'error', reply: null, error: error.message };
     }
 }
 
@@ -1654,7 +2027,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
 }
 
 // RAG: Trigger Sync (Non-blocking)
-app.post('/api/rag/sync', async (req, res) => {
+app.post('/api/rag/sync', requirePermission('action:manage_rag_folders'), async (req, res) => {
     try {
         if (ragSyncStatus.state === 'syncing') {
             return res.status(409).json({ error: 'Sync already in progress' });
@@ -1691,12 +2064,12 @@ app.post('/api/rag/sync', async (req, res) => {
 });
 
 // RAG: Get Sync Status
-app.get('/api/rag/status', (req, res) => {
+app.get('/api/rag/status', requireAuth, (req, res) => {
     res.json(ragSyncStatus);
 });
 
 // RAG: Get Popular FAQ Queries
-app.get('/api/rag/popular-queries', (req, res) => {
+app.get('/api/rag/popular-queries', requireAuth, (req, res) => {
     db.all(
         "SELECT query_text, usage_count FROM rag_queries ORDER BY usage_count DESC, last_used_at DESC LIMIT 5",
         [],
@@ -1711,7 +2084,7 @@ app.get('/api/rag/popular-queries', (req, res) => {
 });
 
 // RAG: Manage FAQ Queries (Get All)
-app.get('/api/rag/popular-queries/all', (req, res) => {
+app.get('/api/rag/popular-queries/all', requirePermission('action:manage_system_settings'), (req, res) => {
     db.all(
         "SELECT id, query_text, usage_count, last_used_at FROM rag_queries ORDER BY usage_count DESC, last_used_at DESC",
         [],
@@ -1723,7 +2096,7 @@ app.get('/api/rag/popular-queries/all', (req, res) => {
 });
 
 // RAG: Update FAQ Query
-app.put('/api/rag/popular-queries/:id', (req, res) => {
+app.put('/api/rag/popular-queries/:id', requirePermission('action:manage_system_settings'), (req, res) => {
     const { id } = req.params;
     const { query_text } = req.body;
     db.run("UPDATE rag_queries SET query_text = ? WHERE id = ?", [query_text, id], (err) => {
@@ -1733,7 +2106,7 @@ app.put('/api/rag/popular-queries/:id', (req, res) => {
 });
 
 // RAG: Delete FAQ Query
-app.delete('/api/rag/popular-queries/:id', (req, res) => {
+app.delete('/api/rag/popular-queries/:id', requirePermission('action:manage_system_settings'), (req, res) => {
     const { id } = req.params;
     db.run("DELETE FROM rag_queries WHERE id = ?", [id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -1742,7 +2115,7 @@ app.delete('/api/rag/popular-queries/:id', (req, res) => {
 });
 
 // Chat: Get Preset Prompts
-app.get('/api/chat/presets', async (req, res) => {
+app.get('/api/chat/presets', requireAuth, async (req, res) => {
     try {
         const presets = await db.getSetting('CHAT_PRESET_PROMPTS') || '{}';
         res.json(JSON.parse(presets));
@@ -1752,7 +2125,7 @@ app.get('/api/chat/presets', async (req, res) => {
 });
 
 // Chat: Save Preset Prompts
-app.post('/api/chat/presets', async (req, res) => {
+app.post('/api/chat/presets', requirePermission('action:manage_system_settings'), async (req, res) => {
     try {
         await db.setSetting('CHAT_PRESET_PROMPTS', JSON.stringify(req.body));
         res.json({ success: true });
@@ -1762,7 +2135,7 @@ app.post('/api/chat/presets', async (req, res) => {
 });
 
 // RAG: Check if Sync is Needed
-app.get('/api/rag/check-sync-needed', async (req, res) => {
+app.get('/api/rag/check-sync-needed', requireAuth, async (req, res) => {
     try {
         let ragFolders = [];
         try {
@@ -1842,7 +2215,7 @@ app.get('/api/rag/check-sync-needed', async (req, res) => {
 
 
 // Google Drive: Upload/Update file
-app.post('/api/drive/upload', async (req, res) => {
+app.post('/api/drive/upload', requireAuth, requireWidgetAccess('app:finder'), async (req, res) => {
     try {
         const { name, content, mimeType, folderId, fileId, isDoc } = req.body;
         console.log('Upload Request Body:', JSON.stringify({ name, mimeType, folderId, fileId, isDoc }, null, 2));
@@ -2000,7 +2373,23 @@ app.post('/api/drive/upload', async (req, res) => {
 });
 
 // File System: List directory content
-app.get('/api/fs/list', async (req, res) => {
+app.get('/api/fs/list', requireAuth, (req, res, next) => {
+    const allowedWidgets = req.user.allowed_widgets || [];
+    const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:browser') || allowedWidgets.includes('app:finder');
+    if (!hasAccess) {
+        auditDb.logEvent({
+            userId: req.user.id,
+            userEmail: req.user.email,
+            eventType: 'permission_denied',
+            action: 'GET /api/fs/list',
+            status: 'blocked',
+            req: req,
+            details: { error: 'FS list access denied', details: 'Requires app:browser or app:finder widget access' }
+        });
+        return res.status(403).json({ error: 'Access denied. Requires app:browser or app:finder access.' });
+    }
+    next();
+}, async (req, res) => {
     const { path: dirPath } = req.query;
     // Default to user's home directory if no path provided
     const targetPath = dirPath || require('os').homedir();
@@ -2116,7 +2505,7 @@ async function getDriveClient(req, res) {
         });
     });
 }
-app.get('/api/drive/folder_info', async (req, res) => {
+app.get('/api/drive/folder_info', requireAuth, requireWidgetAccess('app:finder'), async (req, res) => {
     try {
         const folderId = req.query.folderId;
         if (!folderId) return res.status(400).json({ error: 'Missing folderId' });
@@ -2145,7 +2534,7 @@ app.get('/api/drive/folder_info', async (req, res) => {
         res.status(500).json({ error: error.message || 'Failed to fetch folder info' });
     }
 });
-app.get('/api/drive/list', async (req, res) => {
+app.get('/api/drive/list', requireAuth, requireWidgetAccess('app:finder'), async (req, res) => {
     try {
         res.set('Cache-Control', 'no-store');
         const drive = await getDriveClient(req, res);
@@ -2183,7 +2572,7 @@ app.get('/api/drive/list', async (req, res) => {
     }
 });
 
-app.get('/api/drive/read', async (req, res) => {
+app.get('/api/drive/read', requireAuth, requireWidgetAccess('app:finder'), async (req, res) => {
     const drive = await getDriveClient(req, res);
     if (!drive) return;
 
@@ -2271,7 +2660,7 @@ async function getCalendarClient(req, res) {
     });
 }
 
-app.get('/api/calendar/events', async (req, res) => {
+app.get('/api/calendar/events', requireAuth, requireWidgetAccess('app:calendar'), async (req, res) => {
     try {
         const calendar = await getCalendarClient(req, res);
         if (!calendar) return;
@@ -2334,7 +2723,7 @@ app.get('/api/calendar/events', async (req, res) => {
     }
 });
 
-app.post('/api/calendar/events', async (req, res) => {
+app.post('/api/calendar/events', requireAuth, requireWidgetAccess('app:calendar'), async (req, res) => {
     try {
         const calendar = await getCalendarClient(req, res);
         if (!calendar) return;
@@ -2358,29 +2747,17 @@ app.post('/api/calendar/events', async (req, res) => {
     }
 });
 
-// Middleware for authentication
-const authenticateToken = (req, res, next) => {
-    const token = req.cookies.token || req.headers['authorization']?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
-
-    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-        if (err) return res.status(403).json({ error: 'Invalid token' });
-        req.user = user;
-        next();
-    });
-};
-
 // ==========================================
 // USER PREFERENCES API
 // ==========================================
-app.get('/api/user/preferences', authenticateToken, (req, res) => {
+app.get('/api/user/preferences', requireAuth, (req, res) => {
     db.get("SELECT window_state FROM user_preferences WHERE user_id = ?", [req.user.id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ windowState: row ? JSON.parse(row.window_state) : [] });
     });
 });
 
-app.post('/api/user/preferences', authenticateToken, (req, res) => {
+app.post('/api/user/preferences', requireAuth, (req, res) => {
     const { windowState } = req.body;
     db.run(`INSERT OR REPLACE INTO user_preferences (user_id, window_state, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
         [req.user.id, JSON.stringify(windowState)],
@@ -2394,14 +2771,14 @@ app.post('/api/user/preferences', authenticateToken, (req, res) => {
 // ==========================================
 // MEMOS API
 // ==========================================
-app.get('/api/memos', authenticateToken, (req, res) => {
+app.get('/api/memos', requireAuth, (req, res) => {
     db.all("SELECT * FROM memos WHERE user_id = ?", [req.user.id], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
 
-app.post('/api/memos', authenticateToken, (req, res) => {
+app.post('/api/memos', requireAuth, (req, res) => {
     const { id, content, color, x, y, width, height, zIndex } = req.body;
     db.run(`INSERT INTO memos (id, user_id, content, color, x, y, width, height, z_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, req.user.id, content, color, x, y, width, height, zIndex],
@@ -2412,7 +2789,7 @@ app.post('/api/memos', authenticateToken, (req, res) => {
     );
 });
 
-app.put('/api/memos/:id', authenticateToken, (req, res) => {
+app.put('/api/memos/:id', requireAuth, (req, res) => {
     const { content, color, x, y, width, height, zIndex } = req.body;
     db.run(`UPDATE memos SET content = ?, color = ?, x = ?, y = ?, width = ?, height = ?, z_index = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`,
         [content, color, x, y, width, height, zIndex, req.params.id, req.user.id],
@@ -2423,7 +2800,7 @@ app.put('/api/memos/:id', authenticateToken, (req, res) => {
     );
 });
 
-app.delete('/api/memos/:id', authenticateToken, (req, res) => {
+app.delete('/api/memos/:id', requireAuth, (req, res) => {
     db.run("DELETE FROM memos WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
