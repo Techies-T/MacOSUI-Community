@@ -52,6 +52,42 @@ const ExternalWidget = ({ url, title = "External Widget", widgetId = "unknown" }
             const data = event.data;
             if (!data || !data.type) return;
 
+            // ZTA トークンの自動更新（サイレントリフレッシュ）要求の処理
+            if (data.type === 'REQUEST_A2A_TOKEN') {
+                console.log("[Host] Received REQUEST_A2A_TOKEN from widget:", data.skillId);
+                try {
+                    const res = await fetch('/api/auth/token-exchange', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+                            audience: widgetId
+                        })
+                    });
+                    
+                    if (!res.ok) {
+                        throw new Error("Failed to re-obtain agent authentication token during silent refresh.");
+                    }
+                    
+                    const tokenData = await res.json();
+                    const newToken = tokenData.access_token;
+                    
+                    // 新しいトークンを state に保持
+                    setAgentToken(newToken);
+                    
+                    // 即座に子 Iframe に対して新しい ZTA トークンを返送
+                    if (iframeRef.current && iframeRef.current.contentWindow) {
+                        iframeRef.current.contentWindow.postMessage({
+                            type: 'ZTA_AUTH_TOKEN',
+                            payload: { token: newToken }
+                        }, '*');
+                        console.log("[Host] Successfully sent refreshed ZTA token to widget.");
+                    }
+                } catch (refreshErr) {
+                    console.error("[Host] Token silent refresh exchange error:", refreshErr);
+                }
+            }
+
             // 'demo-skill'など、特定のソースからのメッセージか確認
             if (data.source === 'demo-skill' && data.type === 'AI_REQUEST') {
                 console.log("[Host] Received AI_REQUEST from widget:", data.payload);
@@ -125,7 +161,7 @@ const ExternalWidget = ({ url, title = "External Widget", widgetId = "unknown" }
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, []);
+    }, [widgetId]);
 
     const handleIframeLoad = () => {
         setIsLoading(false);
