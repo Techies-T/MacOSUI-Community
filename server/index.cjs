@@ -1547,7 +1547,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             maxOutputTokens: customConfig?.maxOutputTokens ?? 32768,
             topP: customConfig?.topP,
             topK: customConfig?.topK,
-            tools: tools.length > 0 ? tools : undefined
+            tools: tools.length > 0 ? tools : undefined,
+            systemInstruction: systemInstruction
         };
 
         // Add thinkingConfig for Gemini 3.1 Pro to improve grounding and reasoning
@@ -1614,7 +1615,6 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                         client.models.generateContentStream({
                             model: modelName,
                             contents: contents,
-                            systemInstruction: systemInstruction,
                             config: config
                         }),
                         createTimeout()

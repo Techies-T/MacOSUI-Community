@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import WeatherForecastMap from './WeatherForecastMap';
 
 const SLASH_COMMANDS = [];
 
@@ -183,11 +184,48 @@ const Gemini = () => {
                 parts: [{ text: m.text }]
             }));
 
+            const isWeatherQuery = /天気|台風|雨|雪|雷|forecast|weather/i.test(textToSend);
+            let dynamicSystemInstruction = undefined;
+
+            if (isWeatherQuery && mode === 'normal') {
+                const today = new Date();
+                const todayStr = today.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' }); // 例: "5月27日(水)"
+                
+                dynamicSystemInstruction = "You have access to Google Search. ALWAYS use Google Search for any questions about weather. Prioritize search results over internal knowledge. \n\n" +
+                    "【重要】本日は " + todayStr + " です。回答には、必ず全国の主要都市（札幌、仙台、東京、新潟、名古屋、大阪、広島、高松、福岡、那覇）の本日の天気情報を以下のJSON形式で含めてください。テキストの末尾に、必ず ` ```json-weather` と ` ``` ` で囲んだコードブロックとして記述すること。\n" +
+                    "JSONのスキーマ：\n" +
+                    "{\n" +
+                    "  \"date\": \"" + todayStr + "\", \n" +
+                    "  \"comment\": \"全国の天気の短い概況\",\n" +
+                    "  \"cities\": [\n" +
+                    "    {\n" +
+                    "      \"id\": \"sapporo\", \"name\": \"札幌\", \"weather\": \"曇り時々雨\", \"type\": \"rainy\", \"tempMax\": 16, \"tempMin\": 9, \"pop\": 60, \"humidity\": 70,\n" +
+                    "      \"hourly\": [\n" +
+                    "        {\"time\": \"08:00\", \"temp\": 10, \"weather\": \"曇り\", \"type\": \"cloudy\"},\n" +
+                    "        {\"time\": \"10:00\", \"temp\": 12, \"weather\": \"曇り\", \"type\": \"cloudy\"},\n" +
+                    "        {\"time\": \"12:00\", \"temp\": 16, \"weather\": \"小雨\", \"type\": \"rainy\"},\n" +
+                    "        {\"time\": \"14:00\", \"temp\": 15, \"weather\": \"本降り\", \"type\": \"rainy\"},\n" +
+                    "        {\"time\": \"16:00\", \"temp\": 14, \"weather\": \"雨のち曇り\", \"type\": \"cloudy\"},\n" +
+                    "        {\"time\": \"18:00\", \"temp\": 12, \"weather\": \"曇り\", \"type\": \"cloudy\"},\n" +
+                    "        {\"time\": \"20:00\", \"temp\": 9, \"weather\": \"晴れ\", \"type\": \"sunny\"}\n" +
+                    "      ]\n" +
+                    "    },\n" +
+                    "    ...（10都市分すべて。idは 'sapporo', 'sendai', 'tokyo', 'niigata', 'nagoya', 'osaka', 'hiroshima', 'takamatsu', 'fukuoka', 'naha'。typeは 'sunny', 'cloudy', 'rainy', 'snowy' のいずれか。tempMax, tempMin, pop, humidityは数値。hourlyは 08:00から20:00までの2時間ごとの予報（計7要素）の配列で、各時間帯の天気情報も含めること）\n" +
+                    "  ]\n" +
+                    "}\n" +
+                    "ユーザーには通常の言葉で本日の全国の天気予報を要約した解説テキストを必ず先に書き、その後にこのJSONブロックを記述してください。";
+            }
+
             // Start Job
             const requestBody = {
                 message: userMessage.text,
                 history: history,
-                config: { mode: mode, grounding: useGrounding, targetRagFolderId: targetRagFolderId } // Pass selected mode and grounding flag
+                config: { 
+                    mode: mode, 
+                    grounding: useGrounding, 
+                    targetRagFolderId: targetRagFolderId,
+                    systemInstruction: dynamicSystemInstruction
+                } // Pass selected mode, grounding flag and custom instruction
             };
 
             const response = await fetch('/api/gemini', {
@@ -406,10 +444,51 @@ const Gemini = () => {
                                 <div
                                     className={`px-4 py-2.5 shadow-sm backdrop-blur-md text-[15px] leading-relaxed ${msg.role === 'user'
                                         ? 'bg-[#007AFF] text-white rounded-2xl rounded-br-sm'
-                                        : 'bg-white/20 text-white border border-white/20 rounded-2xl rounded-bl-sm'
+                                        : 'bg-white/20 text-white border border-white/20 rounded-2xl rounded-bl-sm w-full'
                                         }`}
                                 >
-                                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                                    {(() => {
+                                        if (msg.role === 'user') {
+                                            return <p className="whitespace-pre-wrap">{msg.text}</p>;
+                                        }
+
+                                        // JSON形式の天気予報データを検出
+                                        const match = msg.text.match(/```json-weather\s*([\s\S]*?)\s*```/);
+                                        if (match) {
+                                            const jsonStr = match[1];
+                                            const cleanText = msg.text.replace(/```json-weather\s*([\s\S]*?)\s*```/, '').trim();
+                                            
+                                            let weatherData = null;
+                                            try {
+                                                weatherData = JSON.parse(jsonStr);
+                                            } catch (e) {
+                                                console.error("Failed to parse weather JSON:", e);
+                                            }
+
+                                            return (
+                                                <div className="space-y-4 w-full">
+                                                    {cleanText && <p className="whitespace-pre-wrap mb-4 text-white">{cleanText}</p>}
+                                                    <WeatherForecastMap data={weatherData} />
+                                                </div>
+                                            );
+                                        }
+
+                                        // インテリジェント自動フォールバック検知 (JSON出力が無い場合)
+                                        const textLower = msg.text.toLowerCase();
+                                        const hasWeatherWords = (textLower.match(/天気|台風|気圧|降水|雨|雪|晴|曇/g) || []).length >= 2;
+                                        const hasCityNames = (textLower.match(/札幌|仙台|東京|新潟|名古屋|大阪|広島|高松|福岡|那覇|都市/g) || []).length >= 2;
+
+                                        if (hasWeatherWords && hasCityNames) {
+                                            return (
+                                                <div className="space-y-4 w-full">
+                                                    <p className="whitespace-pre-wrap text-white">{msg.text}</p>
+                                                    <WeatherForecastMap data={null} />
+                                                </div>
+                                            );
+                                        }
+
+                                        return <p className="whitespace-pre-wrap">{msg.text}</p>;
+                                    })()}
                                 </div>
                                 {/* Actions Area */}
                                 <div className="flex gap-2 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">

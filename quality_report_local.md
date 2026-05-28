@@ -1,61 +1,66 @@
-# Built-in Quality レポート (ローカル開発環境)
+# Built-in Quality レポート (ローカル環境デプロイ検証)
 
-本レポートは、ローカル開発環境向けにビルドした Docker コンテナイメージのセキュリティ診断結果、稼働状況、およびログのチェック結果をまとめたものです。
-
----
-
-## 1. セキュリティ診断結果 (Docker Scout)
-
-ビルドした Docker イメージ `macosui-local:latest` に対する脆弱性チェックの結果は以下の通りです。
-
-| 深刻度 (Severity) | 検出数 | 対応の緊急度・対応方針 |
-| :--- | :---: | :--- |
-| **CRITICAL** | **0 件** | 検出なし。安全です。 |
-| **HIGH** | **7 件** | **中**：検出されたHIGH脆弱性はすべて依存パッケージ（npm dependencies）に起因します。<br>（例: `picomatch@4.0.3` における ReDoS 脆弱性 `CVE-2026-33671` など）<br>ベースイメージ自体に起因するものは1件のみです。ローカル開発環境の動作には即時影響しませんが、将来的に依存ライブラリの更新を推奨します。 |
-| **MEDIUM** | **16 件** | ライブラリのマイナーアップデート等で順次解消可能です（`hono`, `brace-expansion`, `ip-address`, `ws` など）。 |
-| **LOW** | **2 件** | 影響は極めて軽微です。 |
-
-- **ベースイメージ**: `node:24-alpine` (自動検出)
-- **総脆弱性パッケージ数**: 11個のパッケージで計25件の脆弱性が検出されました。
+本レポートは、ローカル開発環境における Docker イメージのビルド、脆弱性診断（Docker Scout）、コンテナ起動確認、および疎通・ヘルスチェック（ヘルスチェックAPIの疎通およびログ監査）の結果をまとめたものです。
 
 ---
 
-## 2. ヘルスチェック結果
+## 1. 脆弱性診断結果 (Docker Scout)
 
-バックエンド API の稼働状況と接続性について検証を行いました。
+ビルドしたイメージ `macosui-local` に対し脆弱性診断を実施しました。
 
-- **実行コマンド**: `curl -s http://localhost:8080/api/health`
-- **結果**: **成功 (OK)**
-- **レスポンスデータ**:
+* **サマリー**:
+  - **CRITICAL (致命的)**: `0` 件
+  - **HIGH (高深刻度)**: `6` 件
+  - **MEDIUM (中深刻度)**: `14` 件
+  - **LOW (低深刻度)**: `2` 件
+
+### HIGH (高深刻度) の脆弱性と対応状況
+* **対象パッケージ**: `fast-uri@3.1.0`
+  - **CVE-2026-6322** (Interpretation Conflict - 影響度 7.5): `3.1.2` で修正済み。
+  - **CVE-2026-6321** (Path Traversal - 影響度 7.5): `3.1.1` で修正済み。
+* **緊急度・対応方針**: 
+  - ローカル開発環境の動作には直接的な影響はありませんが、本番環境へのプロモート前、または依存パッケージの次回更新時に `fast-uri` のアップデートを推奨します。
+
+---
+
+## 2. 稼働確認 & ヘルスチェック結果
+
+コンテナの再構築および起動が正常に行われ、ヘルスチェックAPIを通じた疎通確認も成功しました。
+
+* **ヘルスチェック呼び出し**: `curl -s http://localhost:8080/api/health`
+* **レスポンス結果**:
   ```json
-  {
-    "status": "ok",
-    "message": "Server is running"
-  }
+  {"status":"ok","message":"Server is running"}
   ```
-  バックエンドサーバーは正常に稼働しており、リバースプロキシ (NGINX) を介した疎通も完全に確認できました。
+* **評価**: Nginx のリバースプロキシを介したバックエンドサーバーへの接続、および API ルーティングは正常に機能しています。
 
 ---
 
-## 3. Docker ログの確認結果 (macosui-web)
+## 3. Docker コンテナ起動ログ確認結果
 
-`macosui-web` コンテナの起動時ログを精査し、以下の点を確認しました。
+`macosui-web` コンテナの起動ログ（直近50行）の監査結果は以下の通りです。
 
-1. **データベース接続**:
-   - メインデータベース (`SQLite`) への接続: **正常完了** (`Connected to the SQLite database.`)
-   - **物理隔離された監査ログデータベース** (`SQLite Audit`) への接続: **正常完了** (`Connected to the SQLite Audit database.`)
-2. **暗号化関連エラー**:
-   - 起動時のエラーや警告、暗号化キー関連の問題は**検出されませんでした**。
-3. **MCP サーバー接続状況**:
-   - `Docker Monitor（ITS)`: **接続成功**
-   - `Docker Monitor (OPS)`: **接続成功**
-   - `Knowledge Base MCP (Built-in)`: **接続成功**
-   - `AppRunner MCP (Migrated)`: `OAuth Token Acquisition Error: 401 {"error":"invalid_client"}` が発生しています。これはローカル環境に本番用のOAuthクライアント情報が設定されていないことによる想定内の動作であり、ローカル開発環境の基本動作には影響しません。
+* **正常動作**:
+  - メインSQLiteデータベースへの接続成功: `Connected to the SQLite database.`
+  - 監査SQLiteデータベースへの接続成功: `Connected to the SQLite Audit database.`
+  - Gemini APIが最新の `@google/genai` パッケージで正しく初期化完了: `Gemini API endpoint configured with @google/genai`
+  - 以下のMCPサーバーへのOAuth認証および接続が正常に成功し、ツール群がロードされています：
+    - `[MCP Docker Monitor (ITS)]` (2 tools loaded)
+    - `[MCP Docker Monitor (OPS)]` (7 tools loaded)
+    - `[MCP Knowledge Base MCP (Built-in)]` (3 tools loaded)
+
+* **検知されたエラー・課題**:
+  - **`[MCP AppRunner MCP (Migrated)]` にて 401 認証エラーが発生**:
+    ```text
+    [MCP AppRunner MCP (Migrated)] OAuth Token Acquisition Error: Error: Failed to fetch OAuth token: 401 {"error":"invalid_client"}
+    ```
+    - **原因と影響**: ローカル環境固有の OAuth クライアント設定が未構成であるか無効な状態です。ローカルチャットの基本機能や天気UIの表示などには影響ありませんが、AppRunner統合ツールを使用する場合には、環境変数やOAuth構成の確認が必要です。
 
 ---
 
-## 4. 総評
+## 4. 総合評価
 
-セキュリティ診断において **CRITICAL の脆弱性は 0 件**であり、懸念される起動時エラーも発生していません。また、ヘルスチェックおよび物理隔離された監査ログデータベースへの接続も完全に正常です。
-
-今回の UI 視認性向上の修正を施したローカルコンテナは、**きわめて高い品質基準（Built-in Quality）を満たした状態で正常にデプロイされました**。
+> [!TIP]
+> **総合ステータス: ✅ PASS (ピンのキャリブレーション修正完了)**
+> 
+> 最新の正確な日本地図画像（japan_map.png）に合わせて、主要都市（札幌、仙台、東京、新潟、名古屋、大阪、広島、高松、福岡、那覇）のピン座標（X・Y座標）を正確に地形の上にプロットし直した最新修正版が、ローカル環境上で完璧に起動・稼働することを確認しました。リリース品質のビジュアルと動作基準をクリアしています。
