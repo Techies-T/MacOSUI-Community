@@ -30,6 +30,12 @@ const SkillsTab = () => {
             setIsGeneratingIcons(true);
             const res = await fetch(skillManifestUrl);
             if (!res.ok) throw new Error('Failed to load manifest JSON');
+            
+            const contentType = res.headers.get('content-type');
+            if (contentType && contentType.includes('text/html')) {
+                throw new Error('Failed to parse manifest: The URL returned an HTML page instead of JSON. Please check if the URL is correct (e.g., includes "/demo-skill/manifest.json").');
+            }
+
             const manifest = await res.json();
             
             if (!manifest.id || !manifest.name || !manifest.entrypoint) {
