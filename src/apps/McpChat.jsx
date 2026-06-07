@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm';
 
 const McpChat = () => {
     const [messages, setMessages] = useState([]);
+    const [previousInteractionId, setPreviousInteractionId] = useState(null);
+    const [environmentId, setEnvironmentId] = useState(null);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     
@@ -61,11 +63,16 @@ const McpChat = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: textToSend,
-                    history: history
+                    history: history,
+                    previous_interaction_id: previousInteractionId,
+                    environment_id: environmentId
                 })
             });
 
             const data = await response.json();
+
+            if (data.interactionId) setPreviousInteractionId(data.interactionId);
+            if (data.environmentId) setEnvironmentId(data.environmentId);
 
             if (!response.ok) {
                 throw new Error(data.error || "Failed to get response");
@@ -190,7 +197,13 @@ const McpChat = () => {
                         )}
                         {messages.length > 0 && (
                             <button 
-                                onClick={() => { setMessages([]); setAllArtifacts([]); setActiveArtifact(null); }}
+                                onClick={() => { 
+                                    setMessages([]); 
+                                    setAllArtifacts([]); 
+                                    setActiveArtifact(null); 
+                                    setPreviousInteractionId(null);
+                                    setEnvironmentId(null);
+                                }}
                                 className="text-gray-400 hover:text-red-500 transition-colors tooltip"
                                 title="Clear Chat History"
                             >

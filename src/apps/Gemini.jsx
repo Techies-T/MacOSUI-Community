@@ -7,6 +7,8 @@ const Gemini = () => {
     const [mode, setMode] = useState('normal');
     const [useGrounding, setUseGrounding] = useState(true);
     const [messages, setMessages] = useState([]);
+    const [previousInteractionId, setPreviousInteractionId] = useState(null);
+    const [environmentId, setEnvironmentId] = useState(null);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
@@ -20,7 +22,6 @@ const Gemini = () => {
     const [inputHistory, setInputHistory] = useState([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
     const [popularQueries, setPopularQueries] = useState([]);
-
     const [chatPresets, setChatPresets] = useState({});
 
     const [copiedIndex, setCopiedIndex] = useState(null);
@@ -220,6 +221,8 @@ const Gemini = () => {
             const requestBody = {
                 message: userMessage.text,
                 history: history,
+                previous_interaction_id: previousInteractionId,
+                environment_id: environmentId,
                 config: { 
                     mode: mode, 
                     grounding: useGrounding, 
@@ -254,6 +257,8 @@ const Gemini = () => {
                     if (jobData.state === 'completed') {
                         clearInterval(pollInterval);
                         setMessages(prev => [...prev, { role: 'model', text: jobData.reply }]);
+                        if (jobData.interactionId) setPreviousInteractionId(jobData.interactionId);
+                        if (jobData.environmentId) setEnvironmentId(jobData.environmentId);
                         setIsLoading(false);
                     } else if (jobData.state === 'error') {
                         clearInterval(pollInterval);
@@ -356,6 +361,8 @@ const Gemini = () => {
                             value={mode === 'rag' ? `rag_${targetRagFolderId}` : mode}
                             onChange={(e) => {
                                 const val = e.target.value;
+                                setPreviousInteractionId(null);
+                                setEnvironmentId(null);
                                 if (val === 'normal') { setMode('normal'); setUseGrounding(true); setTargetRagFolderId(null); }
                                 else if (val.startsWith('rag_')) { setMode('rag'); setUseGrounding(false); setTargetRagFolderId(val.replace('rag_', '')); }
                                 else { setMode(val); setUseGrounding(false); setTargetRagFolderId(null); }

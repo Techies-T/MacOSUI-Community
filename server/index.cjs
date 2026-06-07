@@ -1354,7 +1354,7 @@ app.post('/api/gemini/proxy', requireWidgetAccess('app:gemini'), async (req, res
 // Google Drive API endpoints (google import moved to top)
 
 app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
-    const { message, history, config, images } = req.body;
+    const { message, history, config, images, previous_interaction_id, environment_id } = req.body;
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.1-flash-lite-preview';
@@ -1384,7 +1384,7 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
         const jobId = crypto.randomUUID();
 
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, requestedModel, config, req.user.googleId, images);
+        processGeminiJob(jobId, message, history, apiKey, requestedModel, config, req.user.googleId, images, previous_interaction_id, environment_id);
 
         // Track RAG query usage for FAQ feature
         if (config?.mode === 'rag' && message.trim()) {
@@ -1409,7 +1409,7 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
 // ...
 
 // Background Gemini Job Processor
-async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images) {
+async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images, previous_interaction_id, environment_id) {
     geminiJobs[jobId] = { state: 'processing', reply: null, error: null, googleId };
     console.log(`Starting Gemini Job ${jobId}...`);
     console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
@@ -1478,6 +1478,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             requestParts = [...fileParts, ...requestParts];
         }
 
+        // Legacy compatibility for nanobanana mode
         const contents = history ? history.map(m => ({
             role: m.role,
             parts: m.parts
@@ -1502,7 +1503,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         } else if (mode === 'research') {
              const customResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT');
              systemInstruction = {
-                parts: [{ text: customResearchPrompt || "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案内の文言は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。" }]
+                parts: [{ text: customResearchPrompt || "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。" }]
             };
         }
 
@@ -1561,216 +1562,230 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             config.thinkingConfig = { thinkingLevel: level };
         }
 
+        // Retrieve token for tools execution
+        const accessToken = await new Promise((resolve) => {
+            db.get("SELECT access_token FROM users WHERE google_id = ?", [googleId], (err, row) => {
+                if (err || !row) resolve(null);
+                else resolve(row.access_token);
+            });
+        });
+
+        // 1. Nanobanana (Image Generation) Mode uses stateless Models API
+        if (mode === 'nanobanana') {
+            const timeoutMs = 120000;
+            const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
+
+            console.log("Sending request to Gemini for Image Generation...");
+            const result = await Promise.race([
+                client.models.generateContent({
+                    model: modelName,
+                    contents: contents,
+                    config: {
+                        numberOfImages: 1,
+                        outputMimeType: "image/png",
+                        aspectRatio: customConfig?.aspectRatio || "16:9" // Support dynamic aspect ratio for avatars
+                    }
+                }),
+                createTimeout()
+            ]);
+
+            const parts = result.candidates?.[0]?.content?.parts;
+            if (!parts) throw new Error("No candidates in Gemini response");
+
+            const imagePart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('image/'));
+            if (imagePart) {
+                const base64Data = imagePart.inlineData.data;
+                const mimeType = imagePart.inlineData.mimeType;
+                geminiJobs[jobId] = {
+                    ...geminiJobs[jobId],
+                    state: 'completed',
+                    reply: JSON.stringify({ type: 'image', mimeType, data: base64Data }),
+                    error: null
+                };
+                console.log(`Gemini Job ${jobId} completed. (Image generated)`);
+                return; // Successfully finished
+            } else {
+                throw new Error("No image data returned from model.");
+            }
+        }
+
+        // 2. Chat / Search / Research Mode uses stateful Interactions API with streaming
+        let currentInteractionId = previous_interaction_id;
+        let currentEnvironmentId = environment_id;
+
         let maxTurns = 5; // Prevent infinite loops
-        let currentRetries = 3;
+        let fullInteraction = null;
+        let responseText = "";
 
         while (maxTurns > 0) {
             maxTurns--;
-            console.log(`Gemini Turn: ${5 - maxTurns}`);
+            console.log(`Gemini Interactions Turn: ${5 - maxTurns}`);
 
-            let responseText = "";
-            let fullResult = null;
-            let response = null;
+            let turnResponseText = "";
+            let streamResult = null;
+            let currentRetries = 3;
+            let success = false;
 
-            try {
-                const timeoutMs = 120000; // 120s timeout
-                const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
+            while (currentRetries > 0 && !success) {
+                try {
+                    const timeoutMs = 120000; // 120s timeout
+                    const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
 
-                if (mode === 'nanobanana') {
-                    console.log("Sending request to Gemini for Image Generation...");
-                    const result = await Promise.race([
-                        client.models.generateContent({
+                    console.log("Sending request to Gemini Interactions (Stream)...");
+                    streamResult = await Promise.race([
+                        client.interactions.create({
                             model: modelName,
-                            contents: contents,
-                            config: {
-                                numberOfImages: 1,
-                                outputMimeType: "image/png",
-                                aspectRatio: customConfig?.aspectRatio || "16:9" // Support dynamic aspect ratio for avatars
-                            }
-                        }),
-                        createTimeout()
-                    ]);
-
-                    const parts = result.candidates?.[0]?.content?.parts;
-                    if (!parts) throw new Error("No candidates in Gemini response");
-
-                    const imagePart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('image/'));
-                    if (imagePart) {
-                        const base64Data = imagePart.inlineData.data;
-                        const mimeType = imagePart.inlineData.mimeType;
-                        geminiJobs[jobId] = {
-                            ...geminiJobs[jobId],
-                            state: 'completed',
-                            reply: JSON.stringify({ type: 'image', mimeType, data: base64Data }),
-                            error: null
-                        };
-                        console.log(`Gemini Job ${jobId} completed. (Image generated)`);
-                        return; // Successfully finished
-                    } else {
-                        throw new Error("No image data returned from model.");
-                    }
-                } else {
-                    console.log("Sending request to Gemini (Stream)...");
-                    const streamResult = await Promise.race([
-                        client.models.generateContentStream({
-                            model: modelName,
-                            contents: contents,
+                            input: requestParts,
+                            previous_interaction_id: currentInteractionId || undefined,
+                            environment: currentEnvironmentId || "remote",
+                            stream: true,
                             config: config
                         }),
                         createTimeout()
                     ]);
 
                     const consumeStream = async () => {
-                        for await (const chunk of streamResult) {
-                            if (chunk.text) {
-                                responseText += (typeof chunk.text === 'function' ? chunk.text() : chunk.text);
+                        for await (const event of streamResult) {
+                            if (event.event_type === "interaction.created" && event.interaction) {
+                                currentInteractionId = event.interaction.id;
+                                currentEnvironmentId = event.interaction.environment_id;
+                                fullInteraction = event.interaction;
                             }
-                            fullResult = chunk; // Last chunk usually has metadata
+                            if (event.type === 'step.delta' && event.delta?.type === 'text') {
+                                turnResponseText += event.delta.text;
+                                responseText += event.delta.text;
+                            }
+                            if (event.interaction) {
+                                fullInteraction = event.interaction;
+                            }
                         }
                     };
 
                     await Promise.race([consumeStream(), createTimeout()]);
+                    success = true;
 
-                    if (!fullResult) {
-                        throw new Error("Empty response from Gemini stream");
-                    }
+                } catch (apiError) {
+                    console.error(`Gemini API Error (Retries left: ${currentRetries - 1}):`, apiError);
 
-                    response = fullResult.response || fullResult;
+                    const isTimeout = apiError.message && apiError.message.includes('Timeout');
+                    const isOverloaded = apiError.status === 503 || (apiError.message && apiError.message.includes('Overloaded'));
 
-                    if (!response || !response.candidates) {
-                        throw new Error("No candidates in Gemini response");
-                    }
-                }
-
-                // Logging for verification
-                if (config.tools) {
-                    console.log(`Gemini Job ${jobId}: Tools enabled: ${JSON.stringify(config.tools.map(t => Object.keys(t)[0]))}`);
-                    const candidate = response.candidates[0];
-                    if (candidate?.groundingMetadata) {
-                        console.log(`Gemini Job ${jobId}: Grounding Metadata found! Queries: ${JSON.stringify(candidate.groundingMetadata.webSearchQueries)}`);
+                    if (currentRetries > 1 && (isTimeout || isOverloaded)) {
+                        currentRetries--;
+                        await new Promise(res => setTimeout(res, 3000)); // Wait a bit longer before retry
                     } else {
-                        console.log(`Gemini Job ${jobId}: No Grounding Metadata in response.`);
+                        throw apiError;
                     }
-                }
-            } catch (apiError) {
-                console.error(`Gemini API Error (Retries left: ${currentRetries - 1}):`, apiError);
-
-                const isTimeout = apiError.message && apiError.message.includes('Timeout');
-                const isOverloaded = apiError.status === 503 || (apiError.message && apiError.message.includes('Overloaded'));
-
-                if (currentRetries > 0 && (isTimeout || isOverloaded)) {
-                    currentRetries--;
-                    maxTurns++; // Don't count retry as a turn
-                    await new Promise(res => setTimeout(res, 3000)); // Wait a bit longer before retry
-                    continue;
-                } else {
-                    throw apiError;
                 }
             }
 
-            // Helper to get function calls
-            const getFunctionCalls = (resp) => {
-                const calls = [];
-                const candidate = resp.candidates?.[0];
-                if (candidate && candidate.content && candidate.content.parts) {
-                    for (const part of candidate.content.parts) {
-                        if (part.functionCall) {
-                            calls.push({
-                                name: part.functionCall.name,
-                                args: part.functionCall.args
-                            });
-                        }
-                    }
-                }
-                return calls;
-            };
+            if (currentInteractionId) {
+                fullInteraction = await client.interactions.get(currentInteractionId);
+            }
 
-            const functionCalls = getFunctionCalls(response);
+            if (!fullInteraction) {
+                throw new Error("Failed to retrieve interaction state.");
+            }
 
-            if (functionCalls && functionCalls.length > 0) {
-                // 1. Add model's function call message to history
-                const modelContent = response.candidates[0].content;
-                contents.push(modelContent);
+            const steps = fullInteraction.steps || [];
+            const lastStep = steps[steps.length - 1];
 
-                // 2. Execute functions
-                const functionResponses = [];
-                for (const call of functionCalls) {
-                    console.log(`Executing Tool: ${call.name}`);
-                    if (call.name === 'save_to_drive') {
-                        try {
-                            const { filename, content, mimeType } = call.args;
-                            const folderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
+            if (lastStep && lastStep.type === 'function_call') {
+                const functionCalls = lastStep.content.filter(p => p.functionCall);
+                if (functionCalls.length > 0) {
+                    const functionResponses = [];
+                    for (const call of functionCalls) {
+                        const funcName = call.functionCall.name;
+                        const funcArgs = call.functionCall.args || {};
+                        const funcId = call.functionCall.id;
 
-                            if (!folderId) {
-                                functionResponses.push({
-                                    functionResponse: {
-                                        name: call.name,
-                                        response: { error: "Research Folder ID not configured in System Settings." }
+                        console.log(`Executing Tool: ${funcName}`);
+                        if (funcName === 'save_to_drive') {
+                            try {
+                                const { filename, content, mimeType } = funcArgs;
+                                const folderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
+
+                                if (!folderId) {
+                                    functionResponses.push({
+                                        functionResponse: {
+                                            name: funcName,
+                                            id: funcId,
+                                            response: { error: "Research Folder ID not configured in System Settings." }
+                                        }
+                                    });
+                                    continue;
+                                }
+
+                                if (!accessToken) {
+                                    throw new Error("User authorization missing. Cannot save to Drive.");
+                                }
+
+                                // Create Drive Client
+                                const { google } = require('googleapis');
+                                const auth = new google.auth.OAuth2();
+                                auth.setCredentials({ access_token: decrypt(accessToken) });
+                                const drive = google.drive({ version: 'v3', auth });
+
+                                const res = await drive.files.create({
+                                    requestBody: {
+                                        name: filename,
+                                        parents: [folderId],
+                                        mimeType: mimeType || 'text/markdown'
+                                    },
+                                    media: {
+                                        mimeType: mimeType || 'text/markdown',
+                                        body: content
                                     }
                                 });
-                                continue;
+
+                                console.log(`Saved file: ${filename} (ID: ${res.data.id})`);
+                                functionResponses.push({
+                                    functionResponse: {
+                                        name: funcName,
+                                        id: funcId,
+                                        response: { success: true, fileId: res.data.id, message: `File '${filename}' saved successfully.` }
+                                    }
+                                });
+
+                            } catch (toolErr) {
+                                console.error("Tool Execution Error:", toolErr);
+                                functionResponses.push({
+                                    functionResponse: {
+                                        name: funcName,
+                                        id: funcId,
+                                        response: { error: "Failed to save file: " + toolErr.message }
+                                    }
+                                });
                             }
-
-                            if (!accessToken) {
-                                throw new Error("User authorization missing. Cannot save to Drive.");
-                            }
-
-                            // Create Drive Client
-                            const auth = new google.auth.OAuth2();
-                            auth.setCredentials({ access_token: decrypt(accessToken) });
-                            const drive = google.drive({ version: 'v3', auth });
-
-                            const res = await drive.files.create({
-                                requestBody: {
-                                    name: filename,
-                                    parents: [folderId],
-                                    mimeType: mimeType || 'text/markdown'
-                                },
-                                media: {
-                                    mimeType: mimeType || 'text/markdown',
-                                    body: content
-                                }
-                            });
-
-                            console.log(`Saved file: ${filename} (ID: ${res.data.id})`);
+                        } else {
                             functionResponses.push({
                                 functionResponse: {
-                                    name: call.name,
-                                    response: { success: true, fileId: res.data.id, message: `File '${filename}' saved successfully.` }
-                                }
-                            });
-
-                        } catch (toolErr) {
-                            console.error("Tool Execution Error:", toolErr);
-                            functionResponses.push({
-                                functionResponse: {
-                                    name: call.name,
-                                    response: { error: "Failed to save file: " + toolErr.message }
+                                    name: funcName,
+                                    id: funcId,
+                                    response: { error: "Unknown tool" }
                                 }
                             });
                         }
-                    } else {
-                        functionResponses.push({
-                            functionResponse: {
-                                name: call.name,
-                                response: { error: "Unknown tool" }
-                            }
-                        });
                     }
+
+                    // For the next turn, the input will be the function responses
+                    requestParts = functionResponses;
+                } else {
+                    break;
                 }
-
-                // 3. Add function responses to history
-                contents.push({
-                    role: "function",
-                    parts: functionResponses
-                });
-
-                // Loop continues to generate text based on function result
             } else {
-                // No function calls, use the aggregated text from stream
+                // normal output completion
                 if (responseText) {
-                    const usageMetadata = fullResult?.usageMetadata || response?.usageMetadata || null;
-                    geminiJobs[jobId] = { ...geminiJobs[jobId], state: 'completed', reply: responseText, usageMetadata, error: null };
+                    const usageMetadata = fullInteraction?.usage || null;
+                    geminiJobs[jobId] = { 
+                        ...geminiJobs[jobId], 
+                        state: 'completed', 
+                        reply: responseText, 
+                        usageMetadata, 
+                        error: null,
+                        interactionId: currentInteractionId,
+                        environmentId: currentEnvironmentId
+                    };
                     console.log(`Gemini Job ${jobId} completed.`);
 
                     // Deep Research Auto-Save to Drive
@@ -1857,7 +1872,14 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
                     return;
                 } else {
-                    geminiJobs[jobId] = { ...geminiJobs[jobId], state: 'completed', reply: "No content generated.", error: null };
+                    geminiJobs[jobId] = { 
+                        ...geminiJobs[jobId], 
+                        state: 'completed', 
+                        reply: "No content generated.", 
+                        error: null,
+                        interactionId: currentInteractionId,
+                        environmentId: currentEnvironmentId
+                    };
                     return;
                 }
             }

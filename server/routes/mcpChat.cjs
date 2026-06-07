@@ -49,102 +49,121 @@ ${toolDescriptions}`
             }]
         };
 
-        let currentHistory = history || [];
-        // Append user message
-        currentHistory.push({ role: 'user', parts: [{ text: message }] });
+        let currentInteractionId = req.body.previous_interaction_id;
+        let currentEnvironmentId = req.body.environment_id;
+
+        let interaction = await client.interactions.create({
+            model: modelName,
+            input: message,
+            previous_interaction_id: currentInteractionId || undefined,
+            environment: currentEnvironmentId || "remote",
+            config: {
+                tools: tools.length > 0 ? tools : undefined,
+                temperature: 0.2
+            }
+        });
+
+        currentInteractionId = interaction.id;
+        currentEnvironmentId = interaction.environment_id;
 
         let maxTurns = 10;
         let finalResponseText = "";
         let artifacts = []; // Collect raw tool outputs to send as artifacts
+        let steps = interaction.steps || [];
 
         while (maxTurns > 0) {
             maxTurns--;
             
-            const response = await client.models.generateContent({
-                model: modelName,
-                contents: currentHistory,
-                systemInstruction,
-                config: {
-                    tools: tools.length > 0 ? tools : undefined,
-                    temperature: 0.2
+            const lastStep = steps[steps.length - 1];
+            if (!lastStep) break;
+
+            if (lastStep.type === 'model_output') {
+                const textParts = lastStep.content?.filter(p => p.text).map(p => p.text).join('\n') || "";
+                if (textParts) {
+                    finalResponseText += textParts;
                 }
-            });
-
-            if (!response || !response.candidates || response.candidates.length === 0) {
-                throw new Error("No response from Gemini");
             }
 
-            const candidate = response.candidates[0];
-            const parts = candidate.content?.parts || [];
-            
-            // Extract text if any
-            const textParts = parts.filter(p => p.text).map(p => p.text).join('\n');
-            if (textParts) {
-                finalResponseText += textParts;
-            }
-
-            // Check for function calls
-            const functionCalls = parts.filter(p => p.functionCall);
-            
-            if (functionCalls.length > 0) {
-                // We have tool calls
-                const functionResponses = [];
-                
-                // Add model's tool call request to history
-                currentHistory.push({
-                    role: 'model',
-                    parts: parts
-                });
-
-                for (const call of functionCalls) {
-                    const funcName = call.functionCall.name;
-                    const funcArgs = call.functionCall.args || {};
+            if (lastStep.type === 'function_call') {
+                const functionCalls = lastStep.content.filter(p => p.functionCall);
+                if (functionCalls.length > 0) {
+                    const functionResponses = [];
                     
-                    console.log(`[MCP Chat] Executing tool: ${funcName}`, funcArgs);
-                    
-                    try {
-                        // Execute MCP Tool with user's permissions
-                        const result = await callMcpTool(funcName, funcArgs, req.user.allowed_widgets || []);
+                    for (const call of functionCalls) {
+                        const funcName = call.functionCall.name;
+                        const funcArgs = call.functionCall.args || {};
+                        const funcId = call.functionCall.id;
                         
-                        // Save artifact
-                        artifacts.push({
-                            tool: funcName,
-                            args: funcArgs,
-                            result: result
-                        });
+                        console.log(`[MCP Chat] Executing tool: ${funcName}`, funcArgs);
+                        
+                        try {
+                            const result = await callMcpTool(funcName, funcArgs, req.user.allowed_widgets || []);
+                            
+                            artifacts.push({
+                                tool: funcName,
+                                args: funcArgs,
+                                result: result
+                            });
 
-                        functionResponses.push({
-                            functionResponse: {
-                                name: funcName,
-                                response: { result: result }
-                            }
-                        });
-                    } catch (err) {
-                        console.error(`[MCP Chat] Tool execution failed for ${funcName}:`, err);
-                        functionResponses.push({
-                            functionResponse: {
-                                name: funcName,
-                                response: { error: err.message }
-                            }
-                        });
+                            functionResponses.push({
+                                functionResponse: {
+                                    name: funcName,
+                                    id: funcId,
+                                    response: { result: result }
+                                }
+                            });
+                        } catch (err) {
+                            console.error(`[MCP Chat] Tool execution failed for ${funcName}:`, err);
+                            functionResponses.push({
+                                functionResponse: {
+                                    name: funcName,
+                                    id: funcId,
+                                    response: { error: err.message }
+                                }
+                            });
+                        }
+                    }
+                    
+                    // interactions.createを呼び出してfunction responsesを送る
+                    interaction = await client.interactions.create({
+                        model: modelName,
+                        input: functionResponses,
+                        previous_interaction_id: currentInteractionId,
+                        environment: currentEnvironmentId,
+                        config: {
+                            tools: tools.length > 0 ? tools : undefined,
+                            temperature: 0.2
+                        }
+                    });
+
+                    currentInteractionId = interaction.id;
+                    currentEnvironmentId = interaction.environment_id;
+                    steps = interaction.steps || [];
+                    
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if (!finalResponseText) {
+            for (const step of steps) {
+                if (step.type === 'model_output' && step.content) {
+                    const textParts = step.content.filter(p => p.text).map(p => p.text).join('\n');
+                    if (textParts) {
+                        finalResponseText = textParts;
                     }
                 }
-                
-                // Add tool responses to history and loop to let Gemini generate final text
-                currentHistory.push({
-                    role: 'user', // According to Gemini API, function responses come from 'user' role
-                    parts: functionResponses
-                });
-                
-            } else {
-                // No more function calls, we are done
-                break;
             }
         }
 
         res.json({
             reply: finalResponseText,
-            artifacts: artifacts
+            artifacts: artifacts,
+            interactionId: currentInteractionId,
+            environmentId: currentEnvironmentId
         });
 
     } catch (error) {
