@@ -1675,7 +1675,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                                 currentEnvironmentId = event.interaction.environment_id;
                                 fullInteraction = event.interaction;
                             }
-                            if (event.type === 'step.delta' && event.delta?.type === 'text') {
+                            if (event.event_type === 'step.delta' && event.delta?.type === 'text') {
                                 turnResponseText += event.delta.text;
                                 responseText += event.delta.text;
                             }
