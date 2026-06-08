@@ -1620,8 +1620,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
             while (currentRetries > 0 && !success) {
                 try {
-                    const timeoutMs = 120000; // 120s timeout
-                    const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
+                    const timeoutMs = 300000; // 300s timeout
+                    const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (300s)")), timeoutMs));
 
                     console.log("Sending request to Gemini Interactions (Stream)...");
                     
