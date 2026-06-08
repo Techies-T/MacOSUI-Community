@@ -57,8 +57,8 @@ ${toolDescriptions}`
             input: message,
             previous_interaction_id: currentInteractionId || undefined,
             environment: currentEnvironmentId || "remote",
-            config: {
-                tools: tools.length > 0 ? tools : undefined,
+            tools: tools.length > 0 ? tools : undefined,
+            generation_config: {
                 temperature: 0.2
             }
         });
@@ -130,8 +130,8 @@ ${toolDescriptions}`
                         input: functionResponses,
                         previous_interaction_id: currentInteractionId,
                         environment: currentEnvironmentId,
-                        config: {
-                            tools: tools.length > 0 ? tools : undefined,
+                        tools: tools.length > 0 ? tools : undefined,
+                        generation_config: {
                             temperature: 0.2
                         }
                     });

@@ -1639,7 +1639,17 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                             previous_interaction_id: currentInteractionId || undefined,
                             environment: currentEnvironmentId || "remote",
                             stream: true,
-                            config: config
+                            system_instruction: config.systemInstruction,
+                            tools: config.tools,
+                            generation_config: {
+                                temperature: config.temperature,
+                                max_output_tokens: config.maxOutputTokens,
+                                top_p: config.topP,
+                                top_k: config.topK,
+                                thinking_config: config.thinkingConfig ? {
+                                    thinking_level: config.thinkingConfig.thinkingLevel
+                                } : undefined
+                            }
                         }),
                         createTimeout()
                     ]);
