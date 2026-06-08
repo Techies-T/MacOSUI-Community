@@ -1624,10 +1624,33 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                     const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
 
                     console.log("Sending request to Gemini Interactions (Stream)...");
+                    
+                    const interactionInput = [{
+                        type: "user_input",
+                        content: requestParts.map(part => {
+                            if (part.text !== undefined) {
+                                return { type: "text", text: part.text };
+                            } else if (part.inlineData) {
+                                return {
+                                    type: "image",
+                                    data: part.inlineData.data,
+                                    mime_type: part.inlineData.mimeType
+                                };
+                            } else if (part.fileData) {
+                                return {
+                                    type: part.fileData.mimeType?.startsWith('image/') ? 'image' : 'document',
+                                    mime_type: part.fileData.mimeType,
+                                    file_uri: part.fileData.fileUri
+                                };
+                            }
+                            return null;
+                        }).filter(Boolean)
+                    }];
+
                     streamResult = await Promise.race([
                         client.interactions.create({
                             model: modelName,
-                            input: requestParts,
+                            input: interactionInput,
                             previous_interaction_id: currentInteractionId || undefined,
                             environment: currentEnvironmentId || "remote",
                             stream: true,
