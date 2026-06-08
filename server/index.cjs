@@ -1601,6 +1601,57 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             }
         }
 
+        // 1.5. HTML/SVG Generation Mode uses stateless Models API with Streaming
+        if (mode === 'html_svg') {
+            const timeoutMs = 120000; // 120s timeout
+            const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
+
+            console.log("Sending request to Gemini (Models API Stream) for HTML/SVG Generation...");
+            const streamResult = await Promise.race([
+                client.models.generateContentStream({
+                    model: modelName,
+                    contents: contents,
+                    config: {
+                        temperature: customConfig?.temperature ?? 0.7,
+                        maxOutputTokens: customConfig?.maxOutputTokens ?? 32768,
+                        topP: customConfig?.topP,
+                        topK: customConfig?.topK,
+                        systemInstruction: systemInstruction
+                    }
+                }),
+                createTimeout()
+            ]);
+
+            let responseText = "";
+            let fullResult = null;
+
+            const consumeStream = async () => {
+                for await (const chunk of streamResult) {
+                    if (chunk.text) {
+                        responseText += chunk.text;
+                    }
+                    fullResult = chunk;
+                }
+            };
+
+            await Promise.race([consumeStream(), createTimeout()]);
+
+            if (responseText) {
+                const usageMetadata = fullResult?.usageMetadata || null;
+                geminiJobs[jobId] = {
+                    ...geminiJobs[jobId],
+                    state: 'completed',
+                    reply: responseText,
+                    usageMetadata,
+                    error: null
+                };
+                console.log(`Gemini Job ${jobId} completed (HTML/SVG generated stateless).`);
+                return;
+            } else {
+                throw new Error("No content generated.");
+            }
+        }
+
         // 2. Chat / Search / Research Mode uses stateful Interactions API with streaming
         let currentInteractionId = previous_interaction_id;
         let currentEnvironmentId = environment_id;
