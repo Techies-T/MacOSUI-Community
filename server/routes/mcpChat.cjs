@@ -31,23 +31,21 @@ router.post('/', async (req, res) => {
         // Get MCP Tools filtered by user's permissions
         const mcpTools = await getAllMcpToolsForGemini(req.user.allowed_widgets || []);
         
-        const tools = [];
-        if (mcpTools.length > 0) {
-            tools.push({ functionDeclarations: mcpTools });
-        }
+        const tools = mcpTools.map(t => ({
+            type: "function",
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters
+        }));
 
         const toolDescriptions = mcpTools.map(t => `- **${t.name}**: ${t.description}`).join('\n');
 
-        const systemInstruction = {
-            parts: [{ 
-                text: `You are a helpful IT Operations and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown. If a tool returns JSON or tabular data, format it as a markdown table or code block so the user can easily read it.
+        const systemInstruction = `You are a helpful IT Operations and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown. If a tool returns JSON or tabular data, format it as a markdown table or code block so the user can easily read it.
 
 If the user asks what tools are available or what you can do, explicitly list the exact names and descriptions of the tools provided below:
 
 Available Tools:
-${toolDescriptions}`
-            }]
-        };
+${toolDescriptions}`;
 
         let currentInteractionId = req.body.previous_interaction_id;
         let currentEnvironmentId = req.body.environment_id;
@@ -57,6 +55,7 @@ ${toolDescriptions}`
             input: message,
             previous_interaction_id: currentInteractionId || undefined,
             environment: currentEnvironmentId || "remote",
+            system_instruction: systemInstruction,
             tools: tools.length > 0 ? tools : undefined,
             generation_config: {
                 temperature: 0.2
@@ -85,14 +84,23 @@ ${toolDescriptions}`
             }
 
             if (lastStep.type === 'function_call') {
-                const functionCalls = lastStep.content.filter(p => p.functionCall);
+                // 最後のステップが function_call である場合、それに続く連続するすべての function_call ステップを取得する
+                const functionCalls = [];
+                for (let i = steps.length - 1; i >= 0; i--) {
+                    if (steps[i].type === 'function_call') {
+                        functionCalls.unshift(steps[i]);
+                    } else {
+                        break;
+                    }
+                }
+
                 if (functionCalls.length > 0) {
                     const functionResponses = [];
                     
                     for (const call of functionCalls) {
-                        const funcName = call.functionCall.name;
-                        const funcArgs = call.functionCall.args || {};
-                        const funcId = call.functionCall.id;
+                        const funcName = call.name;
+                        const funcArgs = call.arguments || {};
+                        const funcId = call.id;
                         
                         console.log(`[MCP Chat] Executing tool: ${funcName}`, funcArgs);
                         
@@ -106,20 +114,19 @@ ${toolDescriptions}`
                             });
 
                             functionResponses.push({
-                                functionResponse: {
-                                    name: funcName,
-                                    id: funcId,
-                                    response: { result: result }
-                                }
+                                type: 'function_result',
+                                call_id: funcId,
+                                name: funcName,
+                                result: result
                             });
                         } catch (err) {
                             console.error(`[MCP Chat] Tool execution failed for ${funcName}:`, err);
                             functionResponses.push({
-                                functionResponse: {
-                                    name: funcName,
-                                    id: funcId,
-                                    response: { error: err.message }
-                                }
+                                type: 'function_result',
+                                call_id: funcId,
+                                name: funcName,
+                                result: { error: err.message },
+                                is_error: true
                             });
                         }
                     }
@@ -130,6 +137,7 @@ ${toolDescriptions}`
                         input: functionResponses,
                         previous_interaction_id: currentInteractionId,
                         environment: currentEnvironmentId,
+                        system_instruction: systemInstruction,
                         tools: tools.length > 0 ? tools : undefined,
                         generation_config: {
                             temperature: 0.2

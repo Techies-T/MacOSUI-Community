@@ -1493,53 +1493,45 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         let systemInstruction = undefined;
 
         if (customConfig?.systemInstruction) {
-            systemInstruction = {
-                parts: [{ text: customConfig.systemInstruction }]
-            };
+            systemInstruction = customConfig.systemInstruction;
         } else if (mode === 'normal' && customConfig?.grounding) {
-            systemInstruction = {
-                parts: [{ text: "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge." }]
-            };
+            systemInstruction = "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge.";
         } else if (mode === 'research') {
              const customResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT');
-             systemInstruction = {
-                parts: [{ text: customResearchPrompt || "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。" }]
-            };
+             systemInstruction = customResearchPrompt || "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。";
         }
 
         // Configure Tools based on mode
         const tools = [];
         if (mode === 'search' || mode === 'research' || (mode === 'normal' && customConfig?.grounding)) {
-            // SDK expects camelCase googleSearch
-            tools.push({ googleSearch: {} });
+            tools.push({ type: "google_search" });
         }
 
         if (mode === 'search') {
             // Add Save to Drive tool definition
             tools.push({
-                functionDeclarations: [{
-                    name: "save_to_drive",
-                    description: "Save a file (Research Report, Article, etc.) to Google Drive. Use this to save the result of your research.",
-                    parameters: {
-                        type: "OBJECT",
-                        properties: {
-                            filename: {
-                                type: "STRING",
-                                description: "The name of the file to save (e.g., 'Research_Report_Containers.md')."
-                            },
-                            content: {
-                                type: "STRING",
-                                description: "The text content to save into the file."
-                            },
-                            mimeType: {
-                                type: "STRING",
-                                description: "MIME type of the file. Defaults to 'text/markdown'.",
-                                enum: ["text/plain", "text/markdown", "application/json"]
-                            }
+                type: "function",
+                name: "save_to_drive",
+                description: "Save a file (Research Report, Article, etc.) to Google Drive. Use this to save the result of your research.",
+                parameters: {
+                    type: "OBJECT",
+                    properties: {
+                        filename: {
+                            type: "STRING",
+                            description: "The name of the file to save (e.g., 'Research_Report_Containers.md')."
                         },
-                        required: ["filename", "content"]
-                    }
-                }]
+                        content: {
+                            type: "STRING",
+                            description: "The text content to save into the file."
+                        },
+                        mimeType: {
+                            type: "STRING",
+                            description: "MIME type of the file. Defaults to 'text/markdown'.",
+                            enum: ["text/plain", "text/markdown", "application/json"]
+                        }
+                    },
+                    required: ["filename", "content"]
+                }
             });
         }
 
