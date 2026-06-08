@@ -1638,9 +1638,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                                 max_output_tokens: config.maxOutputTokens,
                                 top_p: config.topP,
                                 top_k: config.topK,
-                                thinking_config: config.thinkingConfig ? {
-                                    thinking_level: config.thinkingConfig.thinkingLevel
-                                } : undefined
+                                thinking_level: (config.thinkingConfig && (modelName.includes('thinking') || modelName.includes('pro'))) ? 
+                                    config.thinkingConfig.thinkingLevel.toLowerCase() : undefined
                             }
                         }),
                         createTimeout()
