@@ -43,7 +43,7 @@ router.get('/check-history', (req, res) => {
 
 router.post('/start', async (req, res) => {
     try {
-        const { query } = req.body;
+        const { query, workflowDefinitionId } = req.body;
         if (!query) {
             return res.status(400).json({ error: 'Query is required for Deep Research' });
         }
@@ -121,13 +121,29 @@ router.post('/start', async (req, res) => {
             });
         }
 
+        // Retrieve workflow definition properties if provided
+        let researchModel = null;
+        let finalInstruction = req.body.systemInstruction || null;
+        
+        if (workflowDefinitionId) {
+            const definition = await new Promise((resolve) => {
+                db.get("SELECT * FROM deep_research_workflow_definitions WHERE id = ?", [workflowDefinitionId], (err, row) => {
+                    resolve(row || null);
+                });
+            });
+            if (definition) {
+                researchModel = definition.research_model;
+                if (definition.research_prompt) {
+                    finalInstruction = definition.research_prompt;
+                }
+            }
+        }
 
         const crypto = require('crypto');
         const jobId = crypto.randomUUID();
 
         // 1. Kick off background Deep Research
-        const systemInstruction = req.body.systemInstruction || null;
-        startDeepResearch(jobId, query, apiKey, systemInstruction);
+        startDeepResearch(jobId, query, apiKey, finalInstruction, researchModel);
 
         // Record history
         await new Promise((resolve) => {
@@ -226,23 +242,9 @@ router.post('/publish', async (req, res) => {
     }
 });
 
-router.get('/status/:id', (req, res) => {
-    const { id } = req.params;
-    const job = researchJobs[id];
-    if (!job) {
-        return res.status(404).json({ error: 'Research interaction not found' });
-    }
-    
-    // Return status
-    res.json({
-        interaction_id: id,
-        status: job.status,
-        result: job.result,
-        error: job.error
-    });
-});
+// GET /status/:id has been moved downstream to avoid matching /workflows
 
-async function startDeepResearch(jobId, query, apiKey, customInstruction = null) {
+async function startDeepResearch(jobId, query, apiKey, customInstruction = null, targetModel = null) {
     researchJobs[jobId] = { status: 'in_progress', result: null, error: null };
     console.log(`Starting Deep Research Job ${jobId}...`);
 
@@ -251,7 +253,7 @@ async function startDeepResearch(jobId, query, apiKey, customInstruction = null)
         
         // Deep Research Pro Preview specifically uses background=true.
         // It's often required to use the Interactions API.
-        const customAgent = await db.getSetting('GEMINI_RESEARCH_MODEL');
+        const customAgent = targetModel || await db.getSetting('GEMINI_RESEARCH_MODEL');
         const agentName = customAgent ? customAgent.replace('models/', '') : 'deep-research-pro-preview-12-2025';
         
         const interactionOptions = {
@@ -393,7 +395,7 @@ router.post('/workflow/save', async (req, res) => {
         const user = await getUserFromReq(req);
         if (!user) return res.status(401).json({ error: 'Not authenticated' });
 
-        const { id, query_text, pipeline_type, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens } = req.body;
+        const { id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens } = req.body;
         
         if (!id) return res.status(400).json({ error: 'Workflow ID is required' });
 
@@ -411,9 +413,9 @@ router.post('/workflow/save', async (req, res) => {
                 `UPDATE deep_research_workflows 
                  SET status = ?, plan_text = COALESCE(?, plan_text), report_text = COALESCE(?, report_text), 
                      generated_payload = COALESCE(?, generated_payload), 
-                     total_input_tokens = ?, total_output_tokens = ?, updated_at = CURRENT_TIMESTAMP
+                     total_input_tokens = ?, total_output_tokens = ?, workflow_definition_id = COALESCE(?, workflow_definition_id), updated_at = CURRENT_TIMESTAMP
                  WHERE id = ? AND user_id = ?`,
-                [status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0, id, user.id],
+                [status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0, workflow_definition_id, id, user.id],
                 (err) => {
                     if (err) return res.status(500).json({ error: err.message });
                     res.json({ success: true, action: 'updated' });
@@ -422,9 +424,9 @@ router.post('/workflow/save', async (req, res) => {
         } else {
             // Insert
             db.run(
-                `INSERT INTO deep_research_workflows (id, user_id, query_text, pipeline_type, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [id, user.id, query_text, pipeline_type, status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0],
+                `INSERT INTO deep_research_workflows (id, user_id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, user.id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0],
                 (err) => {
                     if (err) return res.status(500).json({ error: err.message });
                     res.json({ success: true, action: 'inserted' });
@@ -449,6 +451,157 @@ router.delete('/workflow/:id', async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: "Server error" });
     }
+});
+
+// ==========================================
+// Workflow Definition Endpoints (CRUD)
+// ==========================================
+
+router.get('/workflows', async (req, res) => {
+    console.log("DEBUG: GET /workflows route matched in deepResearch.cjs!");
+    try {
+        db.all("SELECT * FROM deep_research_workflow_definitions ORDER BY created_at DESC", [], (err, rows) => {
+            if (err) {
+                console.error("Fetch workflows error:", err);
+                return res.status(500).json({ error: "Failed to fetch workflows" });
+            }
+            res.json({ workflows: rows || [] });
+        });
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+router.get('/workflows/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        db.get("SELECT * FROM deep_research_workflow_definitions WHERE id = ?", [id], (err, row) => {
+            if (err) {
+                console.error("Fetch workflow detail error:", err);
+                return res.status(500).json({ error: "Failed to fetch workflow detail" });
+            }
+            if (!row) return res.status(404).json({ error: "Workflow definition not found" });
+            res.json({ workflow: row });
+        });
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+router.post('/workflows', async (req, res) => {
+    try {
+        const token = req.cookies.token;
+        if (!token) return res.status(401).json({ error: 'Not authenticated' });
+        
+        let googleId;
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+            googleId = decoded.googleId;
+        } catch (e) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+
+        // Fetch user role
+        const user = await new Promise((resolve, reject) => {
+            db.get("SELECT role FROM users WHERE google_id = ?", [googleId], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!user || user.role !== 'admin') {
+            return res.status(403).json({ error: 'ワークフロー定義の変更権限がありません。管理者のみ可能です。' });
+        }
+
+        const { id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id } = req.body;
+        if (!name) return res.status(400).json({ error: 'Workflow name is required' });
+
+        const crypto = require('crypto');
+        const finalId = id || crypto.randomUUID();
+
+        // Use INSERT OR REPLACE
+        db.run(
+            `INSERT INTO deep_research_workflow_definitions 
+             (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                research_model = excluded.research_model,
+                research_prompt = excluded.research_prompt,
+                output_type = excluded.output_type,
+                output_model = excluded.output_model,
+                output_prompt = excluded.output_prompt,
+                folder_id = excluded.folder_id,
+                updated_at = CURRENT_TIMESTAMP`,
+            [finalId, name, description || '', research_model || '', research_prompt || '', output_type || 'html', output_model || '', output_prompt || '', folder_id || ''],
+            (err) => {
+                if (err) {
+                    console.error("Save workflow error:", err);
+                    return res.status(500).json({ error: err.message });
+                }
+                res.json({ success: true, id: finalId });
+            }
+        );
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+router.delete('/workflows/:id', async (req, res) => {
+    try {
+        const token = req.cookies.token;
+        if (!token) return res.status(401).json({ error: 'Not authenticated' });
+        
+        let googleId;
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+            googleId = decoded.googleId;
+        } catch (e) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+
+        // Fetch user role
+        const user = await new Promise((resolve, reject) => {
+            db.get("SELECT role FROM users WHERE google_id = ?", [googleId], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!user || user.role !== 'admin') {
+            return res.status(403).json({ error: 'ワークフロー定義の削除権限がありません。管理者のみ可能です。' });
+        }
+
+        const { id } = req.params;
+        db.run("DELETE FROM deep_research_workflow_definitions WHERE id = ?", [id], (err) => {
+            if (err) {
+                console.error("Delete workflow error:", err);
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true });
+        });
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// Downstream dynamic route to avoid shadowing specific path routes like /workflows
+router.get('/status/:id', (req, res) => {
+    const { id } = req.params;
+    console.log(`DEBUG: GET /status/:id route matched in deepResearch.cjs. ID = ${id}`);
+    const job = researchJobs[id];
+    if (!job) {
+        return res.status(404).json({ error: 'Research interaction not found' });
+    }
+    
+    // Return status
+    res.json({
+        interaction_id: id,
+        status: job.status,
+        result: job.result,
+        error: job.error
+    });
 });
 
 module.exports = {

@@ -81,6 +81,20 @@ function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS deep_research_workflow_definitions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        research_model TEXT,
+        research_prompt TEXT,
+        output_type TEXT,
+        output_model TEXT,
+        output_prompt TEXT,
+        folder_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS published_reports (
         id TEXT PRIMARY KEY,
         title TEXT,
@@ -158,6 +172,10 @@ function initDb() {
 
     // Migration for knowledge_articles token_count
     db.run("ALTER TABLE knowledge_articles ADD COLUMN token_count INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+
+    db.run("ALTER TABLE deep_research_workflows ADD COLUMN workflow_definition_id TEXT", (err) => {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE knowledge_articles ADD COLUMN input_tokens INTEGER DEFAULT 0", (err) => {
@@ -239,6 +257,7 @@ db.setSetting = (key, value) => {
 // Auto-Activation Logic
 async function autoActivate() {
     try {
+        console.log("DEBUG: autoActivate started!");
         const existingPolicies = await db.getSetting('RBAC_POLICIES');
         if (!existingPolicies) {
             console.log('DEBUG: Initializing default RBAC policies...');
@@ -265,7 +284,9 @@ async function autoActivate() {
             await db.setSetting('RBAC_POLICIES', defaultPolicies);
         }
 
+        console.log("DEBUG: Fetching GOOGLE_CLIENT_ID...");
         const existingClientId = await db.getSetting('GOOGLE_CLIENT_ID');
+        console.log("DEBUG: GOOGLE_CLIENT_ID fetched:", existingClientId);
         const envClientId = process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
         const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -282,48 +303,64 @@ async function autoActivate() {
         }
 
         // Migrate existing MCP settings to mcp_servers table
-        db.get("SELECT COUNT(*) as count FROM mcp_servers", async (err, row) => {
-            if (!err && row && row.count === 0) {
-                const endpointUrl = await db.getSetting('MCP_SERVER_ENDPOINT');
-                if (endpointUrl) {
-                    console.log('DEBUG: Migrating existing MCP settings to mcp_servers table...');
-                    const tokenUrl = await db.getSetting('MCP_TOKEN_URL');
-                    const clientId = await db.getSetting('MCP_CLIENT_ID');
-                    const clientSecret = await db.getSetting('MCP_CLIENT_SECRET'); // decrypted automatically
-                    
-                    let encryptedSecret = null;
-                    if (clientSecret) {
-                        encryptedSecret = encrypt(clientSecret);
-                    }
-
-                    db.run(`INSERT INTO mcp_servers (name, endpoint_url, token_url, client_id, client_secret) VALUES (?, ?, ?, ?, ?)`,
-                        ['AppRunner MCP (Migrated)', endpointUrl, tokenUrl, clientId, encryptedSecret],
-                        (err) => {
-                            if (err) console.error('Failed to migrate MCP settings', err);
-                            else console.log('DEBUG: MCP settings migrated successfully.');
-                        }
-                    );
-                }
-            }
+        console.log("DEBUG: Checking mcpCount...");
+        const mcpCount = await new Promise((resolve) => {
+            db.get("SELECT COUNT(*) as count FROM mcp_servers", [], (err, row) => {
+                if (err) resolve(-1);
+                else resolve(row ? row.count : 0);
+            });
         });
+        console.log("DEBUG: mcpCount fetched:", mcpCount);
 
-        // Auto-register Knowledge Base MCP Server
-        db.get("SELECT COUNT(*) as count FROM mcp_servers WHERE name = 'Knowledge Base MCP (Built-in)'", (err, row) => {
-            if (!err && row && row.count === 0) {
-                console.log('DEBUG: Registering Knowledge Base MCP Server...');
-                const endpointUrl = 'http://localhost:8080/api/mcp/knowledge/sse';
-                db.run(`INSERT INTO mcp_servers (name, endpoint_url) VALUES (?, ?)`,
-                    ['Knowledge Base MCP (Built-in)', endpointUrl],
+        if (mcpCount === 0) {
+            const endpointUrl = await db.getSetting('MCP_SERVER_ENDPOINT');
+            if (endpointUrl) {
+                console.log('DEBUG: Migrating existing MCP settings to mcp_servers table...');
+                const tokenUrl = await db.getSetting('MCP_TOKEN_URL');
+                const clientId = await db.getSetting('MCP_CLIENT_ID');
+                const clientSecret = await db.getSetting('MCP_CLIENT_SECRET'); // decrypted automatically
+                
+                let encryptedSecret = null;
+                if (clientSecret) {
+                    encryptedSecret = encrypt(clientSecret);
+                }
+
+                db.run(`INSERT INTO mcp_servers (name, endpoint_url, token_url, client_id, client_secret) VALUES (?, ?, ?, ?, ?)`,
+                    ['AppRunner MCP (Migrated)', endpointUrl, tokenUrl, clientId, encryptedSecret],
                     (err) => {
-                        if (err) console.error('Failed to register Knowledge Base MCP Server', err);
-                        else console.log('DEBUG: Knowledge Base MCP Server registered successfully.');
+                        if (err) console.error('Failed to migrate MCP settings', err);
+                        else console.log('DEBUG: MCP settings migrated successfully.');
                     }
                 );
             }
+        }
+
+        // Auto-register Knowledge Base MCP Server
+        console.log("DEBUG: Checking kbMcpCount...");
+        const kbMcpCount = await new Promise((resolve) => {
+            db.get("SELECT COUNT(*) as count FROM mcp_servers WHERE name = 'Knowledge Base MCP (Built-in)'", [], (err, row) => {
+                if (err) resolve(-1);
+                else resolve(row ? row.count : 0);
+            });
         });
+        console.log("DEBUG: kbMcpCount fetched:", kbMcpCount);
+
+        if (kbMcpCount === 0) {
+            console.log('DEBUG: Registering Knowledge Base MCP Server...');
+            const endpointUrl = 'http://localhost:8080/api/mcp/knowledge/sse';
+            db.run(`INSERT INTO mcp_servers (name, endpoint_url) VALUES (?, ?)`,
+                ['Knowledge Base MCP (Built-in)', endpointUrl],
+                (err) => {
+                    if (err) console.error('Failed to register Knowledge Base MCP Server', err);
+                    else console.log('DEBUG: Knowledge Base MCP Server registered successfully.');
+                }
+            );
+        }
 
         // Auto-register Default MCP Quick Prompts
+        console.log("DEBUG: Checking existingPrompts...");
         const existingPrompts = await db.getSetting('MCP_QUICK_PROMPTS');
+        console.log("DEBUG: existingPrompts fetched:", existingPrompts ? "yes" : "no");
         if (!existingPrompts) {
             console.log('DEBUG: Initializing default MCP Quick Prompts...');
             const defaultPrompts = JSON.stringify([
@@ -335,6 +372,63 @@ async function autoActivate() {
                 { label: "Docker一覧", prompt: "Dockerのコンテナ一覧を取得して表にまとめてください" }
             ]);
             await db.setSetting('MCP_QUICK_PROMPTS', defaultPrompts);
+        }
+
+        // Auto-Register Default Deep Research Workflows
+        const wfCount = await new Promise((resolve) => {
+            db.get("SELECT COUNT(*) as count FROM deep_research_workflow_definitions", [], (err, row) => {
+                if (err) resolve(-1);
+                else resolve(row ? row.count : 0);
+            });
+        });
+        console.log("DEBUG: wfCount fetched:", wfCount);
+
+        if (wfCount === 0) {
+            console.log('DEBUG: Initializing default Deep Research Workflows...');
+            
+            const researchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'deep-research-pro-preview-12-2025';
+            const researchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
+            const nanoModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
+            const nanoPrompt = await db.getSetting('NANO_BANANA_PROMPT') || '';
+            const htmlModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
+            const htmlPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
+            const folderId = await db.getSetting('geminiResearchFolderId') || '';
+
+            const crypto = require('crypto');
+            
+            // 1. HTML/SVG Knowledge Generation
+            const htmlId = crypto.randomUUID();
+            db.run(`INSERT INTO deep_research_workflow_definitions (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    htmlId,
+                    'HTML/SVGナレッジ生成',
+                    'Deep Researchを実行し、結果をインタラクティブなHTML/SVG形式のドキュメントとして出力・公開し、Google Driveへ保存します。',
+                    researchModel,
+                    researchPrompt,
+                    'html',
+                    htmlModel,
+                    htmlPrompt,
+                    folderId
+                ]
+            );
+
+            // 2. Infographic Generation
+            const infoId = crypto.randomUUID();
+            db.run(`INSERT INTO deep_research_workflow_definitions (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    infoId,
+                    'インフォグラフィック画像生成',
+                    'Deep Researchを実行し、結果のポイントを整理したプロフェッショナルな画像アセット（インフォグラフィック）を出力し、Google Driveへ保存します。',
+                    researchModel,
+                    researchPrompt,
+                    'infographic',
+                    nanoModel,
+                    nanoPrompt,
+                    folderId
+                ]
+            );
+            
+            console.log('DEBUG: Default Deep Research Workflows initialized.');
         }
 
     } catch (error) {

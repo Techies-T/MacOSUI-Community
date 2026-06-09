@@ -879,11 +879,14 @@ function requirePermission(action) {
 // Middleware to check widget access (PEP)
 function requireWidgetAccess(widgetId) {
     return (req, res, next) => {
+        console.log(`DEBUG: requireWidgetAccess(${widgetId}) hit! Path: ${req.originalUrl}, Method: ${req.method}`);
         if (req.user) {
+            console.log(`DEBUG: req.user exists. Role: ${req.user.role}`);
             const allowedWidgets = req.user.allowed_widgets || [];
             const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
             
             if (!hasAccess) {
+                console.log(`DEBUG: req.user widget access denied!`);
                 auditDb.logEvent({
                     userId: req.user.id,
                     userEmail: req.user.email,
@@ -895,19 +898,30 @@ function requireWidgetAccess(widgetId) {
                 });
                 return res.status(403).json({ error: `Access denied. Requires widget access: ${widgetId}` });
             }
+            console.log(`DEBUG: req.user widget access granted. calling next()`);
             return next();
         }
 
         // フォールバック: requireAuth が先にチェーンされていない場合
         const token = req.cookies.token;
-        if (!token) return res.status(401).json({ error: 'Not authenticated' });
+        console.log(`DEBUG: Token from cookie:`, token ? "exists (length: " + token.length + ")" : "missing");
+        if (!token) {
+            console.log(`DEBUG: Token missing in cookies. Returning 401`);
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
         
         jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
-            if (err) return res.status(401).json({ error: 'Invalid token' });
+            if (err) {
+                console.log(`DEBUG: JWT verification failed:`, err.message);
+                return res.status(401).json({ error: 'Invalid token' });
+            }
             
+            console.log(`DEBUG: JWT verification succeeded. Decoded user:`, decoded.email, `Role:`, decoded.role);
             const hashes = getContextHashes(req);
             const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+            console.log(`DEBUG: ZTA context validation:`, isContextValid);
             if (!isContextValid) {
+                console.log(`DEBUG: ZTA context validation FAILED!`);
                 auditDb.logEvent({
                     userId: decoded.id,
                     userEmail: decoded.email,
@@ -927,8 +941,10 @@ function requireWidgetAccess(widgetId) {
 
             const allowedWidgets = decoded.allowed_widgets || [];
             const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
+            console.log(`DEBUG: Fallback widget access hasAccess:`, hasAccess, `Allowed:`, allowedWidgets);
             
             if (!hasAccess) {
+                console.log(`DEBUG: Fallback widget access denied!`);
                 auditDb.logEvent({
                     userId: decoded.id,
                     userEmail: decoded.email,
@@ -941,6 +957,7 @@ function requireWidgetAccess(widgetId) {
                 return res.status(403).json({ error: `Access denied. Requires widget access: ${widgetId}` });
             }
             
+            console.log(`DEBUG: Fallback widget access granted. calling next()`);
             req.user = decoded;
             next();
         });
@@ -1354,7 +1371,7 @@ app.post('/api/gemini/proxy', requireWidgetAccess('app:gemini'), async (req, res
 // Google Drive API endpoints (google import moved to top)
 
 app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
-    const { message, history, config, images, previous_interaction_id, environment_id } = req.body;
+    const { message, history, config, images, previous_interaction_id, environment_id, workflowDefinitionId } = req.body;
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.1-flash-lite-preview';
@@ -1366,12 +1383,23 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
         // ZTA: Enforce Model Access (PEP)
         let requestedModel = modelName;
         const mode = config?.mode || 'rag';
+
+        // Retrieve custom workflow settings if provided
+        let customWorkflow = null;
+        if (workflowDefinitionId) {
+            customWorkflow = await new Promise((resolve) => {
+                db.get("SELECT * FROM deep_research_workflow_definitions WHERE id = ?", [workflowDefinitionId], (err, row) => {
+                    resolve(row || null);
+                });
+            });
+        }
+
         if (mode === 'research') {
-            requestedModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
+            requestedModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
         } else if (mode === 'nanobanana') {
-            requestedModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
+            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
         } else if (mode === 'html_svg') {
-            requestedModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
+            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
         }
 
         const allowedModels = req.user.allowed_models || [];
@@ -1384,7 +1412,7 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
         const jobId = crypto.randomUUID();
 
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, requestedModel, config, req.user.googleId, images, previous_interaction_id, environment_id);
+        processGeminiJob(jobId, message, history, apiKey, requestedModel, config, req.user.googleId, images, previous_interaction_id, environment_id, workflowDefinitionId);
 
         // Track RAG query usage for FAQ feature
         if (config?.mode === 'rag' && message.trim()) {
@@ -1409,7 +1437,7 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
 // ...
 
 // Background Gemini Job Processor
-async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images, previous_interaction_id, environment_id) {
+async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images, previous_interaction_id, environment_id, workflowDefinitionId) {
     geminiJobs[jobId] = { state: 'processing', reply: null, error: null, googleId };
     console.log(`Starting Gemini Job ${jobId}...`);
     console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
@@ -1419,17 +1447,27 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
         let mode = customConfig?.mode || 'rag'; // Default to RAG
 
+        // Retrieve custom workflow settings if provided
+        let customWorkflow = null;
+        if (workflowDefinitionId) {
+            customWorkflow = await new Promise((resolve) => {
+                db.get("SELECT * FROM deep_research_workflow_definitions WHERE id = ?", [workflowDefinitionId], (err, row) => {
+                    resolve(row || null);
+                });
+            });
+        }
+
         // Deep Research: Force Custom Tools model if not explicitly configured
         if (mode === 'research') {
-            const configuredResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL');
+            const configuredResearchModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL');
             modelName = configuredResearchModel || 'gemini-3.1-pro-preview-customtools';
             console.log(`Research Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'nanobanana') {
-            const configuredNanoModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL');
+            const configuredNanoModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL');
             modelName = configuredNanoModel || 'gemini-3.1-pro-preview';
             console.log(`Nano Banana Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'html_svg') {
-            const configuredHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL');
+            const configuredHtmlSvgModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL');
             modelName = configuredHtmlSvgModel || 'gemini-3.1-flash-lite-preview';
             console.log(`HTML/SVG Mode Activated: Enforcing model ${modelName}`);
         }
@@ -1497,7 +1535,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         } else if (mode === 'normal' && customConfig?.grounding) {
             systemInstruction = "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge.";
         } else if (mode === 'research') {
-             const customResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT');
+             const customResearchPrompt = customWorkflow?.research_prompt || await db.getSetting('DEEP_RESEARCH_PROMPT');
              systemInstruction = customResearchPrompt || "あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。";
         }
 

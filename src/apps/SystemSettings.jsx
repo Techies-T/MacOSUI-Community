@@ -661,24 +661,7 @@ const SystemSettings = ({ user }) => {
 
                 {activeTab === 'Deep Research' && (
                     <DeepResearchTab
-                        activeDrTab={activeDrTab}
-                        setActiveDrTab={setActiveDrTab}
                         models={models}
-                        currentResearchModel={currentResearchModel}
-                        handleResearchModelChange={handleResearchModelChange}
-                        currentNanoBananaModel={currentNanoBananaModel}
-                        handleNanoBananaModelChange={handleNanoBananaModelChange}
-                        currentHtmlSvgModel={currentHtmlSvgModel}
-                        handleHtmlSvgModelChange={handleHtmlSvgModelChange}
-                        deepResearchPrompt={deepResearchPrompt}
-                        setDeepResearchPrompt={setDeepResearchPrompt}
-                        nanoBananaPrompt={nanoBananaPrompt}
-                        setNanoBananaPrompt={setNanoBananaPrompt}
-                        htmlSvgPrompt={htmlSvgPrompt}
-                        setHtmlSvgPrompt={setHtmlSvgPrompt}
-                        researchFolderId={researchFolderId}
-                        setResearchFolderId={setResearchFolderId}
-                        handleSaveSettings={handleSaveSettings}
                         hasWidget={hasWidget}
                         hasAction={hasAction}
                     />

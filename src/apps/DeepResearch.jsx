@@ -25,6 +25,8 @@ const DeepResearch = ({ onOpen }) => {
     // Resumption state
     const [incompleteWorkflow, setIncompleteWorkflow] = useState(null);
     const workflowIdRef = useRef(null);
+    const [workflows, setWorkflows] = useState([]);
+    const [selectedWorkflow, setSelectedWorkflow] = useState(null);
 
     // Execution Tracking Refs
     const totalInputTokensRef = useRef(0);
@@ -63,10 +65,20 @@ const DeepResearch = ({ onOpen }) => {
                         setHasAccess(false);
                         setMessages([{ role: 'system', text: '🔒 Deep Researchの実行権限がありません。システム管理者にリクエストしてください。' }]);
                     } else {
-                        fetch('/api/research/workflow/incomplete')
+                        // Load workflows first
+                        fetch('/api/research/workflows')
+                            .then(res => res.json())
+                            .then(wfData => {
+                                if (wfData.workflows && wfData.workflows.length > 0) {
+                                    setWorkflows(wfData.workflows);
+                                    setSelectedWorkflow(wfData.workflows[0]);
+                                }
+                                // Then check incomplete workflows
+                                return fetch('/api/research/workflow/incomplete');
+                            })
                             .then(r => r.json())
                             .then(d => { if (d.workflow) setIncompleteWorkflow(d.workflow); })
-                            .catch(err => console.error("Error fetching incomplete workflow:", err));
+                            .catch(err => console.error("Error fetching workflow info:", err));
                     }
                 }
             })
@@ -82,11 +94,19 @@ const DeepResearch = ({ onOpen }) => {
     };
 
     // Phase 1: Planning and Confirmation
-    const requestPipeline = async (type, bypassHistory = false, explicitQuery = null) => {
+    const requestPipeline = async (wf, bypassHistory = false, explicitQuery = null) => {
         if (!hasAccess) return;
 
         const userQuery = bypassHistory ? (explicitQuery || pendingQuery) : input.trim();
         if ((!userQuery && !selectedDriveFile) || isLoading) return;
+
+        let targetWf = wf;
+        if (wf === 'direct_html') {
+            targetWf = {
+                ...selectedWorkflow,
+                output_type: 'direct_html'
+            };
+        }
 
         if (!bypassHistory) {
             setInput('');
@@ -105,7 +125,7 @@ const DeepResearch = ({ onOpen }) => {
             });
         }
 
-        setPipelineType(type);
+        setPipelineType(targetWf.output_type);
 
         if (!workflowIdRef.current || bypassHistory) {
             workflowIdRef.current = crypto.randomUUID();
@@ -115,9 +135,9 @@ const DeepResearch = ({ onOpen }) => {
         totalInputTokensRef.current = 0;
         totalOutputTokensRef.current = 0;
 
-        if (selectedDriveFile || type === 'direct_html') {
+        if (selectedDriveFile || targetWf.output_type === 'direct_html') {
             // Bypass Deep Research Task 1
-            executePipeline(userQuery, type, null, selectedDriveFile);
+            executePipeline(userQuery, targetWf, null, selectedDriveFile);
             return;
         }
 
@@ -135,7 +155,7 @@ const DeepResearch = ({ onOpen }) => {
                         text: `⚠️ **過去に似たテーマが調査されています:**\n${hData.matches.map(m => `・[${new Date(m.created_at).toLocaleDateString()}] ${m.query_text} (${m.status})`).join('\n')}\n\n本当に新しくリサーチを実施しますか？`,
                         component: (
                             <div className="mt-4 flex gap-3">
-                                <button onClick={() => requestPipeline(type, true, userQuery)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                                <button onClick={() => requestPipeline(targetWf, true, userQuery)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                                     ▶ 無視して新規作成
                                 </button>
                                 <button onClick={cancelPipeline} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
@@ -177,7 +197,8 @@ const DeepResearch = ({ onOpen }) => {
                 body: JSON.stringify({
                     id: workflowIdRef.current,
                     query_text: userQuery,
-                    pipeline_type: type,
+                    pipeline_type: targetWf.output_type,
+                    workflow_definition_id: targetWf.id,
                     status: 'confirming',
                     plan_text: planText,
                     total_input_tokens: totalInputTokensRef.current,
@@ -196,7 +217,7 @@ const DeepResearch = ({ onOpen }) => {
                     text: `${planText}\n\n**この計画に沿ってDeep Researchを開始しますか？**\n（※Google検索を複数回実行するため数分かかる場合があります）`,
                     component: (
                         <div className="mt-4 flex gap-3">
-                            <button onClick={() => executePipeline(userQuery, type)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                            <button onClick={() => executePipeline(userQuery, targetWf)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                                 ✅ この計画で調査を開始
                             </button>
                             <button onClick={cancelPipeline} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
@@ -215,26 +236,25 @@ const DeepResearch = ({ onOpen }) => {
         }
     };
 
-    const cancelPipeline = () => {
-        setStage('idle');
+        // Phase 2: Actual Execution
+    const executePipeline = async (userQuery, targetWorkflow, resumeData = null, attachedFile = null) => {
+        let activeWorkflow = targetWorkflow;
+        if (resumeData && resumeData.workflow_definition_id) {
+            const matched = workflows.find(w => w.id === resumeData.workflow_definition_id);
+            if (matched) activeWorkflow = matched;
+        }
 
-        // Remove confirmation buttons from previous message by stripping the component
-        setMessages(prev => {
-            const newArray = [...prev];
-            const lastMessage = newArray[newArray.length - 1];
-            if (lastMessage && lastMessage.component) {
-                lastMessage.component = undefined;
-            }
-            return newArray;
-        });
+        if (!activeWorkflow) {
+            activeWorkflow = selectedWorkflow || {
+                id: '',
+                name: 'Default Workflow',
+                output_type: 'html',
+                research_model: config?.geminiResearchModel || 'models/gemini-2.5-pro',
+                output_model: config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro',
+                folder_id: config?.geminiResearchFolderId || null
+            };
+        }
 
-        setInput(pendingQuery);
-        setPendingQuery('');
-        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '調査をキャンセルしました。テーマを修正して再実行できます。' }]);
-    };
-
-    // Phase 2: Actual Execution
-    const executePipeline = async (userQuery, type, resumeData = null, attachedFile = null) => {
         if (resumeData) {
             workflowIdRef.current = resumeData.id;
             totalInputTokensRef.current = resumeData.total_input_tokens || 0;
@@ -244,8 +264,8 @@ const DeepResearch = ({ onOpen }) => {
         setStage('researching');
 
         const pipelineStartTime = Date.now();
-        const isDirectHtml = type === 'direct_html' || !!attachedFile;
-        const actualType = type === 'direct_html' ? 'html' : type;
+        const isDirectHtml = activeWorkflow.output_type === 'direct_html' || !!attachedFile;
+        const actualType = activeWorkflow.output_type === 'direct_html' ? 'html' : activeWorkflow.output_type;
 
         // Remove confirmation buttons from previous message by stripping the component
         setMessages(prev => {
@@ -265,14 +285,15 @@ const DeepResearch = ({ onOpen }) => {
             let documentTitle = "Research Report";
 
             if (!reportText && !isDirectHtml) {
-                setMessages(prev => [...prev, { role: 'system', text: '🔍 Task 1: リサーチを実行中...' }]);
+                setMessages(prev => [...prev, { role: 'system', text: `🔍 Task 1: Deep Researchによる検索・調査を実行しています (${activeWorkflow.name} を実行中...)` }]);
 
                 const researchReq = await fetch('/api/research/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         query: userQuery,
-                        systemInstruction: config?.deepResearchPrompt || ""
+                        workflowDefinitionId: activeWorkflow.id,
+                        systemInstruction: activeWorkflow.research_prompt || config?.deepResearchPrompt || ""
                     })
                 });
                 const researchData = await researchReq.json();
@@ -312,7 +333,7 @@ const DeepResearch = ({ onOpen }) => {
                     }, 1500);
                 });
 
-                setMessages(prev => [...prev, { role: 'model', text: "✅ Task 1 完了！レポートが生成されました。" }]);
+                setMessages(prev => [...prev, { role: 'model', text: `✅ Task 1 完了！レポートが生成されました。(${reportText.length.toLocaleString()}文字)\nこの調査データは SQLite データベース (deep_research_workflows) にチェックポイント保存され、いつでも再開可能です。` }]);
 
                 // Save checkpoint
                 await fetch('/api/research/workflow/save', {
@@ -321,6 +342,7 @@ const DeepResearch = ({ onOpen }) => {
                     body: JSON.stringify({
                         id: workflowIdRef.current,
                         status: 'generating',
+                        workflow_definition_id: activeWorkflow.id,
                         report_text: reportText,
                         total_input_tokens: totalInputTokensRef.current,
                         total_output_tokens: totalOutputTokensRef.current
@@ -378,10 +400,10 @@ const DeepResearch = ({ onOpen }) => {
             if (finalGeneratedPayload) {
                 setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2: 保存済みの生成結果を復元しました。" }]);
             } else if (actualType === 'infographic') {
-                setMessages(prev => [...prev, { role: 'system', text: '🎨 Task 2: インフォグラフィックを生成中...' }]);
+                setMessages(prev => [...prev, { role: 'system', text: '🎨 Task 2: レポートからインフォグラフィック画像を生成しています...' }]);
 
                 const defaultNanoPrompt = "以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}";
-                let promptTemplate = config?.nanoBananaPrompt || defaultNanoPrompt;
+                let promptTemplate = activeWorkflow.output_prompt || config?.nanoBananaPrompt || defaultNanoPrompt;
                 if (!promptTemplate.includes('{{report}}')) promptTemplate += "\n\n{{report}}";
                 const genPrompt = promptTemplate.replace(/{{report}}/g, cleanReportForPrompt);
 
@@ -391,6 +413,7 @@ const DeepResearch = ({ onOpen }) => {
                     body: JSON.stringify({
                         message: genPrompt,
                         history: [],
+                        workflowDefinitionId: activeWorkflow.id,
                         config: { mode: 'nanobanana' }
                     })
                 });
@@ -408,17 +431,17 @@ const DeepResearch = ({ onOpen }) => {
                     role: 'model',
                     component: (
                         <div className="mt-4">
-                            <p className="font-semibold mb-2">✅ Task 2 完了！画像が生成されました:</p>
+                            <p className="font-semibold mb-2">✅ Task 2 完了！画像が生成されました（生成結果は SQLite データベースに保存されました）:</p>
                             <img src={`data:${imgData.mimeType};base64,${imgData.data}`} alt="Generated Infographic" className="rounded-lg shadow-md max-w-full h-auto" />
                         </div>
                     )
                 }]);
 
             } else if (actualType === 'html') {
-                setMessages(prev => [...prev, { role: 'system', text: '📊 Task 2: HTML/SVG ナレッジを生成中...' }]);
+                setMessages(prev => [...prev, { role: 'system', text: '📊 Task 2: レポートからHTML/SVGナレッジを生成しています...' }]);
 
                 const defaultHtmlPrompt = `以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}`;
-                let promptTemplate = config?.htmlSvgPrompt || defaultHtmlPrompt;
+                let promptTemplate = activeWorkflow.output_prompt || config?.htmlSvgPrompt || defaultHtmlPrompt;
                 if (!promptTemplate.includes('{{report}}')) promptTemplate += "\n\n=== テーマ: {{title}} ===\n\n{{report}}";
                 const genPrompt = promptTemplate
                     .replace(/{{title}}/g, documentTitle)
@@ -430,6 +453,7 @@ const DeepResearch = ({ onOpen }) => {
                     body: JSON.stringify({
                         message: genPrompt,
                         history: [],
+                        workflowDefinitionId: activeWorkflow.id,
                         config: { mode: 'html_svg', systemInstruction: 'あなたはフロントエンドエンジニアです。要求されたHTMLコードのみを出力し、マークダウンは使用しないでください。' }
                     })
                 });
@@ -447,10 +471,7 @@ const DeepResearch = ({ onOpen }) => {
                 finalGeneratedPayload = rawHtml;
                 mimeType = 'text/html';
 
-                setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2 完了！HTML/SVGファイルが生成されました。" }]);
-
-
-                // (HTML Editor popups have been removed in favor of the summary)
+                setMessages(prev => [...prev, { role: 'model', text: "✅ Task 2 完了！HTML/SVGファイルが生成されました。（生成結果は SQLite データベースに保存されました）" }]);
             }
 
             // Save checkpoint after generation
@@ -461,6 +482,7 @@ const DeepResearch = ({ onOpen }) => {
                     body: JSON.stringify({
                         id: workflowIdRef.current,
                         status: 'saving',
+                        workflow_definition_id: activeWorkflow.id,
                         generated_payload: finalGeneratedPayload,
                         total_input_tokens: totalInputTokensRef.current,
                         total_output_tokens: totalOutputTokensRef.current
@@ -472,7 +494,7 @@ const DeepResearch = ({ onOpen }) => {
             // Task 3: Save to Drive
             // ==========================================
             setStage('saving');
-            setMessages(prev => [...prev, { role: 'system', text: '💾 Task 3: Google Driveへ結果を自動保存中...' }]);
+            setMessages(prev => [...prev, { role: 'system', text: `💾 Task 3: Google Drive (フォルダID: ${activeWorkflow.folder_id || 'ルート'}) へ結果を自動保存しています...` }]);
 
             // Save Report (Google Doc) - Only if not direct HTML
             let saveDocData = null;
@@ -484,7 +506,7 @@ const DeepResearch = ({ onOpen }) => {
                         name: `${documentTitle} (Report)`,
                         content: reportText,
                         isDoc: true,
-                        folderId: config?.geminiResearchFolderId || null
+                        folderId: activeWorkflow.folder_id || config?.geminiResearchFolderId || null
                     })
                 });
                 saveDocData = await saveDocReq.json();
@@ -512,8 +534,6 @@ const DeepResearch = ({ onOpen }) => {
                     if (publishReq.ok) {
                         publishId = publishData.id;
                     }
-
-
                 } catch (e) {
                     console.error("Failed to publish natively:", e);
                 }
@@ -533,7 +553,7 @@ const DeepResearch = ({ onOpen }) => {
                     content: finalContent,
                     mimeType: mimeType,
                     isBase64: actualType === 'infographic', // Hint for backend if needed
-                    folderId: config?.geminiResearchFolderId || null
+                    folderId: activeWorkflow.folder_id || config?.geminiResearchFolderId || null
                 })
             });
             const saveFileData = await saveFileReq.json();
@@ -687,7 +707,7 @@ ${reportText.substring(0, 1500)}...`;
         setPipelineType(workflow.pipeline_type);
         setPendingQuery(workflow.query_text);
         setMessages([{ role: 'user', text: workflow.query_text }]);
-        executePipeline(workflow.query_text, workflow.pipeline_type, workflow);
+        executePipeline(workflow.query_text, null, workflow);
     };
 
     const discardWorkflow = async (id) => {
@@ -809,6 +829,31 @@ ${reportText.substring(0, 1500)}...`;
 
             {/* Input Area */}
             <div className="px-6 py-5 bg-white border-t border-gray-100 relative">
+                {/* Workflow Selector */}
+                {workflows.length > 0 && (
+                    <div className="flex items-center gap-2 mb-3 bg-indigo-50/40 p-2 rounded-xl border border-indigo-100/50 max-w-fit shadow-sm">
+                        <span className="text-xs font-semibold text-indigo-700 pl-1">実行ワークフロー:</span>
+                        <select
+                            value={selectedWorkflow?.id || ''}
+                            onChange={(e) => {
+                                const matched = workflows.find(w => w.id === e.target.value);
+                                if (matched) setSelectedWorkflow(matched);
+                            }}
+                            className="bg-white border border-indigo-200 text-xs font-bold text-gray-800 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                            disabled={isLoading}
+                        >
+                            {workflows.map(wf => (
+                                <option key={wf.id} value={wf.id}>{wf.name} ({wf.output_type === 'html' ? 'HTML/SVG' : 'インフォグラフィック'})</option>
+                            ))}
+                        </select>
+                        {selectedWorkflow && (
+                            <span className="text-[10px] text-gray-500 truncate max-w-[300px] font-medium pl-2 hidden sm:inline border-l border-indigo-200">
+                                {selectedWorkflow.description || '説明なし'}
+                            </span>
+                        )}
+                    </div>
+                )}
+
                 <div className="relative">
                     {selectedDriveFile && (
                         <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-semibold shadow-sm border border-indigo-200">
@@ -837,54 +882,29 @@ ${reportText.substring(0, 1500)}...`;
 
                 {/* Action Buttons */}
                 <div className="flex items-center gap-3 mt-3">
-                    {(() => {
-                        const allowedActions = userAuth?.allowed_actions || [];
-                        const canGenerateInfographic = allowedActions.includes('*') || allowedActions.includes('action:generate_infographic');
+                    <button
+                        onClick={() => requestPipeline(selectedWorkflow)}
+                        disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess || !selectedWorkflow}
+                        className={`flex-[2] flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                                ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess || !selectedWorkflow
+                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
+                                : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white border-transparent hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                    >
+                        <span className="text-lg group-hover:scale-110 transition-transform">🚀</span>
+                        <span>選択したワークフローで実行</span>
+                    </button>
 
-                        return (
-                            <>
-                                {canGenerateInfographic && (
-                                    <button
-                                        onClick={() => requestPipeline('infographic')}
-                                        disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
-                                        className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                                ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
-                                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
-                                                : 'bg-gradient-to-b from-indigo-50 to-white text-indigo-700 border-indigo-200 hover:border-indigo-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
-                                    >
-                                        <span className="text-lg group-hover:scale-110 transition-transform">🎨</span>
-                                        <span>画像化ワークフローで実行</span>
-                                    </button>
-                                )}
-
-                                <button
-                                    onClick={() => requestPipeline('html')}
-                                    disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
-                                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                            ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
-                                            ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
-                                            : 'bg-gradient-to-b from-emerald-50 to-white text-emerald-700 border-emerald-200 hover:border-emerald-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
-                                >
-                                    <span className="text-lg group-hover:scale-110 transition-transform">📊</span>
-                                    <span>HTML化ワークフローで実行</span>
-                                </button>
-
-                                <button
-                                    onClick={() => requestPipeline('direct_html')}
-                                    disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
-                                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
-                                            ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
-                                            ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
-                                            : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
-                                >
-                                    <span className="text-lg group-hover:scale-110 transition-transform">📄</span>
-                                    <span>既存レポートからHTML化</span>
-                                </button>
-
-
-                            </>
-                        );
-                    })()}
+                    <button
+                        onClick={() => requestPipeline('direct_html')}
+                        disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
+                        className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                                ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
+                                ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
+                                : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                    >
+                        <span className="text-lg group-hover:scale-110 transition-transform">📄</span>
+                        <span>既存レポートからアセット変換</span>
+                    </button>
                 </div>
             </div>
             {isDriveModalOpen && (
