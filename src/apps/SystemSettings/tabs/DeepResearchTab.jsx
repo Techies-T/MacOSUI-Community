@@ -218,7 +218,7 @@ const DeepResearchTab = ({
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">プロンプトテンプレート ({{report}} などのプレースホルダを含めてください)</label>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">{"プロンプトテンプレート ({{report}} などのプレースホルダを含めてください)"}</label>
                                 <textarea
                                     value={editingWorkflow.output_prompt || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, output_prompt: e.target.value })}
