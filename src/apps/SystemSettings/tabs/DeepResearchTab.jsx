@@ -142,7 +142,7 @@ const DeepResearchTab = ({
                                     value={editingWorkflow.name}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, name: e.target.value })}
                                     placeholder="例: HTML/SVGナレッジ自動生成"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
                             </div>
                             <div>
@@ -151,7 +151,7 @@ const DeepResearchTab = ({
                                     value={editingWorkflow.description || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, description: e.target.value })}
                                     placeholder="このワークフローの用途や特徴を記述します。"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm h-16 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm h-16 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
                             </div>
 
@@ -161,7 +161,7 @@ const DeepResearchTab = ({
                                 <select
                                     value={editingWorkflow.research_model || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, research_model: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
                                 >
                                     <option value="">システムデフォルトを使用</option>
                                     {models?.map(m => (
@@ -174,7 +174,7 @@ const DeepResearchTab = ({
                                 <textarea
                                     value={editingWorkflow.research_prompt || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, research_prompt: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono h-32 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-xs font-mono h-32 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
                             </div>
                         </div>
@@ -198,7 +198,7 @@ const DeepResearchTab = ({
                                             output_model: defaultModel
                                         });
                                     }}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 >
                                     <option value="html">HTML / SVG (Webナレッジ形式)</option>
                                     <option value="infographic">Infographic (画像生成/Nano Banana 2形式)</option>
@@ -209,7 +209,7 @@ const DeepResearchTab = ({
                                 <select
                                     value={editingWorkflow.output_model || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, output_model: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
                                 >
                                     <option value="">システムデフォルトを使用</option>
                                     {models?.map(m => (
@@ -222,7 +222,7 @@ const DeepResearchTab = ({
                                 <textarea
                                     value={editingWorkflow.output_prompt || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, output_prompt: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono h-24 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-xs font-mono h-24 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
                             </div>
 
@@ -234,7 +234,7 @@ const DeepResearchTab = ({
                                     value={editingWorkflow.folder_id || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, folder_id: e.target.value })}
                                     placeholder="Enter Google Drive Folder ID"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
                                 <p className="text-[10px] text-gray-400 mt-1">空欄の場合はシステムルートに保存されます。</p>
                             </div>
