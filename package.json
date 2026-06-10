@@ -38,7 +38,8 @@
   },
   "overrides": {
     "tar": "^7.5.10",
-    "minimatch": "^10.2.3"
+    "minimatch": "^10.2.3",
+    "shell-quote": "^1.8.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

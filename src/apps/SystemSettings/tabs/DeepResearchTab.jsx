@@ -7,6 +7,7 @@ const DeepResearchTab = ({
 }) => {
     const isManager = hasAction('action:edit_workflow_model') || hasAction('action:manage_system_settings');
     const [workflows, setWorkflows] = useState([]);
+    const [pods, setPods] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [editingWorkflow, setEditingWorkflow] = useState(null); // When not null, show form/modal
     const [error, setError] = useState('');
@@ -28,8 +29,18 @@ const DeepResearchTab = ({
             });
     };
 
+    const loadPods = () => {
+        fetch('/api/pods')
+            .then(res => res.json())
+            .then(data => {
+                if (data.pods) setPods(data.pods);
+            })
+            .catch(err => console.error("Failed to load pods:", err));
+    };
+
     useEffect(() => {
         loadWorkflows();
+        loadPods();
     }, []);
 
     const handleEdit = (wf) => {
@@ -48,7 +59,8 @@ const DeepResearchTab = ({
             output_type: 'html',
             output_model: 'gemini-3.1-flash-lite-preview',
             output_prompt: '以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}',
-            folder_id: ''
+            folder_id: '',
+            pod_id: ''
         });
     };
 
@@ -153,6 +165,20 @@ const DeepResearchTab = ({
                                     placeholder="このワークフローの用途や特徴を記述します。"
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm h-16 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">紐付け対象のPod</label>
+                                <select
+                                    value={editingWorkflow.pod_id || ''}
+                                    onChange={(e) => setEditingWorkflow({ ...editingWorkflow, pod_id: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    <option value="">🌐 共通（パブリック）</option>
+                                    {pods.map(p => (
+                                        <option key={p.id} value={p.id}>📦 {p.name}</option>
+                                    ))}
+                                </select>
+                                <p className="text-[10px] text-gray-400 mt-1">Podを紐付けると、そのPodのアクセス権を持つユーザーのみがこのワークフローを利用でき、実行結果もそのPodに蓄積されます。</p>
                             </div>
 
                             <h3 className="text-sm font-bold text-gray-800 border-b border-gray-100 pb-2 pt-2">1. Base Research Agent (リサーチ部)</h3>
@@ -284,6 +310,7 @@ const DeepResearchTab = ({
                                 <thead>
                                     <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
                                         <th className="p-4">ワークフロー名</th>
+                                        <th className="p-4">所属Pod</th>
                                         <th className="p-4">生成タイプ</th>
                                         <th className="p-4">リサーチモデル</th>
                                         <th className="p-4">出力モデル</th>
@@ -297,6 +324,17 @@ const DeepResearchTab = ({
                                             <td className="p-4 font-bold text-gray-900">
                                                 <div>{wf.name}</div>
                                                 <div className="text-[10px] text-gray-400 font-normal mt-0.5">{wf.description || '説明なし'}</div>
+                                            </td>
+                                            <td className="p-4">
+                                                {wf.pod_id ? (
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                                        📦 {pods.find(p => p.id === wf.pod_id)?.name || wf.pod_id}
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                                                        🌐 共通（パブリック）
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="p-4">
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${

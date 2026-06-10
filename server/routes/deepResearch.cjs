@@ -43,7 +43,7 @@ router.get('/check-history', (req, res) => {
 
 router.post('/start', async (req, res) => {
     try {
-        const { query, workflowDefinitionId } = req.body;
+        const { query, workflowDefinitionId, selected_article_ids } = req.body;
         if (!query) {
             return res.status(400).json({ error: 'Query is required for Deep Research' });
         }
@@ -95,6 +95,34 @@ router.post('/start', async (req, res) => {
             return res.status(403).json({ error: 'Deep Research実行権限がありません。管理者に連絡してください。' });
         }
 
+        // --- ZTA: 選択された過去ナレッジ記事へのアクセス制限チェック ---
+        if (selected_article_ids && Array.isArray(selected_article_ids) && selected_article_ids.length > 0) {
+            const allowedPods = await getAllowedPodsForUser(user);
+            const hasAllAccess = allowedPods.includes('*');
+            
+            if (!hasAllAccess) {
+                const forbidden = await new Promise((resolve) => {
+                    const placeholders = selected_article_ids.map(() => "?").join(",");
+                    db.all(
+                        `SELECT pod_id FROM knowledge_articles WHERE id IN (${placeholders})`,
+                        selected_article_ids,
+                        (err, rows) => {
+                            if (err) {
+                                resolve(true); // DBエラー時は安全のため拒否
+                            } else {
+                                const hasForbidden = rows.some(row => row.pod_id && !allowedPods.includes(row.pod_id));
+                                resolve(hasForbidden);
+                            }
+                        }
+                    );
+                });
+                
+                if (forbidden) {
+                    return res.status(403).json({ error: '選択された過去ナレッジの一部に対するアクセス権限がありません。' });
+                }
+            }
+        }
+
         // --- Configurable Rate Limit check ---
         const maxPerDayStr = process.env.MAX_DEEP_RESEARCH_PER_DAY;
         const maxPerDay = maxPerDayStr !== undefined ? parseInt(maxPerDayStr, 10) : 1; // Default: 1
@@ -124,6 +152,7 @@ router.post('/start', async (req, res) => {
         // Retrieve workflow definition properties if provided
         let researchModel = null;
         let finalInstruction = req.body.systemInstruction || null;
+        let podId = null;
         
         if (workflowDefinitionId) {
             const definition = await new Promise((resolve) => {
@@ -133,8 +162,17 @@ router.post('/start', async (req, res) => {
             });
             if (definition) {
                 researchModel = definition.research_model;
+                podId = definition.pod_id;
                 if (definition.research_prompt) {
                     finalInstruction = definition.research_prompt;
+                }
+                
+                // RBACアクセス権検証 (ZTA)
+                if (podId) {
+                    const allowedPods = await getAllowedPodsForUser(user);
+                    if (!allowedPods.includes('*') && !allowedPods.includes(podId)) {
+                        return res.status(403).json({ error: 'このワークフローが属するPodへのアクセス権限がありません。' });
+                    }
                 }
             }
         }
@@ -143,13 +181,13 @@ router.post('/start', async (req, res) => {
         const jobId = crypto.randomUUID();
 
         // 1. Kick off background Deep Research
-        startDeepResearch(jobId, query, apiKey, finalInstruction, researchModel);
+        startDeepResearch(jobId, query, apiKey, finalInstruction, researchModel, podId, selected_article_ids);
 
         // Record history
         await new Promise((resolve) => {
             db.run(
-                "INSERT INTO deep_research_history (user_id, query_text, status) VALUES (?, ?, ?)",
-                [user.id, query, 'in_progress'],
+                "INSERT INTO deep_research_history (user_id, query_text, status, pod_id, selected_article_ids) VALUES (?, ?, ?, ?, ?)",
+                [user.id, query, 'in_progress', podId || null, selected_article_ids ? JSON.stringify(selected_article_ids) : null],
                 () => resolve()
             );
         });
@@ -244,21 +282,56 @@ router.post('/publish', async (req, res) => {
 
 // GET /status/:id has been moved downstream to avoid matching /workflows
 
-async function startDeepResearch(jobId, query, apiKey, customInstruction = null, targetModel = null) {
+async function startDeepResearch(jobId, query, apiKey, customInstruction = null, targetModel = null, podId = null, selectedArticleIds = null) {
     researchJobs[jobId] = { status: 'in_progress', result: null, error: null };
-    console.log(`Starting Deep Research Job ${jobId}...`);
+    console.log(`Starting Deep Research Job ${jobId} (Pod: ${podId || 'None'}, Selected Articles: ${selectedArticleIds ? selectedArticleIds.length : 0})...`);
 
     try {
         const client = new GoogleGenAI({ apiKey });
+        
+        // --- Pod RAG 連携: 選択された過去ナレッジ記事の結合処理 ---
+        let knowledgeContext = "";
+        if (selectedArticleIds && Array.isArray(selectedArticleIds) && selectedArticleIds.length > 0) {
+            const articles = await new Promise((resolve) => {
+                const placeholders = selectedArticleIds.map(() => "?").join(",");
+                db.all(
+                    `SELECT title, content FROM knowledge_articles WHERE id IN (${placeholders}) ORDER BY created_at DESC`,
+                    selectedArticleIds,
+                    (err, rows) => {
+                        if (err) {
+                            console.error("Failed to fetch selected articles for RAG:", err);
+                            resolve([]);
+                        } else {
+                            resolve(rows || []);
+                        }
+                    }
+                );
+            });
+            
+            if (articles.length > 0) {
+                knowledgeContext = "--- 過去の関連調査・ナレッジベース (参考情報) ---\n";
+                articles.forEach((art, idx) => {
+                    knowledgeContext += `【過去資料 ${idx + 1}】 タイトル: ${art.title}\n内容:\n${art.content}\n\n`;
+                });
+                knowledgeContext += "--------------------------------------------------\n\n";
+                console.log(`Merged ${articles.length} selected knowledge articles into prompt for Job ${jobId}.`);
+            }
+        }
         
         // Deep Research Pro Preview specifically uses background=true.
         // It's often required to use the Interactions API.
         const customAgent = targetModel || await db.getSetting('GEMINI_RESEARCH_MODEL');
         const agentName = customAgent ? customAgent.replace('models/', '') : 'deep-research-pro-preview-12-2025';
         
+        // 過去のナレッジコンテキストをinputの前に差し込む
+        let finalInput = query;
+        if (knowledgeContext) {
+            finalInput = `${knowledgeContext}【現在の調査依頼】\n${query}`;
+        }
+        
         const interactionOptions = {
             agent: agentName,
-            input: customInstruction ? `System Instructions (priority):\n${customInstruction}\n\n--- User Query ---\n${query}` : query,
+            input: customInstruction ? `System Instructions (priority):\n${customInstruction}\n\n--- User Query ---\n${finalInput}` : finalInput,
             background: true,
         };
 
@@ -395,7 +468,7 @@ router.post('/workflow/save', async (req, res) => {
         const user = await getUserFromReq(req);
         if (!user) return res.status(401).json({ error: 'Not authenticated' });
 
-        const { id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens } = req.body;
+        const { id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens, pod_id, selected_article_ids } = req.body;
         
         if (!id) return res.status(400).json({ error: 'Workflow ID is required' });
 
@@ -407,15 +480,18 @@ router.post('/workflow/save', async (req, res) => {
             });
         });
 
+        const selectedArticleIdsStr = selected_article_ids ? JSON.stringify(selected_article_ids) : null;
+
         if (existing) {
             // Update
             db.run(
                 `UPDATE deep_research_workflows 
                  SET status = ?, plan_text = COALESCE(?, plan_text), report_text = COALESCE(?, report_text), 
                      generated_payload = COALESCE(?, generated_payload), 
-                     total_input_tokens = ?, total_output_tokens = ?, workflow_definition_id = COALESCE(?, workflow_definition_id), updated_at = CURRENT_TIMESTAMP
+                     total_input_tokens = ?, total_output_tokens = ?, workflow_definition_id = COALESCE(?, workflow_definition_id), 
+                     pod_id = COALESCE(?, pod_id), selected_article_ids = COALESCE(?, selected_article_ids), updated_at = CURRENT_TIMESTAMP
                  WHERE id = ? AND user_id = ?`,
-                [status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0, workflow_definition_id, id, user.id],
+                [status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0, workflow_definition_id, pod_id, selectedArticleIdsStr, id, user.id],
                 (err) => {
                     if (err) return res.status(500).json({ error: err.message });
                     res.json({ success: true, action: 'updated' });
@@ -424,9 +500,9 @@ router.post('/workflow/save', async (req, res) => {
         } else {
             // Insert
             db.run(
-                `INSERT INTO deep_research_workflows (id, user_id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [id, user.id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0],
+                `INSERT INTO deep_research_workflows (id, user_id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens, total_output_tokens, pod_id, selected_article_ids)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, user.id, query_text, pipeline_type, workflow_definition_id, status, plan_text, report_text, generated_payload, total_input_tokens || 0, total_output_tokens || 0, pod_id || null, selectedArticleIdsStr],
                 (err) => {
                     if (err) return res.status(500).json({ error: err.message });
                     res.json({ success: true, action: 'inserted' });
@@ -457,10 +533,44 @@ router.delete('/workflow/:id', async (req, res) => {
 // Workflow Definition Endpoints (CRUD)
 // ==========================================
 
+async function getAllowedPodsForUser(user) {
+    if (!user) return [];
+    try {
+        const rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+        const userRole = user.role || 'user';
+        const rolePolicy = rbacPolicies[userRole] || {};
+        return rolePolicy.allowed_pods || [];
+    } catch (e) {
+        console.error("Error reading RBAC policies:", e);
+        return [];
+    }
+}
+
 router.get('/workflows', async (req, res) => {
     console.log("DEBUG: GET /workflows route matched in deepResearch.cjs!");
     try {
-        db.all("SELECT * FROM deep_research_workflow_definitions ORDER BY created_at DESC", [], (err, rows) => {
+        const user = await getUserFromReq(req);
+        if (!user) return res.status(401).json({ error: 'Not authenticated' });
+        
+        const allowedPods = await getAllowedPodsForUser(user);
+        const hasAllAccess = allowedPods.includes('*');
+
+        let query = "SELECT * FROM deep_research_workflow_definitions WHERE 1=1";
+        let params = [];
+        
+        if (!hasAllAccess) {
+            if (allowedPods.length > 0) {
+                const placeholders = allowedPods.map(() => "?").join(",");
+                query += ` AND (pod_id IN (${placeholders}) OR pod_id IS NULL OR pod_id = '')`;
+                params.push(...allowedPods);
+            } else {
+                query += " AND (pod_id IS NULL OR pod_id = '')";
+            }
+        }
+        
+        query += " ORDER BY created_at DESC";
+
+        db.all(query, params, (err, rows) => {
             if (err) {
                 console.error("Fetch workflows error:", err);
                 return res.status(500).json({ error: "Failed to fetch workflows" });
@@ -513,17 +623,17 @@ router.post('/workflows', async (req, res) => {
             return res.status(403).json({ error: 'ワークフロー定義の変更権限がありません。管理者のみ可能です。' });
         }
 
-        const { id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id } = req.body;
+        const { id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, pod_id } = req.body;
         if (!name) return res.status(400).json({ error: 'Workflow name is required' });
 
         const crypto = require('crypto');
         const finalId = id || crypto.randomUUID();
 
-        // Use INSERT OR REPLACE
+        // Use INSERT OR REPLACE / ON CONFLICT
         db.run(
             `INSERT INTO deep_research_workflow_definitions 
-             (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, pod_id, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
@@ -533,8 +643,9 @@ router.post('/workflows', async (req, res) => {
                 output_model = excluded.output_model,
                 output_prompt = excluded.output_prompt,
                 folder_id = excluded.folder_id,
+                pod_id = excluded.pod_id,
                 updated_at = CURRENT_TIMESTAMP`,
-            [finalId, name, description || '', research_model || '', research_prompt || '', output_type || 'html', output_model || '', output_prompt || '', folder_id || ''],
+            [finalId, name, description || '', research_model || '', research_prompt || '', output_type || 'html', output_model || '', output_prompt || '', folder_id || '', pod_id || null],
             (err) => {
                 if (err) {
                     console.error("Save workflow error:", err);

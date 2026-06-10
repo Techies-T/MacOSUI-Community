@@ -20,16 +20,28 @@ const KnowledgeBase = () => {
     const [selectedTag, setSelectedTag] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     
+    // Pod states
+    const [pods, setPods] = useState([]);
+    const [selectedPodId, setSelectedPodId] = useState(null); // null: すべて, 'public': 共通, UUID: 特定Pod
+
     // Form state
-    const [editForm, setEditForm] = useState({ title: '', content: '', tags: '' });
+    const [editForm, setEditForm] = useState({ title: '', content: '', tags: '', pod_id: '' });
     
     // Status
     const [isLoading, setIsLoading] = useState(true);
 
-    const fetchArticles = async (tag = null) => {
+    const fetchArticles = async (tag = null, podId = null) => {
         setIsLoading(true);
         try {
-            const url = tag ? `/api/knowledge?tag=${encodeURIComponent(tag)}` : '/api/knowledge';
+            let url = '/api/knowledge';
+            const params = [];
+            if (tag) params.push(`tag=${encodeURIComponent(tag)}`);
+            if (podId) params.push(`pod_id=${encodeURIComponent(podId)}`);
+            
+            if (params.length > 0) {
+                url += '?' + params.join('&');
+            }
+            
             const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
@@ -42,15 +54,30 @@ const KnowledgeBase = () => {
         }
     };
 
-    useEffect(() => {
-        fetchArticles(selectedTag);
-    }, [selectedTag]);
+    const fetchPods = async () => {
+        try {
+            const res = await fetch('/api/pods');
+            if (res.ok) {
+                const data = await res.json();
+                setPods(data.pods || []);
+            }
+        } catch (error) {
+            console.error("Failed to fetch pods", error);
+        }
+    };
 
-    // Extract unique tags from articles for sidebar (combining with all fetched tags might be better, but doing client side for now just for currently fetched if no tag selected, or re-fetch all)
+    useEffect(() => {
+        fetchPods();
+    }, []);
+
+    useEffect(() => {
+        fetchArticles(selectedTag, selectedPodId);
+    }, [selectedTag, selectedPodId]);
+
+    // Extract unique tags from articles for sidebar
     const [allTags, setAllTags] = useState([]);
     
     useEffect(() => {
-        // Fetch ALL tags once initially or when articles change WITHOUT a tag filter
         if (!selectedTag && articles.length > 0) {
             const tagsSet = new Set();
             articles.forEach(a => {
@@ -64,17 +91,22 @@ const KnowledgeBase = () => {
 
     const handleCreateNew = () => {
         setSelectedArticleId(null);
-        setEditForm({ title: '', content: '', tags: '' });
+        setEditForm({ 
+            title: '', 
+            content: '', 
+            tags: '', 
+            pod_id: selectedPodId && selectedPodId !== 'public' ? selectedPodId : '' 
+        });
         setIsEditing(true);
     };
 
     const handleSelectArticle = async (article) => {
-        // Optimistically set title, content is populated after fetch finishes
         setSelectedArticleId(article.id);
         setEditForm({
             title: article.title,
             content: article.content || '読み込み中...',
-            tags: Array.isArray(article.tags) ? article.tags.join(', ') : ''
+            tags: Array.isArray(article.tags) ? article.tags.join(', ') : '',
+            pod_id: article.pod_id || ''
         });
         setIsEditing(false);
 
@@ -89,7 +121,8 @@ const KnowledgeBase = () => {
                 setEditForm({
                     title: fullArticle.title,
                     content: fullArticle.content || '',
-                    tags: Array.isArray(fullArticle.tags) ? fullArticle.tags.join(', ') : ''
+                    tags: Array.isArray(fullArticle.tags) ? fullArticle.tags.join(', ') : '',
+                    pod_id: fullArticle.pod_id || ''
                 });
             }
         } catch (error) {
@@ -101,7 +134,8 @@ const KnowledgeBase = () => {
         const payload = {
             title: editForm.title,
             content: editForm.content,
-            tags: editForm.tags.split(',').map(t => t.trim()).filter(t => t)
+            tags: editForm.tags.split(',').map(t => t.trim()).filter(t => t),
+            pod_id: editForm.pod_id || null
         };
         
         try {
@@ -113,7 +147,7 @@ const KnowledgeBase = () => {
                     body: JSON.stringify(payload)
                 });
                 if (res.ok) {
-                    await fetchArticles(selectedTag);
+                    await fetchArticles(selectedTag, selectedPodId);
                     setIsEditing(false);
                 }
             } else {
@@ -126,7 +160,7 @@ const KnowledgeBase = () => {
                 if (res.ok) {
                     const data = await res.json();
                     setSelectedArticleId(data.id);
-                    await fetchArticles(selectedTag);
+                    await fetchArticles(selectedTag, selectedPodId);
                     setIsEditing(false);
                 }
             }
@@ -146,7 +180,7 @@ const KnowledgeBase = () => {
             if (res.ok) {
                 setSelectedArticleId(null);
                 setIsEditing(false);
-                fetchArticles(selectedTag);
+                fetchArticles(selectedTag, selectedPodId);
             }
         } catch (error) {
             console.error("Failed to delete", error);
@@ -168,7 +202,7 @@ const KnowledgeBase = () => {
                     }
                     
                     // Bold
-                    const boldParts = part.split(/(\*\*.*?\*\*)/g);
+                    const boldParts = part.split(/(\**.*?\*\*)/g);
                     return boldParts.map((bp, bIdx) => {
                         if (!bp) return null;
                         if (bp.startsWith('**') && bp.endsWith('**') && bp.length > 4) {
@@ -196,7 +230,6 @@ const KnowledgeBase = () => {
                 if (line.startsWith('> ')) {
                     let blockquoteText = line.replace('> ', '');
                     let j = i + 1;
-                    // Lazy blockquote continuation: consume lines until empty line or new block element
                     while (j < lines.length && lines[j].trim() !== '' && !lines[j].startsWith('## ') && !lines[j].startsWith('# ') && !lines[j].startsWith('- ') && !lines[j].startsWith('**')) {
                         blockquoteText += '\n' + (lines[j].startsWith('> ') ? lines[j].replace('> ', '') : lines[j]);
                         j++;
@@ -250,9 +283,34 @@ const KnowledgeBase = () => {
 
     return (
         <div className="w-full h-full bg-[#1e1e1e] text-[#d4d4d4] flex font-sans overflow-hidden">
-            {/* Left Sidebar: Tags */}
+            {/* Left Sidebar: Pods & Tags */}
             <div className="w-48 border-r border-[#333] bg-[#252526] flex flex-col justify-between">
                 <div className="overflow-y-auto p-3">
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 px-2">Pods</h3>
+                    <div 
+                        className={`px-3 py-1.5 rounded text-sm cursor-pointer mb-1 ${!selectedPodId ? 'bg-[#37373d] text-white font-medium' : 'hover:bg-[#2a2d2e]'}`}
+                        onClick={() => { setSelectedPodId(null); setSelectedArticleId(null); setIsEditing(false); }}
+                    >
+                        📦 すべてのPod
+                    </div>
+                    <div 
+                        className={`px-3 py-1.5 rounded text-sm cursor-pointer mb-1 ${selectedPodId === 'public' ? 'bg-[#37373d] text-white font-medium' : 'hover:bg-[#2a2d2e]'}`}
+                        onClick={() => { setSelectedPodId('public'); setSelectedArticleId(null); setIsEditing(false); }}
+                    >
+                        🌐 共通（パブリック）
+                    </div>
+                    {pods.map(pod => (
+                        <div 
+                            key={pod.id}
+                            className={`px-3 py-1.5 rounded text-sm flex items-center cursor-pointer mb-1 ${selectedPodId === pod.id ? 'bg-[#007acc] text-white font-medium' : 'hover:bg-[#2a2d2e]'}`}
+                            onClick={() => { setSelectedPodId(pod.id); setSelectedArticleId(null); setIsEditing(false); }}
+                        >
+                            <span className="truncate">📦 {pod.name}</span>
+                        </div>
+                    ))}
+                    
+                    <hr className="border-[#333] my-3" />
+                    
                     <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3 px-2">Tags</h3>
                     
                     <div 
@@ -306,10 +364,19 @@ const KnowledgeBase = () => {
                                 <div className="text-xs text-gray-400 mt-1 truncate">
                                     {(article.content || 'No content').substring(0, 50)}
                                 </div>
-                                <div className="flex gap-1 mt-2 flex-wrap">
-                                    {Array.isArray(article.tags) && article.tags.slice(0,3).map(tag => (
-                                        <span key={tag} className="text-[10px] bg-[#333] px-1.5 py-0.5 rounded text-gray-300">
-                                            {tag}
+                                <div className="flex gap-1 mt-2.5 flex-wrap">
+                                    {article.pod_id ? (
+                                        <span className="text-[9px] bg-indigo-900/40 border border-indigo-700/30 px-1.5 py-0.5 rounded text-indigo-300">
+                                            📦 {pods.find(p => p.id === article.pod_id)?.name || '限定Pod'}
+                                        </span>
+                                    ) : (
+                                        <span className="text-[9px] bg-gray-800 border border-gray-700 px-1.5 py-0.5 rounded text-gray-400">
+                                            🌐 共通
+                                        </span>
+                                    )}
+                                    {Array.isArray(article.tags) && article.tags.slice(0,2).map(tag => (
+                                        <span key={tag} className="text-[9px] bg-[#333] px-1.5 py-0.5 rounded text-gray-300">
+                                            #{tag}
                                         </span>
                                     ))}
                                 </div>
@@ -350,13 +417,29 @@ const KnowledgeBase = () => {
                                 className="w-full bg-[#252526] border border-[#3c3c3c] rounded p-3 mb-4 text-white text-lg focus:outline-none focus:border-blue-500"
                             />
                             
-                            <input 
-                                type="text"
-                                placeholder="タグ カンマ区切り (例: 開発, サーバー, トラブルシューティング)"
-                                value={editForm.tags}
-                                onChange={(e) => setEditForm({...editForm, tags: e.target.value})}
-                                className="w-full bg-[#252526] border border-[#3c3c3c] rounded p-2 mb-4 text-white text-sm focus:outline-none focus:border-blue-500"
-                            />
+                            <div className="flex gap-4 mb-4">
+                                <div className="flex-1">
+                                    <select
+                                        value={editForm.pod_id || ''}
+                                        onChange={(e) => setEditForm({...editForm, pod_id: e.target.value})}
+                                        className="w-full bg-[#252526] border border-[#3c3c3c] rounded p-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
+                                    >
+                                        <option value="">🌐 共通（パブリック）として公開</option>
+                                        {pods.map(p => (
+                                            <option key={p.id} value={p.id}>📦 {p.name} に紐付ける</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex-1">
+                                    <input 
+                                        type="text"
+                                        placeholder="タグ カンマ区切り (例: 開発, サーバー, トラブルシューティング)"
+                                        value={editForm.tags}
+                                        onChange={(e) => setEditForm({...editForm, tags: e.target.value})}
+                                        className="w-full bg-[#252526] border border-[#3c3c3c] rounded p-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
+                                    />
+                                </div>
+                            </div>
                             
                             <textarea 
                                 placeholder="Markdownで記事の内容を記述してください..."
@@ -379,8 +462,17 @@ const KnowledgeBase = () => {
                                         <span>{new Date(selectedArticle?.updated_at || Date.now()).toLocaleString()}</span>
                                     </div>
                                     <div className="flex gap-2 mt-4 flex-wrap">
+                                        {selectedArticle?.pod_id ? (
+                                            <span className="text-xs bg-indigo-900/30 border border-indigo-700/30 px-2.5 py-1 rounded-full text-indigo-300 shadow-sm font-medium">
+                                                📦 {pods.find(p => p.id === selectedArticle.pod_id)?.name || '限定Pod'}
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs bg-gray-800/50 border border-gray-700 px-2.5 py-1 rounded-full text-gray-400 shadow-sm font-medium">
+                                                🌐 共通（パブリック）
+                                            </span>
+                                        )}
                                         {Array.isArray(selectedArticle?.tags) && selectedArticle.tags.map(tag => (
-                                            <span key={tag} className="text-xs bg-[#2a2d2e] border border-[#3c3c3c] px-2 py-1 rounded-full text-blue-300 shadow-sm cursor-pointer hover:bg-[#333]" onClick={() => setSelectedTag(tag)}>
+                                            <span key={tag} className="text-xs bg-[#2a2d2e] border border-[#3c3c3c] px-2.5 py-1 rounded-full text-blue-300 shadow-sm cursor-pointer hover:bg-[#333]" onClick={() => setSelectedTag(tag)}>
                                                 #{tag}
                                             </span>
                                         ))}

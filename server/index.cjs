@@ -310,6 +310,10 @@ app.use('/api/research', requireWidgetAccess('app:deep-research'), deepResearchM
 const knowledgeModule = require('./routes/knowledge.cjs');
 app.use('/api/knowledge', requireWidgetAccess('app:knowledge-base'), knowledgeModule.router);
 
+// Import Pods route
+const podsModule = require('./routes/pods.cjs');
+app.use('/api/pods', requireAuth, podsModule.router);
+
 // Knowledge Base MCP Server route
 const knowledgeMcpModule = require('./routes/knowledgeMcp.cjs');
 app.use('/api/mcp/knowledge', knowledgeMcpModule.router);
@@ -1728,8 +1732,8 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                             } else if (part.fileData) {
                                 return {
                                     type: part.fileData.mimeType?.startsWith('image/') ? 'image' : 'document',
-                                    mime_type: part.fileData.mimeType,
-                                    file_uri: part.fileData.fileUri
+                                    mimeType: part.fileData.mimeType,
+                                    fileUri: part.fileData.fileUri
                                 };
                             }
                             return null;

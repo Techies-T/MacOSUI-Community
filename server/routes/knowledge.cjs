@@ -25,20 +25,58 @@ async function calculateTokens(content) {
 
 
 
-// GET: 全ナレッジ記事の一覧取得（タグによる絞り込み対応）
-router.get('/', (req, res) => {
-    const { tag } = req.query;
+async function getAllowedPodsForUser(user) {
+    if (!user) return [];
+    try {
+        const rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+        const userRole = user.role || 'user';
+        const rolePolicy = rbacPolicies[userRole] || {};
+        return rolePolicy.allowed_pods || [];
+    } catch (e) {
+        console.error("Error reading RBAC policies:", e);
+        return [];
+    }
+}
+
+// GET: 全ナレッジ記事の一覧取得（タグおよびPodによる絞り込み対応）
+router.get('/', async (req, res) => {
+    const { tag, pod_id } = req.query;
+    
+    // RBACによるPod制限の取得
+    const allowedPods = await getAllowedPodsForUser(req.user);
+    const hasAllAccess = allowedPods.includes('*');
+    
     let query = `
-        SELECT k.id, k.title, k.tags, k.author_id, k.created_at, k.updated_at, u.name as author_name, u.avatar_url as author_avatar 
+        SELECT k.id, k.title, k.tags, k.author_id, k.pod_id, k.created_at, k.updated_at, u.name as author_name, u.avatar_url as author_avatar 
         FROM knowledge_articles k
         LEFT JOIN users u ON k.author_id = u.id
+        WHERE 1=1
     `;
     let params = [];
     
+    // RBACアクセス制限：権限のないPodの記事は除外（共通は常にOK）
+    if (!hasAllAccess) {
+        if (allowedPods.length > 0) {
+            const placeholders = allowedPods.map(() => "?").join(",");
+            query += ` AND (k.pod_id IN (${placeholders}) OR k.pod_id IS NULL OR k.pod_id = '')`;
+            params.push(...allowedPods);
+        } else {
+            query += " AND (k.pod_id IS NULL OR k.pod_id = '')";
+        }
+    }
+    
     if (tag) {
-        // SQLiteにおける簡易的な文字制約検索（JSON化された配列文字列に対する検索）
-        query += " WHERE k.tags LIKE ?";
+        query += " AND k.tags LIKE ?";
         params.push(`%${tag}%`);
+    }
+    
+    if (pod_id !== undefined) {
+        if (pod_id === 'null' || pod_id === '' || pod_id === 'public') {
+            query += " AND (k.pod_id IS NULL OR k.pod_id = '')";
+        } else {
+            query += " AND k.pod_id = ?";
+            params.push(pod_id);
+        }
     }
     
     query += " ORDER BY k.updated_at DESC";
@@ -64,7 +102,10 @@ router.get('/', (req, res) => {
 });
 
 // GET: 単一記事の詳細取得
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
+    const allowedPods = await getAllowedPodsForUser(req.user);
+    const hasAllAccess = allowedPods.includes('*');
+
     db.get(`
         SELECT k.*, u.name as author_name, u.avatar_url as author_avatar 
         FROM knowledge_articles k
@@ -73,6 +114,11 @@ router.get('/:id', (req, res) => {
     `, [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         if (!row) return res.status(404).json({ error: 'Article not found' });
+        
+        // RBACアクセス制限：権限のないPodの記事は取得不可
+        if (!hasAllAccess && row.pod_id && !allowedPods.includes(row.pod_id)) {
+            return res.status(403).json({ error: 'このナレッジ記事へのアクセス権限がありません。' });
+        }
         
         try {
             row.tags = JSON.parse(row.tags || '[]');
@@ -86,8 +132,16 @@ router.get('/:id', (req, res) => {
 
 // POST: 新規記事の作成
 router.post('/', async (req, res) => {
-    const { title, content, tags, input_tokens, output_tokens } = req.body;
+    const { title, content, tags, input_tokens, output_tokens, pod_id } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
+    
+    // RBAC検証：指定されたPodへのアクセス権があるか
+    if (pod_id) {
+        const allowedPods = await getAllowedPodsForUser(req.user);
+        if (!allowedPods.includes('*') && !allowedPods.includes(pod_id)) {
+            return res.status(403).json({ error: '指定されたPodへのアクセス権限がありません。' });
+        }
+    }
     
     const tagsJson = JSON.stringify(tags || []);
     const authorId = req.user.id; // requireAuthによる検証結果を利用
@@ -102,8 +156,8 @@ router.post('/', async (req, res) => {
     const tokenCount = finalInputTokens + finalOutputTokens;
     
     db.run(
-        "INSERT INTO knowledge_articles (title, content, tags, author_id, token_count, input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [title, content, tagsJson, authorId, tokenCount, finalInputTokens, finalOutputTokens],
+        "INSERT INTO knowledge_articles (title, content, tags, author_id, token_count, input_tokens, output_tokens, pod_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [title, content, tagsJson, authorId, tokenCount, finalInputTokens, finalOutputTokens, pod_id || null],
         function (err) {
             if (err) {
                 console.error(err);
@@ -116,8 +170,16 @@ router.post('/', async (req, res) => {
 
 // PUT: 記事の更新
 router.put('/:id', async (req, res) => {
-    const { title, content, tags, input_tokens, output_tokens } = req.body;
+    const { title, content, tags, input_tokens, output_tokens, pod_id } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
+    
+    // RBAC検証：指定されたPodへのアクセス権があるか
+    if (pod_id) {
+        const allowedPods = await getAllowedPodsForUser(req.user);
+        if (!allowedPods.includes('*') && !allowedPods.includes(pod_id)) {
+            return res.status(403).json({ error: '指定されたPodへのアクセス権限がありません。' });
+        }
+    }
     
     const tagsJson = JSON.stringify(tags || []);
     
@@ -131,8 +193,8 @@ router.put('/:id', async (req, res) => {
     const tokenCount = finalInputTokens + finalOutputTokens;
     
     db.run(
-        "UPDATE knowledge_articles SET title = ?, content = ?, tags = ?, token_count = ?, input_tokens = ?, output_tokens = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [title, content, tagsJson, tokenCount, finalInputTokens, finalOutputTokens, req.params.id],
+        "UPDATE knowledge_articles SET title = ?, content = ?, tags = ?, token_count = ?, input_tokens = ?, output_tokens = ?, pod_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [title, content, tagsJson, tokenCount, finalInputTokens, finalOutputTokens, pod_id || null, req.params.id],
         function (err) {
             if (err) return res.status(500).json({ error: 'Database error' });
             if (this.changes === 0) return res.status(404).json({ error: 'Article not found' });

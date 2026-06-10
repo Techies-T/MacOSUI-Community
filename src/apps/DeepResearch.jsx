@@ -28,6 +28,49 @@ const DeepResearch = ({ onOpen }) => {
     const [workflows, setWorkflows] = useState([]);
     const [selectedWorkflow, setSelectedWorkflow] = useState(null);
 
+    // RAG Knowledge selection states
+    const [availableArticles, setAvailableArticles] = useState([]);
+    const [selectedArticleIds, setSelectedArticleIds] = useState([]);
+
+    useEffect(() => {
+        if (!selectedWorkflow) {
+            setAvailableArticles([]);
+            setSelectedArticleIds([]);
+            return;
+        }
+        
+        // ワークフローのpod_idに紐づくナレッジを取得（API側でallowed_podsとpod_idフィルタが適用されます）
+        const podId = selectedWorkflow.pod_id || '';
+        fetch(`/api/knowledge?pod_id=${encodeURIComponent(podId)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setAvailableArticles(data);
+                } else {
+                    setAvailableArticles([]);
+                }
+                setSelectedArticleIds([]); // 選択をリセット
+            })
+            .catch(err => {
+                console.error("Failed to fetch available articles for workflow pod:", err);
+                setAvailableArticles([]);
+                setSelectedArticleIds([]);
+            });
+    }, [selectedWorkflow]);
+
+    const handleToggleArticle = (id) => {
+        setSelectedArticleIds(prev => {
+            if (prev.includes(id)) {
+                return prev.filter(x => x !== id);
+            }
+            if (prev.length >= 3) {
+                alert("関連ナレッジとして同時に結合できる記事は最大3件までです。");
+                return prev;
+            }
+            return [...prev, id];
+        });
+    };
+
     // Execution Tracking Refs
     const totalInputTokensRef = useRef(0);
     const totalOutputTokensRef = useRef(0);
@@ -202,7 +245,9 @@ const DeepResearch = ({ onOpen }) => {
                     status: 'confirming',
                     plan_text: planText,
                     total_input_tokens: totalInputTokensRef.current,
-                    total_output_tokens: totalOutputTokensRef.current
+                    total_output_tokens: totalOutputTokensRef.current,
+                    pod_id: targetWf.pod_id || null,
+                    selected_article_ids: selectedArticleIds
                 })
             }).catch(e => console.error(e));
 
@@ -239,6 +284,18 @@ const DeepResearch = ({ onOpen }) => {
         // Phase 2: Actual Execution
     const executePipeline = async (userQuery, targetWorkflow, resumeData = null, attachedFile = null) => {
         let activeWorkflow = targetWorkflow;
+        
+        let articleIdsToSend = [];
+        if (resumeData && resumeData.selected_article_ids) {
+            try {
+                const parsed = JSON.parse(resumeData.selected_article_ids);
+                if (Array.isArray(parsed)) articleIdsToSend = parsed;
+            } catch (e) {
+                console.error("Failed to parse selected_article_ids from resumeData", e);
+            }
+        } else {
+            articleIdsToSend = selectedArticleIds;
+        }
         if (resumeData && resumeData.workflow_definition_id) {
             const matched = workflows.find(w => w.id === resumeData.workflow_definition_id);
             if (matched) activeWorkflow = matched;
@@ -293,7 +350,8 @@ const DeepResearch = ({ onOpen }) => {
                     body: JSON.stringify({
                         query: userQuery,
                         workflowDefinitionId: activeWorkflow.id,
-                        systemInstruction: activeWorkflow.research_prompt || config?.deepResearchPrompt || ""
+                        systemInstruction: activeWorkflow.research_prompt || config?.deepResearchPrompt || "",
+                        selected_article_ids: articleIdsToSend
                     })
                 });
                 const researchData = await researchReq.json();
@@ -345,7 +403,9 @@ const DeepResearch = ({ onOpen }) => {
                         workflow_definition_id: activeWorkflow.id,
                         report_text: reportText,
                         total_input_tokens: totalInputTokensRef.current,
-                        total_output_tokens: totalOutputTokensRef.current
+                        total_output_tokens: totalOutputTokensRef.current,
+                        pod_id: activeWorkflow?.pod_id || null,
+                        selected_article_ids: articleIdsToSend
                     })
                 }).catch(e => console.error(e));
             } else if (attachedFile) {
@@ -485,7 +545,9 @@ const DeepResearch = ({ onOpen }) => {
                         workflow_definition_id: activeWorkflow.id,
                         generated_payload: finalGeneratedPayload,
                         total_input_tokens: totalInputTokensRef.current,
-                        total_output_tokens: totalOutputTokensRef.current
+                        total_output_tokens: totalOutputTokensRef.current,
+                        pod_id: activeWorkflow?.pod_id || null,
+                        selected_article_ids: articleIdsToSend
                     })
                 }).catch(e => console.error(e));
             }
@@ -626,7 +688,8 @@ ${reportText.substring(0, 1500)}...`;
                         content: indexContent,
                         tags: Array.from(new Set(knowledgeTags)), // Deduplicate
                         input_tokens: totalInputTokensRef.current,
-                        output_tokens: totalOutputTokensRef.current
+                        output_tokens: totalOutputTokensRef.current,
+                        pod_id: activeWorkflow?.pod_id || null
                     })
                 });
 
@@ -707,6 +770,19 @@ ${reportText.substring(0, 1500)}...`;
         setPipelineType(workflow.pipeline_type);
         setPendingQuery(workflow.query_text);
         setMessages([{ role: 'user', text: workflow.query_text }]);
+        
+        // selectedArticleIds ステートの復元
+        let loadedIds = [];
+        if (workflow.selected_article_ids) {
+            try {
+                loadedIds = JSON.parse(workflow.selected_article_ids);
+                if (!Array.isArray(loadedIds)) loadedIds = [];
+            } catch (e) {
+                console.error("Failed to parse selected_article_ids from resumed workflow", e);
+            }
+        }
+        setSelectedArticleIds(loadedIds);
+        
         executePipeline(workflow.query_text, null, workflow);
     };
 
@@ -851,6 +927,53 @@ ${reportText.substring(0, 1500)}...`;
                                 {selectedWorkflow.description || '説明なし'}
                             </span>
                         )}
+                    </div>
+                )}
+
+                {/* Knowledge RAG Selector */}
+                {availableArticles.length > 0 && (
+                    <div className="mb-4 bg-indigo-50/20 rounded-xl border border-indigo-100/40 p-3 shadow-sm">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
+                                📚 過去の関連ナレッジを結合 (任意・最大3件):
+                            </span>
+                            <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">
+                                {selectedArticleIds.length} / 3 選択中
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[150px] overflow-y-auto pr-1">
+                            {availableArticles.map(art => {
+                                const isChecked = selectedArticleIds.includes(art.id);
+                                const isDisabled = !isChecked && selectedArticleIds.length >= 3;
+                                return (
+                                    <label
+                                        key={art.id}
+                                        className={`flex items-start gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-all duration-200 select-none
+                                            ${isChecked 
+                                                ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900 shadow-sm font-semibold' 
+                                                : isDisabled 
+                                                    ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed' 
+                                                    : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-200 hover:bg-gray-50/50'}`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            disabled={isDisabled}
+                                            onChange={() => handleToggleArticle(art.id)}
+                                            className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="truncate font-semibold" title={art.title}>
+                                                {art.title}
+                                            </div>
+                                            <div className={`text-[10px] mt-0.5 ${isChecked ? 'text-indigo-500' : 'text-gray-400'}`}>
+                                                {new Date(art.created_at).toLocaleDateString()}
+                                            </div>
+                                        </div>
+                                    </label>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
 

@@ -5,6 +5,8 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
     const [mcpServers, setMcpServers] = useState([]);
     const [newRoleName, setNewRoleName] = useState('');
 
+    const [pods, setPods] = useState([]);
+
     useEffect(() => {
         fetch('/api/skills')
             .then(res => res.json())
@@ -19,6 +21,13 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
                 if (Array.isArray(data)) setMcpServers(data);
             })
             .catch(err => console.error("Failed to fetch MCP servers:", err));
+
+        fetch('/api/pods')
+            .then(res => res.json())
+            .then(data => {
+                if (data.pods) setPods(data.pods);
+            })
+            .catch(err => console.error("Failed to fetch pods:", err));
     }, []);
 
     const dynamicWidgets = [
@@ -75,6 +84,32 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
             [roleKey]: {
                 ...role,
                 allowed_actions: allowed
+            }
+        };
+        onSaveRbacPolicies(newPolicies);
+    };
+
+    const handleTogglePodPermission = (roleKey, podId) => {
+        const role = rbacPolicies[roleKey];
+        if (!role) return;
+        
+        let allowed = [...(role.allowed_pods || [])];
+        if (allowed.includes('*')) {
+            alert("This role has '*' (all permissions). To restrict, you must reset it to specific items.");
+            return;
+        }
+
+        if (allowed.includes(podId)) {
+            allowed = allowed.filter(p => p !== podId);
+        } else {
+            allowed.push(podId);
+        }
+
+        const newPolicies = {
+            ...rbacPolicies,
+            [roleKey]: {
+                ...role,
+                allowed_pods: allowed
             }
         };
         onSaveRbacPolicies(newPolicies);
@@ -229,6 +264,55 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
                                                         disabled={isDisabled}
                                                         onChange={() => !isDisabled && handleToggleActionPermission(roleKey, action.id)}
                                                         className={`w-3.5 h-3.5 rounded cursor-pointer ${isDisabled ? 'text-gray-400 opacity-50' : 'text-emerald-600 focus:ring-emerald-500'}`}
+                                                    />
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+
+                                <tr className="bg-gray-50/50">
+                                    <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">📦 Pods Access (論理境界へのアクセス制限)</td>
+                                </tr>
+                                {[
+                                    { id: '*', label: '全Podへアクセス許可 (*)' },
+                                    ...pods.map(p => ({ id: p.id, label: `Pod: ${p.name}` }))
+                                ].map(podItem => (
+                                    <tr key={podItem.id} className="hover:bg-blue-50/30 transition-colors">
+                                        <td className="px-4 py-2 border-r border-gray-200 sticky left-0 bg-inherit text-gray-700 pl-6">
+                                            {podItem.label}
+                                        </td>
+                                        {Object.keys(rbacPolicies).map(roleKey => {
+                                            const allowed = rbacPolicies[roleKey].allowed_pods || [];
+                                            const isChecked = allowed.includes('*') || allowed.includes(podItem.id);
+                                            const isDisabled = (allowed.includes('*') && roleKey === 'admin') || (podItem.id === '*' && allowed.includes('*') && roleKey !== 'admin');
+                                            
+                                            const handleToggle = () => {
+                                                if (podItem.id === '*') {
+                                                    const role = rbacPolicies[roleKey];
+                                                    const isCurrentlyAll = allowed.includes('*');
+                                                    const newAllowed = isCurrentlyAll ? [] : ['*'];
+                                                    const newPolicies = {
+                                                        ...rbacPolicies,
+                                                        [roleKey]: {
+                                                            ...role,
+                                                            allowed_pods: newAllowed
+                                                        }
+                                                    };
+                                                    onSaveRbacPolicies(newPolicies);
+                                                } else {
+                                                    handleTogglePodPermission(roleKey, podItem.id);
+                                                }
+                                            };
+                                            
+                                            return (
+                                                <td key={roleKey} className="px-4 py-2 text-center border-r border-gray-200 last:border-0">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isChecked}
+                                                        disabled={isDisabled}
+                                                        onChange={() => !isDisabled && handleToggle()}
+                                                        className={`w-3.5 h-3.5 rounded cursor-pointer ${isDisabled ? 'text-gray-400 opacity-50' : 'text-indigo-600 focus:ring-indigo-500'}`}
                                                     />
                                                 </td>
                                             );

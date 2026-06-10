@@ -8,6 +8,7 @@ import ChatConfigTab from './SystemSettings/tabs/ChatConfigTab';
 import UsersTab from './SystemSettings/tabs/UsersTab';
 import RolesTab from './SystemSettings/tabs/RolesTab';
 import SecurityLogsTab from './SystemSettings/tabs/SecurityLogsTab';
+import PodsTab from './SystemSettings/tabs/PodsTab';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
@@ -521,6 +522,7 @@ const SystemSettings = ({ user }) => {
         ] : []),
         { id: 'Finder', icon: '📁', label: 'Finder' },
         { id: 'Chat Config', icon: '💬', label: 'Chat Presets & FAQ' },
+        { id: 'Pods', icon: '📦', label: 'Pods' },
         { id: 'Users', icon: '👥', label: (hasAction('action:manage_users') || hasAction('action:invite_users')) ? 'Users & Groups' : 'Profile' },
         ...(hasAction('action:manage_roles') ? [
             { id: 'Roles', icon: '🛡️', label: 'Roles & Permissions' }
@@ -691,6 +693,10 @@ const SystemSettings = ({ user }) => {
                         ragFaqs={ragFaqs}
                         setRagFaqs={setRagFaqs}
                     />
+                )}
+
+                {activeTab === 'Pods' && (
+                    <PodsTab user={user} hasAction={hasAction} />
                 )}
 
                 {activeTab === 'Security Logs' && (

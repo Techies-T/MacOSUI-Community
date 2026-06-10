@@ -207,6 +207,35 @@ function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS pods (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // Add pod_id column to existing tables for logical separation
+    db.run("ALTER TABLE knowledge_articles ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_workflow_definitions ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_workflows ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_history ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+
+    db.run("ALTER TABLE deep_research_workflows ADD COLUMN selected_article_ids TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_history ADD COLUMN selected_article_ids TEXT", (err) => {
+        // Ignore error if column exists
+    });
 }
 
 const { encrypt, decrypt } = require('./crypto.cjs');
