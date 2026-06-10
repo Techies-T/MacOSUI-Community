@@ -1483,7 +1483,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             ragFiles = await new Promise((resolve, reject) => {
                 // Only use files synced within the last 40 hours (Gemini File API limit is 48h)
                 const expirationLimit = new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString();
-                let query = "SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files WHERE last_synced_at > ?";
+                let query = "SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files WHERE datetime(last_synced_at) > datetime(?)";
                 let params = [expirationLimit];
                 
                 if (mode === 'rag' && targetFolderId) {
@@ -2111,8 +2111,8 @@ async function performRagSync(drive, ragFolders, apiKey) {
 
                 // Store in DB
                 await new Promise((resolve, reject) => {
-                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, folder_id, mime_type, last_synced_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-                        [file.id, uploadResult.uri, currentFolderId, mimeType],
+                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, folder_id, mime_type, last_synced_at) VALUES (?, ?, ?, ?, ?)`,
+                        [file.id, uploadResult.uri, currentFolderId, mimeType, new Date().toISOString()],
                         (err) => {
                             if (err) reject(err);
                             else resolve();
@@ -2320,7 +2320,13 @@ app.get('/api/rag/check-sync-needed', requireAuth, async (req, res) => {
             });
         });
 
-        const dbFileMap = new Map(dbFiles.map(f => [f.drive_file_id, new Date(f.last_synced_at).getTime()]));
+        const dbFileMap = new Map(dbFiles.map(f => {
+            let syncTimeStr = f.last_synced_at;
+            if (syncTimeStr && !syncTimeStr.endsWith('Z') && !syncTimeStr.includes('T')) {
+                syncTimeStr = syncTimeStr.replace(' ', 'T') + 'Z';
+            }
+            return [f.drive_file_id, new Date(syncTimeStr).getTime()];
+        }));
 
         // Check for Deleted Files (DB has IDs not in Drive)
         // If DB has more or less files, we need sync
