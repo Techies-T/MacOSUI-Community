@@ -1733,7 +1733,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                                 return {
                                     type: part.fileData.mimeType?.startsWith('image/') ? 'image' : 'document',
                                     mime_type: part.fileData.mimeType,
-                                    fileUri: part.fileData.fileUri
+                                    uri: part.fileData.fileUri
                                 };
                             }
                             return null;
