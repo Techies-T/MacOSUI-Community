@@ -15,6 +15,9 @@ RUN npm run build
 # Stage 2: Production environment
 FROM node:24-alpine
 
+# Patch OS-level vulnerabilities
+RUN apk update && apk upgrade --no-cache
+
 WORKDIR /app
 
 # Copy built frontend assets

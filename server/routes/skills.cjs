@@ -25,7 +25,7 @@ router.get('/', (req, res) => {
 
 // 2. POST /api/skills/generate-icons - AIによるSVGアイコンの自動生成
 router.post('/generate-icons', async (req, res) => {
-    const { name, description } = req.body;
+    const { name, description, prompt: customPrompt } = req.body;
     
     if (!name) {
         return res.status(400).json({ error: 'App name is required for icon generation' });
@@ -34,7 +34,31 @@ router.post('/generate-icons', async (req, res) => {
     try {
         const ai = await getGeminiClient();
         
-        const prompt = `
+        let prompt;
+        if (customPrompt) {
+            prompt = `
+You are an expert UI/UX designer. Your task is to design 3 modern, beautiful SVG icons for a macOS application based on the user's specific request.
+
+App Name: ${name}
+App Description: ${description || 'A useful application'}
+User Icon Request: ${customPrompt}
+
+Requirements for the SVG icons:
+1. The style must be modern, flat, or glassmorphism, fitting perfectly into a futuristic macOS-like UI (MacOSUI), and matching the User Icon Request closely.
+2. Use vibrant, harmonious color palettes (e.g., subtle gradients).
+3. The SVG must be standalone, using <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">.
+4. Do NOT include any HTML, markdown formatting, or markdown code blocks (like \`\`\`svg). Output ONLY a JSON array containing exactly 3 raw SVG string elements.
+5. The JSON must be valid and parseable.
+
+Example Output format:
+[
+  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">...</svg>",
+  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">...</svg>",
+  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">...</svg>"
+]
+`;
+        } else {
+            prompt = `
 You are an expert UI/UX designer. Your task is to design 3 modern, beautiful SVG icons for a macOS application.
 
 App Name: ${name}
@@ -54,6 +78,7 @@ Example Output format:
   "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">...</svg>"
 ]
 `;
+        }
 
         const response = await ai.models.generateContent({
             model: 'gemini-3.1-flash-lite-preview', // fast and efficient model
@@ -128,6 +153,28 @@ router.delete('/:id', (req, res) => {
             return res.status(500).json({ error: 'Failed to delete skill' });
         }
         res.json({ success: true, message: 'Skill uninstalled successfully' });
+    });
+});
+
+// 5. PUT /api/skills/:id/icon - スキルのアイコンを更新
+router.put('/:id/icon', (req, res) => {
+    const { id } = req.params;
+    const { icon_url } = req.body;
+
+    if (!icon_url) {
+        return res.status(400).json({ error: 'Icon URL is required' });
+    }
+
+    const query = "UPDATE skills SET icon_url = ? WHERE id = ?";
+    db.run(query, [icon_url, id], function(err) {
+        if (err) {
+            console.error('Error updating skill icon:', err);
+            return res.status(500).json({ error: 'Failed to update skill icon' });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'Skill not found' });
+        }
+        res.json({ success: true, message: 'Skill icon updated successfully' });
     });
 });
 

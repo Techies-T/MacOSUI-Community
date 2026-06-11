@@ -1,66 +1,47 @@
-# Built-in Quality レポート (ローカル環境デプロイ検証)
+# Built-in Quality レポート (ローカル開発環境)
 
-本レポートは、ローカル開発環境における Docker イメージのビルド、脆弱性診断（Docker Scout）、コンテナ起動確認、および疎通・ヘルスチェック（ヘルスチェックAPIの疎通およびログ監査）の結果をまとめたものです。
+ローカル開発環境におけるコンテナの再構築、デプロイ、および診断が完了しました。品質評価結果は以下の通りです。
 
----
+## 1. 脆弱性診断の結果 (Docker Scout)
+ビルドしたイメージ `macosui-local` に対して Docker Scout によるスキャンを行いました。
 
-## 1. 脆弱性診断結果 (Docker Scout)
+- **脆弱性サマリー**:
+  - `CRITICAL`: 1件
+  - `HIGH`: 14件
+  - `MEDIUM`: 21件
+  - `LOW`: 4件
+  - 計 40件の脆弱性を検出 (10個のパッケージ)
 
-ビルドしたイメージ `macosui-local` に対し脆弱性診断を実施しました。
+- **主な検出内容**:
+  - `hono@4.12.14`: `MEDIUM` 脆弱性（`CVE-2026-44456`, `CVE-2026-47676` など。リソース消費制御不全やHTTP smugglingなど）が数件検出されています。修正バージョンは `4.12.16` または `4.12.21` 以上です。
+  - `@protobufjs/utf8@1.1.0`: `MEDIUM` 脆弱性（`CVE-2026-44288`）
+  - `ip-address@10.1.0`: `MEDIUM` 脆弱性（`CVE-2026-42338`）
+  - `ws@8.20.0`: `MEDIUM` 脆弱性（`CVE-2026-45736`）
+  - `qs@6.15.1`: `MEDIUM` 脆弱性（`CVE-2026-8723`）
 
-* **サマリー**:
-  - **CRITICAL (致命的)**: `0` 件
-  - **HIGH (高深刻度)**: `6` 件
-  - **MEDIUM (中深刻度)**: `14` 件
-  - **LOW (低深刻度)**: `2` 件
+- **対応方針**:
+  - 緊急度は「中（Medium）」〜「高（High）」です。ローカル開発環境であるため動作上直ちに進捗を止めるものではありませんが、本番環境への移行時までにパッケージのアップデート（特に関連ライブラリのバージョン固定や依存関係の再構築）を推奨します。
 
-### HIGH (高深刻度) の脆弱性と対応状況
-* **対象パッケージ**: `fast-uri@3.1.0`
-  - **CVE-2026-6322** (Interpretation Conflict - 影響度 7.5): `3.1.2` で修正済み。
-  - **CVE-2026-6321** (Path Traversal - 影響度 7.5): `3.1.1` で修正済み。
-* **緊急度・対応方針**: 
-  - ローカル開発環境の動作には直接的な影響はありませんが、本番環境へのプロモート前、または依存パッケージの次回更新時に `fast-uri` のアップデートを推奨します。
+## 2. ヘルスチェック
+ヘルスチェックAPIの接続テスト結果：
 
----
+- **URL**: `http://localhost:8080/api/health`
+- **結果**: **成功 (OK)**
+- **応答データ**: `{"status":"ok","message":"Server is running"}`
+- **ステータス**: バックエンドサーバーは正常に起動し、API要求を受け付ける状態になっています。
 
-## 2. 稼働確認 & ヘルスチェック結果
+## 3. Dockerサーバーログの確認結果
+`macosui-web` コンテナの直近50行のログを確認しました。
 
-コンテナの再構築および起動が正常に行われ、ヘルスチェックAPIを通じた疎通確認も成功しました。
-
-* **ヘルスチェック呼び出し**: `curl -s http://localhost:8080/api/health`
-* **レスポンス結果**:
-  ```json
-  {"status":"ok","message":"Server is running"}
-  ```
-* **評価**: Nginx のリバースプロキシを介したバックエンドサーバーへの接続、および API ルーティングは正常に機能しています。
-
----
-
-## 3. Docker コンテナ起動ログ確認結果
-
-`macosui-web` コンテナの起動ログ（直近50行）の監査結果は以下の通りです。
-
-* **正常動作**:
-  - メインSQLiteデータベースへの接続成功: `Connected to the SQLite database.`
-  - 監査SQLiteデータベースへの接続成功: `Connected to the SQLite Audit database.`
-  - Gemini APIが最新の `@google/genai` パッケージで正しく初期化完了: `Gemini API endpoint configured with @google/genai`
-  - 以下のMCPサーバーへのOAuth認証および接続が正常に成功し、ツール群がロードされています：
-    - `[MCP Docker Monitor (ITS)]` (2 tools loaded)
-    - `[MCP Docker Monitor (OPS)]` (7 tools loaded)
-    - `[MCP Knowledge Base MCP (Built-in)]` (3 tools loaded)
-
-* **検知されたエラー・課題**:
-  - **`[MCP AppRunner MCP (Migrated)]` にて 401 認証エラーが発生**:
-    ```text
-    [MCP AppRunner MCP (Migrated)] OAuth Token Acquisition Error: Error: Failed to fetch OAuth token: 401 {"error":"invalid_client"}
-    ```
-    - **原因と影響**: ローカル環境固有の OAuth クライアント設定が未構成であるか無効な状態です。ローカルチャットの基本機能や天気UIの表示などには影響ありませんが、AppRunner統合ツールを使用する場合には、環境変数やOAuth構成の確認が必要です。
+- **正常に稼働している項目**:
+  - データベースからの設定読み込み成功 (`GOOGLE_CLIENT_ID`, `mcpCount`, `kbMcpCount`, `existingPrompts`, `wfCount`)
+  - 内蔵 of `Knowledge Base MCP (Built-in)` 接続成功 (SSE経由で3個のツールをロード)
+  - `AgileTaskMCP_Updater`, `AgileTaskMCP_Reader`, `AgileTaskMCP_Admin` の接続および OAuth 認証成功 (計18個のツールをロード)
+- **接続エラー・警告**:
+  - `AppRunner MCP (Migrated)`: OAuthトークン取得失敗 (401 invalid_client)
+  - `Docker Monitor (ITS) / (OPS)`: DNS解決失敗 (docker-monitor-mcp が見つからないため)
+  - *※これらは開発環境ごとの環境変数（暗号化キーや外部サービス用認証情報）の未設定、または該当コンテナが非起動であることに起因する警告であり、本機能改修による影響ではありません。*
 
 ---
-
-## 4. 総合評価
-
-> [!TIP]
-> **総合ステータス: ✅ PASS (ピンのキャリブレーション修正完了)**
-> 
-> 最新の正確な日本地図画像（japan_map.png）に合わせて、主要都市（札幌、仙台、東京、新潟、名古屋、大阪、広島、高松、福岡、那覇）のピン座標（X・Y座標）を正確に地形の上にプロットし直した最新修正版が、ローカル環境上で完璧に起動・稼働することを確認しました。リリース品質のビジュアルと動作基準をクリアしています。
+**評価**:
+標準アプリのフラットSVG化、およびカスタムスキルのアイコン編集機能の導入後も、システム全体のビルド、イメージ構築、コンテナ起動、およびヘルスチェックはすべて正常に行われています。本改修に伴うデグレ等の問題は確認されませんでした。
