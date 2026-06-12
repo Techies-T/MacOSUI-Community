@@ -38,6 +38,8 @@ router.post('/', async (req, res) => {
             parameters: t.parameters
         }));
 
+        console.log(`[mcpChat] Sending ${tools.length} tools to Gemini. Available tool names: ${tools.map(t => t.name).join(', ')}`);
+
         const toolDescriptions = mcpTools.map(t => `- **${t.name}**: ${t.description}`).join('\n');
 
         const systemInstruction = `You are a helpful IT Operations and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown. If a tool returns JSON or tabular data, format it as a markdown table or code block so the user can easily read it.

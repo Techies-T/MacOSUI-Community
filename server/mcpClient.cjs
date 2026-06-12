@@ -259,11 +259,34 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
                 
                 if (tool.inputSchema) {
                     // MCP uses JSON Schema. Gemini supports a subset of JSON Schema.
-                    funcDecl.parameters = tool.inputSchema;
+                    const properties = {};
+                    const required = [];
+                    
+                    if (tool.inputSchema.properties) {
+                        for (const [key, value] of Object.entries(tool.inputSchema.properties)) {
+                            // Map type to one of Gemini's supported types
+                            let typeStr = 'string';
+                            if (value.type === 'integer' || value.type === 'number') typeStr = 'number';
+                            if (value.type === 'boolean') typeStr = 'boolean';
+                            if (value.type === 'array') typeStr = 'array';
+                            if (value.type === 'object') typeStr = 'object';
+                            
+                            properties[key] = {
+                                type: typeStr,
+                                description: value.description || ''
+                            };
+                        }
+                    }
+                    if (Array.isArray(tool.inputSchema.required)) {
+                        required.push(...tool.inputSchema.required);
+                    }
+                    
+                    funcDecl.parameters = {
+                        type: "object",
+                        properties: Object.keys(properties).length > 0 ? properties : undefined,
+                        required: required.length > 0 ? required : undefined
+                    };
                 }
-                
-                functionDeclarations.push(funcDecl);
-            }
         }
     }
     
