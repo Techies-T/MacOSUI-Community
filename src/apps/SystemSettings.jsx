@@ -475,37 +475,51 @@ const SystemSettings = ({ user }) => {
     };
 
     const sidebarItems = [
-        { id: 'Skills', icon: '🧩', label: 'Skills' },
+        { 
+            id: 'Skills', 
+            icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Skills' ? 'text-white' : 'text-teal-600'}`}>
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                </svg>
+            ), 
+            label: 'Skills' 
+        },
         ...(hasAction('action:manage_system_settings') ? [
-            { id: 'General', icon: '⚙️', label: 'General' },
-            { id: 'System', icon: '🔒', label: 'System' },
-            { id: 'Security Logs', icon: '🛡️', label: 'Security Logs' }
+            { 
+                id: 'General', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'General' ? 'text-white' : 'text-gray-500'}`}>
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                ), 
+                label: 'General' 
+            },
+            { 
+                id: 'System', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'System' ? 'text-white' : 'text-blue-600'}`}>
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                ), 
+                label: 'System' 
+            },
+            { 
+                id: 'Security Logs', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Security Logs' ? 'text-white' : 'text-red-500'}`}>
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                    </svg>
+                ), 
+                label: 'Security Logs' 
+            }
         ] : []),
         ...(hasWidget('workflow:deepresearch_html') || hasWidget('workflow:deepresearch_infographic') || hasWidget('workflow:deepresearch_full') || hasAction('action:edit_workflow_model') || hasAction('action:manage_system_settings') ? [
             {
-                id: 'Deep Research', icon: (
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-indigo-500">
-                        <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 100 13.5 6.75 6.75 0 000-13.5zM2.25 10.5a8.25 8.25 0 1114.59 5.28l4.69 4.69a.75.75 0 11-1.06 1.06l-4.69-4.69A8.25 8.25 0 012.25 10.5z" clipRule="evenodd" />
-                    </svg>
-                ), label: 'Deep Research'
-            }
-        ] : []),
-        ...(hasWidget('app:app-monitor') || hasAction('action:manage_system_settings') ? [
-            {
-                id: 'Server Monitor', icon: (
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-emerald-500">
-                        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
-                        <path d="M12 12v9"></path>
-                        <path d="m8 17 4 4 4-4"></path>
-                    </svg>
-                ), label: 'MCP Connections'
-            }
-        ] : []),
-        { id: 'Appearance', icon: '🎨', label: 'Appearance' },
-        ...(hasAction('action:manage_rag_folders') ? [
-            {
-                id: 'Personal RAG', icon: (
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '1em', height: '1em', verticalAlign: 'middle', color: '#6366f1' }}>
+                id: 'Deep Research', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Deep Research' ? 'text-white' : 'text-indigo-500'}`}>
                         <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
                         <rect x="9" y="9" width="6" height="6" />
                         <line x1="9" y1="1" x2="9" y2="4" />
@@ -517,15 +531,101 @@ const SystemSettings = ({ user }) => {
                         <line x1="1" y1="9" x2="4" y2="9" />
                         <line x1="1" y1="14" x2="4" y2="14" />
                     </svg>
-                ), label: 'Personal RAG'
+                ), 
+                label: 'Deep Research'
             }
         ] : []),
-        { id: 'Finder', icon: '📁', label: 'Finder' },
-        { id: 'Chat Config', icon: '💬', label: 'Chat Presets & FAQ' },
-        { id: 'Pods', icon: '📦', label: 'Pods' },
-        { id: 'Users', icon: '👥', label: (hasAction('action:manage_users') || hasAction('action:invite_users')) ? 'Users & Groups' : 'Profile' },
+        ...(hasWidget('app:app-monitor') || hasAction('action:manage_system_settings') ? [
+            {
+                id: 'Server Monitor', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Server Monitor' ? 'text-white' : 'text-emerald-500'}`}>
+                        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                        <path d="M12 12v9" />
+                        <path d="m8 17 4 4 4-4" />
+                    </svg>
+                ), 
+                label: 'MCP Connections'
+            }
+        ] : []),
+        { 
+            id: 'Appearance', 
+            icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Appearance' ? 'text-white' : 'text-pink-500'}`}>
+                    <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" />
+                    <circle cx="7.5" cy="10.5" r="1.5" fill="currentColor" />
+                    <circle cx="11.5" cy="7.5" r="1.5" fill="currentColor" />
+                    <circle cx="16.5" cy="9.5" r="1.5" fill="currentColor" />
+                    <circle cx="15.5" cy="14.5" r="1.5" fill="currentColor" />
+                </svg>
+            ), 
+            label: 'Appearance' 
+        },
+        ...(hasAction('action:manage_rag_folders') ? [
+            {
+                id: 'Personal RAG', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Personal RAG' ? 'text-white' : 'text-indigo-500'}`}>
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                    </svg>
+                ), 
+                label: 'Personal RAG'
+            }
+        ] : []),
+        { 
+            id: 'Finder', 
+            icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Finder' ? 'text-white' : 'text-blue-500'}`}>
+                    <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z" />
+                </svg>
+            ), 
+            label: 'Finder' 
+        },
+        { 
+            id: 'Chat Config', 
+            icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Chat Config' ? 'text-white' : 'text-purple-500'}`}>
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    <path d="M12 7l1 2 2 1-2 1-1 2-1-2-2-1 2-1z" fill="currentColor" />
+                </svg>
+            ), 
+            label: 'Chat Presets & FAQ' 
+        },
+        { 
+            id: 'Pods', 
+            icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Pods' ? 'text-white' : 'text-amber-500'}`}>
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                    <line x1="12" y1="22.08" x2="12" y2="12" />
+                </svg>
+            ), 
+            label: 'Pods' 
+        },
+        { 
+            id: 'Users', 
+            icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Users' ? 'text-white' : 'text-sky-500'}`}>
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+            ), 
+            label: (hasAction('action:manage_users') || hasAction('action:invite_users')) ? 'Users & Groups' : 'Profile' 
+        },
         ...(hasAction('action:manage_roles') ? [
-            { id: 'Roles', icon: '🛡️', label: 'Roles & Permissions' }
+            { 
+                id: 'Roles', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Roles' ? 'text-white' : 'text-indigo-600'}`}>
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        <circle cx="12" cy="11" r="2" />
+                        <path d="M12 13v4" />
+                    </svg>
+                ), 
+                label: 'Roles & Permissions' 
+            }
         ] : [])
     ];
 

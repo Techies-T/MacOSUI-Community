@@ -287,6 +287,8 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
                         required: required.length > 0 ? required : undefined
                     };
                 }
+                functionDeclarations.push(funcDecl);
+            }
         }
     }
     
