@@ -93,12 +93,25 @@ const Gemini = () => {
 
         const checkRagSync = async () => {
             if (mode === 'rag' && !hasWarnedExpiry) {
+                // Fetch latest config to get the updated lastRagSyncTime
+                let currentSyncTime = lastRagSyncTime;
+                try {
+                    const configRes = await fetch('/api/config');
+                    const configData = await configRes.json();
+                    if (configData.lastRagSyncTime) {
+                        currentSyncTime = configData.lastRagSyncTime;
+                        setLastRagSyncTime(configData.lastRagSyncTime);
+                    }
+                } catch (configErr) {
+                    console.error("Failed to fetch latest config in checkRagSync:", configErr);
+                }
+
                 // 1. Check time-based expiry first locally
                 let isTimeExpired = false;
-                if (!lastRagSyncTime) {
+                if (!currentSyncTime) {
                     isTimeExpired = true;
                 } else {
-                    const syncTime = new Date(lastRagSyncTime).getTime();
+                    const syncTime = new Date(currentSyncTime).getTime();
                     const now = new Date().getTime();
                     const diffHours = (now - syncTime) / (1000 * 60 * 60);
                     if (diffHours >= 24) {
@@ -135,6 +148,24 @@ const Gemini = () => {
 
         checkRagSync();
     }, [mode, lastRagSyncTime, hasWarnedExpiry, isConfigLoaded]);
+
+    // Handle RAG synced event to reset expiry state and clean warnings
+    useEffect(() => {
+        const handleRagSynced = (e) => {
+            if (e.detail && e.detail.lastRagSyncTime) {
+                setLastRagSyncTime(e.detail.lastRagSyncTime);
+                setHasWarnedExpiry(false);
+                setMessages(prev => prev.filter(msg => 
+                    !(msg.text && (
+                        msg.text.includes('⚠️ **RAGデータの有効期限切れ（または未同期）**') ||
+                        msg.text.includes('⚠️ **RAGデータの更新を検知しました（未同期）**')
+                    ))
+                ));
+            }
+        };
+        window.addEventListener('rag-synced', handleRagSynced);
+        return () => window.removeEventListener('rag-synced', handleRagSynced);
+    }, []);
 
     const selectSlashCommand = (cmd) => {
         setInput(cmd.prompt);

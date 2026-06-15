@@ -371,7 +371,9 @@ const SystemSettings = ({ user }) => {
                     if (statusData.state === 'completed') {
                         clearInterval(pollInterval);
                         setIsSyncing(false);
-                        setLastRagSyncTime(new Date().toISOString());
+                        const newSyncTime = new Date().toISOString();
+                        setLastRagSyncTime(newSyncTime);
+                        window.dispatchEvent(new CustomEvent('rag-synced', { detail: { lastRagSyncTime: newSyncTime } }));
                         alert('Sync Complete!');
                     } else if (statusData.state === 'error') {
                         clearInterval(pollInterval);
