@@ -147,7 +147,8 @@ const Gemini = () => {
         };
 
         checkRagSync();
-    }, [mode, lastRagSyncTime, hasWarnedExpiry, isConfigLoaded]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, isConfigLoaded]);
 
     // Handle RAG synced event to reset expiry state and clean warnings
     useEffect(() => {

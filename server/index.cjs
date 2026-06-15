@@ -2328,18 +2328,29 @@ app.get('/api/rag/check-sync-needed', requireAuth, async (req, res) => {
             return [f.drive_file_id, new Date(syncTimeStr).getTime()];
         }));
 
-        // Check for Deleted Files (DB has IDs not in Drive)
-        // If DB has more or less files, we need sync
-        if (dbFiles.length !== driveFiles.length) {
-             console.log(`Sync check: mismatch in file count. DB: ${dbFiles.length}, Drive: ${driveFiles.length}`);
-             return res.json({ syncNeeded: true, reason: 'file_count_mismatch', dbCount: dbFiles.length, driveCount: driveFiles.length });
+        // 1. Check for Deleted Files (DB has IDs not in Drive)
+        const driveIds = new Set(driveFiles.map(f => f.id));
+        const hasDeletedFiles = dbFiles.some(f => !driveIds.has(f.drive_file_id));
+        if (hasDeletedFiles) {
+            console.log("Sync check: obsolete files found in DB that are no longer in Drive.");
+            return res.json({ syncNeeded: true, reason: 'deleted_files' });
         }
 
-        // Check for New or Updated Files
+        const lastSyncTimeStr = await db.getSetting('LAST_RAG_SYNC_TIME');
+        const lastSyncTimeMs = lastSyncTimeStr ? new Date(lastSyncTimeStr).getTime() : 0;
+
+        // 2. Check for New or Updated Files
         for (const file of driveFiles) {
             if (!dbFileMap.has(file.id)) {
-                console.log(`Sync check: new file found: ${file.id}`);
-                return res.json({ syncNeeded: true, reason: 'new_files' });
+                // If it's a new file, but its modifiedTime is BEFORE our last successful sync,
+                // it means this file failed to sync (e.g. 404/403 errors, shared drive permission)
+                // during the last run. We skip warning about it because syncing it again will just fail.
+                const driveTime = new Date(file.modifiedTime).getTime();
+                if (driveTime > lastSyncTimeMs) {
+                    console.log(`Sync check: actual new file found: ${file.id}`);
+                    return res.json({ syncNeeded: true, reason: 'new_files' });
+                }
+                continue;
             }
             const driveTime = new Date(file.modifiedTime).getTime();
             // Allow 5 minutes of buffer for upload/parse times
