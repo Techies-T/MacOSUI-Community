@@ -143,24 +143,39 @@ router.post('/', (req, res) => {
     });
 });
 
-// 4. DELETE /api/skills/:id - スキルのアンインストール
-router.delete('/:id', (req, res) => {
-    const { id } = req.params;
+// Helper to delete skill
+const deleteSkill = (id, req, res) => {
+    if (!id) {
+        return res.status(400).json({ error: 'Skill ID is required' });
+    }
     
     db.run("DELETE FROM skills WHERE id = ?", [id], function(err) {
         if (err) {
             console.error('Error deleting skill:', err);
             return res.status(500).json({ error: 'Failed to delete skill' });
         }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'Skill not found' });
+        }
         res.json({ success: true, message: 'Skill uninstalled successfully' });
     });
+};
+
+// 4. DELETE /api/skills/:id - スキルのアンインストール (パスパラメータ版)
+router.delete('/:id', (req, res) => {
+    deleteSkill(req.params.id, req, res);
 });
 
-// 5. PUT /api/skills/:id/icon - スキルのアイコンを更新
-router.put('/:id/icon', (req, res) => {
-    const { id } = req.params;
-    const { icon_url } = req.body;
+// 4.5. DELETE /api/skills - スキルのアンインストール (クエリパラメータ版)
+router.delete('/', (req, res) => {
+    deleteSkill(req.query.id, req, res);
+});
 
+// Helper to update skill icon
+const updateSkillIcon = (id, icon_url, req, res) => {
+    if (!id) {
+        return res.status(400).json({ error: 'Skill ID is required' });
+    }
     if (!icon_url) {
         return res.status(400).json({ error: 'Icon URL is required' });
     }
@@ -176,6 +191,16 @@ router.put('/:id/icon', (req, res) => {
         }
         res.json({ success: true, message: 'Skill icon updated successfully' });
     });
+};
+
+// 5. PUT /api/skills/:id/icon - スキルのアイコンを更新 (パスパラメータ版)
+router.put('/:id/icon', (req, res) => {
+    updateSkillIcon(req.params.id, req.body.icon_url, req, res);
+});
+
+// 5.5. PUT /api/skills/icon - スキルのアイコンを更新 (クエリパラメータ版)
+router.put('/icon', (req, res) => {
+    updateSkillIcon(req.query.id, req.body.icon_url, req, res);
 });
 
 // 6. GET /api/skills/manifest - 外部マニフェストURLをプロキシし、監査ログを記録

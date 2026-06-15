@@ -138,13 +138,17 @@ const SkillsTab = () => {
     const handleUninstallSkill = async (id) => {
         if (!confirm('Are you sure you want to uninstall this skill?')) return;
         try {
-            const res = await fetch(`/api/skills/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/skills?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
             if (res.ok) {
                 fetchInstalledSkills();
                 window.dispatchEvent(new Event('skills-updated'));
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to uninstall skill');
             }
         } catch (err) {
             console.error('Uninstall error:', err);
+            alert('Failed to uninstall skill');
         }
     };
 
@@ -191,7 +195,7 @@ const SkillsTab = () => {
         if (selectedEditingIconIdx === null) return;
         setIsSavingEditIcon(true);
         try {
-            const res = await fetch(`/api/skills/${skillId}/icon`, {
+            const res = await fetch(`/api/skills/icon?id=${encodeURIComponent(skillId)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ icon_url: editingSkillIcons[selectedEditingIconIdx] })

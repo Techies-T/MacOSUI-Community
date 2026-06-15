@@ -32,7 +32,6 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'knowledge-base': return <KnowledgeBase />;
             case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
             case 'mcp-chat': return <McpChat />;
-            case 'demo-skill': return <ExternalWidget url="/demo-skill.html" title="Demo Skill" widgetId="skill:demo-skill" />;
             case 'external-skill': return <ExternalWidget url={win.props.url} title={win.title} widgetId={win.id || 'external-skill'} />;
             default: return null;
         }

@@ -119,17 +119,6 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
                 </svg>
             )
         },
-        {
-            id: 'demo-skill', name: 'Demo Skill', icon: (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#0d9488' }}>
-                    <rect x="3" y="11" width="18" height="10" rx="2" />
-                    <circle cx="12" cy="5" r="2" />
-                    <path d="M12 7v4" />
-                    <line x1="8" y1="16" x2="8" y2="16" strokeWidth="2" />
-                    <line x1="16" y1="16" x2="16" y2="16" strokeWidth="2" />
-                </svg>
-            )
-        },
     ];
 
     const handleAppClick = (appId) => {
@@ -155,7 +144,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
     const visibleApps = allApps.filter(app => {
         if (app.id === 'settings') return true; // Settings is universally available for profile management
         if (app.isCustom) return true; // Custom skills are visible to everyone for now (RBAC in Phase 4)
-        const prefix = app.id === 'demo-skill' ? 'skill:' : 'app:';
+        const prefix = 'app:';
         return allowedWidgets.includes('*') || allowedWidgets.includes(`${prefix}${app.id}`);
     });
 

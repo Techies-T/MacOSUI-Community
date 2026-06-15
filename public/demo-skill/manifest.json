@@ -1,1 +1,1 @@
-{"id":"hello-world","name":"Hello World","description":"A simple hello world skill to demonstrate dynamic AI icon generation and installation.","entrypoint":"/demo-skill.html"}
+{"id":"demo-skill","name":"Demo Skill","description":"A simple demo skill to demonstrate communication with Gemini AI to get jokes.","entrypoint":"/demo-skill.html"}
