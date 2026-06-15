@@ -178,4 +178,76 @@ router.put('/:id/icon', (req, res) => {
     });
 });
 
+// 6. GET /api/skills/manifest - 外部マニフェストURLをプロキシし、監査ログを記録
+router.get('/manifest', async (req, res) => {
+    const { url } = req.query;
+    if (!url) {
+        return res.status(400).json({ error: 'URL query parameter is required' });
+    }
+
+    const auditDb = require('../auditDb.cjs');
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch manifest from remote: ${response.status} ${response.statusText}`);
+        }
+        
+        const manifest = await response.json();
+
+        // 監査ログを記録
+        await auditDb.logEvent({
+            userId: req.user ? req.user.id : null,
+            userEmail: req.user ? req.user.email : null,
+            eventType: 'skill_manifest_fetch',
+            action: `Fetch Skill Manifest: ${url}`,
+            status: 'success',
+            req: req,
+            details: { manifestUrl: url, manifestId: manifest.id, manifestName: manifest.name }
+        });
+
+        res.json(manifest);
+    } catch (error) {
+        console.error(`Error fetching skill manifest proxy:`, error);
+        
+        // 失敗ログも記録
+        await auditDb.logEvent({
+            userId: req.user ? req.user.id : null,
+            userEmail: req.user ? req.user.email : null,
+            eventType: 'skill_manifest_fetch',
+            action: `Fetch Skill Manifest: ${url}`,
+            status: 'failure',
+            req: req,
+            details: { manifestUrl: url, error: error.message }
+        });
+
+        res.status(500).json({ error: error.message || 'Failed to fetch manifest' });
+    }
+});
+
+// 7. POST /api/skills/log-access - スキル起動時の監査ログ記録
+router.post('/log-access', (req, res) => {
+    const { id, name, entrypoint_url } = req.body;
+    if (!id || !name || !entrypoint_url) {
+        return res.status(400).json({ error: 'Missing required fields (id, name, entrypoint_url)' });
+    }
+
+    const auditDb = require('../auditDb.cjs');
+    
+    auditDb.logEvent({
+        userId: req.user ? req.user.id : null,
+        userEmail: req.user ? req.user.email : null,
+        eventType: 'skill_access',
+        action: `Access Skill: ${name}`,
+        status: 'success',
+        req: req,
+        details: { skillId: id, skillName: name, entrypointUrl: entrypoint_url }
+    }).then(() => {
+        res.json({ success: true });
+    }).catch((err) => {
+        console.error('Error logging skill access:', err);
+        res.status(500).json({ error: 'Failed to log skill access' });
+    });
+});
+
 module.exports = router;

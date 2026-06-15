@@ -36,7 +36,7 @@ const SkillsTab = () => {
         if (!skillManifestUrl) return;
         try {
             setIsGeneratingIcons(true);
-            const res = await fetch(skillManifestUrl);
+            const res = await fetch(`/api/skills/manifest?url=${encodeURIComponent(skillManifestUrl)}`);
             if (!res.ok) throw new Error('Failed to load manifest JSON');
             
             const contentType = res.headers.get('content-type');

@@ -352,7 +352,7 @@ app.post('/api/mcp/tool', requireWidgetAccess('app:mcp-chat'), requirePermission
     }
 
     try {
-        const result = await callMcpTool(name, args, serverId);
+        const result = await callMcpTool(name, args, req.user.allowed_widgets || [], req.user, req);
         res.json(result);
     } catch (error) {
         console.error(`MCP Proxy Error for tool ${name}:`, error);

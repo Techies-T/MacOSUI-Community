@@ -206,6 +206,17 @@ const Desktop = ({ user, onLogout, config }) => {
           // Check if it's a dynamic custom skill
           const customSkill = customSkills.find(s => s.id === id);
           if (customSkill) {
+             // 監査ログを記録
+             fetch('/api/skills/log-access', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     id: customSkill.id,
+                     name: customSkill.name,
+                     entrypoint_url: customSkill.entrypoint_url
+                 })
+             }).catch(err => console.error('Failed to log skill access:', err));
+
              openWindow(id, 'external-skill', customSkill.name, { url: customSkill.entrypoint_url });
              return;
           }

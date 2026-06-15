@@ -27,7 +27,7 @@ router.post('/:id/test', async (req, res) => {
             token_url: row.token_url,
             client_id: row.client_id,
             client_secret: clientSecret
-        });
+        }, req.user, req);
         
         if (result.success) {
             res.json(result);
@@ -63,7 +63,7 @@ router.post('/test', async (req, res) => {
         }
     }
 
-    const result = await testMcpConnection({ endpoint_url, token_url, client_id, client_secret: finalSecret });
+    const result = await testMcpConnection({ endpoint_url, token_url, client_id, client_secret: finalSecret }, req.user, req);
     if (result.success) {
         res.json(result);
     } else {

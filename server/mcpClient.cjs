@@ -2,6 +2,7 @@ const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { SSEClientTransport } = require("@modelcontextprotocol/sdk/client/sse.js");
 const db = require('./db.cjs');
 const { decrypt } = require('./crypto.cjs');
+const auditDb = require('./auditDb.cjs');
 
 // State maps
 const serverConnections = new Map(); // serverId -> Connection Object
@@ -57,7 +58,7 @@ async function refreshConnections() {
 /**
  * Fetches an OAuth token using Client Credentials for a specific server
  */
-async function getOAuthToken(connState) {
+async function getOAuthToken(connState, user = null, req = null, isRefresh = false) {
     if (!connState.token_url) {
         return null;
     }
@@ -91,10 +92,49 @@ async function getOAuthToken(connState) {
         connState.tokenCache.expiresAt = Date.now() + (expiresIn - 300) * 1000; 
 
         console.log(`[MCP ${connState.name}] OAuth Token successfully acquired.`);
+
+        // 監査ログを記録
+        await auditDb.logEvent({
+            userId: user ? user.id : null,
+            userEmail: user ? user.email : 'system',
+            eventType: 'mcp_token_acquisition',
+            action: `Acquire OAuth Token: ${connState.name}`,
+            status: 'success',
+            req: req,
+            details: {
+                serverId: connState.id || null,
+                serverName: connState.name,
+                tokenUrl: connState.token_url,
+                clientId: connState.client_id,
+                isRefresh: isRefresh,
+                reason: user ? 'user_request' : 'background_refresh'
+            }
+        });
+
         return connState.tokenCache.accessToken;
 
     } catch (error) {
         console.error(`[MCP ${connState.name}] OAuth Token Acquisition Error:`, error);
+
+        // 失敗ログを記録
+        await auditDb.logEvent({
+            userId: user ? user.id : null,
+            userEmail: user ? user.email : 'system',
+            eventType: 'mcp_token_acquisition',
+            action: `Acquire OAuth Token: ${connState.name}`,
+            status: 'failure',
+            req: req,
+            details: {
+                serverId: connState.id || null,
+                serverName: connState.name,
+                tokenUrl: connState.token_url,
+                clientId: connState.client_id,
+                isRefresh: isRefresh,
+                reason: user ? 'user_request' : 'background_refresh',
+                error: error.message || String(error)
+            }
+        });
+
         throw error;
     }
 }
@@ -102,22 +142,23 @@ async function getOAuthToken(connState) {
 /**
  * Returns a valid access token for a server
  */
-async function getValidToken(connState) {
+async function getValidToken(connState, user = null, req = null) {
+    const isRefresh = !!connState.tokenCache.accessToken;
     if (connState.tokenCache.accessToken && connState.tokenCache.expiresAt && Date.now() < connState.tokenCache.expiresAt) {
         return connState.tokenCache.accessToken;
     }
-    return await getOAuthToken(connState);
+    return await getOAuthToken(connState, user, req, isRefresh);
 }
 
 /**
  * Ensures the MCP client is connected for a specific server
  */
-async function ensureConnection(connState) {
+async function ensureConnection(connState, user = null, req = null) {
     if (!connState.endpoint_url) {
         throw new Error("Endpoint URL is not configured.");
     }
 
-    const token = await getValidToken(connState);
+    const token = await getValidToken(connState, user, req);
 
     if (!connState.mcpClientInstance || !connState.mcpTransport) {
         console.log(`[MCP ${connState.name}] Connecting to MCP Server at ${connState.endpoint_url}...`);
@@ -169,8 +210,10 @@ async function ensureConnection(connState) {
  * @param {string} name - The tool name
  * @param {object} args - The arguments for the tool
  * @param {string[]} allowedWidgets - The user's allowed widgets array to enforce granular permissions
+ * @param {object} user - The authenticated user object
+ * @param {object} req - Express request object for client IP/UA extraction
  */
-async function callMcpTool(name, args, allowedWidgets = ['*']) {
+async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req = null) {
     if (serverConnections.size === 0) {
         await refreshConnections();
     }
@@ -189,19 +232,67 @@ async function callMcpTool(name, args, allowedWidgets = ['*']) {
     }
 
     if (!targetConnState) {
+        // アクセス拒否ログを記録
+        await auditDb.logEvent({
+            userId: user ? user.id : null,
+            userEmail: user ? user.email : null,
+            eventType: 'mcp_tool_execution',
+            action: `Call MCP Tool: ${name}`,
+            status: 'blocked',
+            req: req,
+            details: {
+                toolName: name,
+                arguments: args,
+                error: `Access denied or Tool '${name}' is not registered by any accessible MCP Server.`
+            }
+        });
         throw new Error(`Access denied or Tool '${name}' is not registered by any accessible MCP Server.`);
     }
 
     try {
-        const client = await ensureConnection(targetConnState);
+        const client = await ensureConnection(targetConnState, user, req);
         const result = await client.callTool({
             name: name,
             arguments: args || {}
         });
+
+        // 成功ログを記録
+        await auditDb.logEvent({
+            userId: user ? user.id : null,
+            userEmail: user ? user.email : null,
+            eventType: 'mcp_tool_execution',
+            action: `Call MCP Tool: ${name}`,
+            status: 'success',
+            req: req,
+            details: {
+                serverId: targetConnState.id,
+                serverName: targetConnState.name,
+                toolName: name,
+                arguments: args
+            }
+        });
+
         return result;
     } catch (error) {
         console.error(`[MCP ${targetConnState.name}] Error calling Tool ${name}:`, error);
         
+        // 失敗ログを記録
+        await auditDb.logEvent({
+            userId: user ? user.id : null,
+            userEmail: user ? user.email : null,
+            eventType: 'mcp_tool_execution',
+            action: `Call MCP Tool: ${name}`,
+            status: 'failure',
+            req: req,
+            details: {
+                serverId: targetConnState.id,
+                serverName: targetConnState.name,
+                toolName: name,
+                arguments: args,
+                error: error.message || String(error)
+            }
+        });
+
         if (targetConnState.mcpTransport) {
              try { await targetConnState.mcpTransport.close(); } catch(e) {}
              targetConnState.mcpTransport = null;
@@ -298,9 +389,11 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
 /**
  * Tests an MCP connection without saving to the database
  * @param {object} config - The temporary server configuration
+ * @param {object} user - The authenticated user object
+ * @param {object} req - Express request object
  * @returns {object} Result with success boolean and tool count or error message
  */
-async function testMcpConnection(config) {
+async function testMcpConnection(config, user = null, req = null) {
     const { endpoint_url, token_url, client_id, client_secret } = config;
     
     if (!endpoint_url) {
@@ -323,7 +416,7 @@ async function testMcpConnection(config) {
         // 1. Attempt to get Token if configured
         let token = null;
         if (token_url && client_id && client_secret) {
-            token = await getOAuthToken(tempState);
+            token = await getOAuthToken(tempState, user, req, false);
         }
 
         // 2. Attempt SSE connection
@@ -348,9 +441,31 @@ async function testMcpConnection(config) {
         const toolsList = await mcpClientInstance.listTools();
         const toolCount = toolsList?.tools?.length || 0;
 
+        // 成功ログを記録
+        await auditDb.logEvent({
+            userId: user ? user.id : null,
+            userEmail: user ? user.email : null,
+            eventType: 'mcp_connection_test',
+            action: `Test MCP Connection: ${endpoint_url}`,
+            status: 'success',
+            req: req,
+            details: { endpointUrl: endpoint_url, tokenUrl: token_url, toolCount }
+        });
+
         return { success: true, toolCount };
 
     } catch (error) {
+        // 失敗ログを記録
+        await auditDb.logEvent({
+            userId: user ? user.id : null,
+            userEmail: user ? user.email : null,
+            eventType: 'mcp_connection_test',
+            action: `Test MCP Connection: ${endpoint_url}`,
+            status: 'failure',
+            req: req,
+            details: { endpointUrl: endpoint_url, tokenUrl: token_url, error: error.message || String(error) }
+        });
+
         return { success: false, error: error.message || String(error) };
     } finally {
         // Cleanup connection
