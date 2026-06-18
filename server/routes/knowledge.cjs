@@ -29,9 +29,20 @@ async function getAllowedPodsForUser(user) {
     if (!user) return [];
     try {
         const rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
-        const userRole = user.role || 'user';
-        const rolePolicy = rbacPolicies[userRole] || {};
-        return rolePolicy.allowed_pods || [];
+        const roles = (user.role || 'user').split(',').map(r => r.trim());
+        
+        let allowedPods = [];
+        if (roles.includes('admin')) {
+            allowedPods = ['*'];
+        } else {
+            roles.forEach(r => {
+                const policy = rbacPolicies[r] || {};
+                (policy.allowed_pods || []).forEach(p => {
+                    if (!allowedPods.includes(p)) allowedPods.push(p);
+                });
+            });
+        }
+        return allowedPods;
     } catch (e) {
         console.error("Error reading RBAC policies:", e);
         return [];

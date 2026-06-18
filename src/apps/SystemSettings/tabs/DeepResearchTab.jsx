@@ -10,6 +10,7 @@ const DeepResearchTab = ({
     const [pods, setPods] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [editingWorkflow, setEditingWorkflow] = useState(null); // When not null, show form/modal
+    const [defaultWorkflowId, setDefaultWorkflowId] = useState('');
     const [error, setError] = useState('');
 
     const loadWorkflows = () => {
@@ -20,10 +21,17 @@ const DeepResearchTab = ({
                 if (data.workflows) {
                     setWorkflows(data.workflows);
                 }
+                return fetch('/api/config');
+            })
+            .then(res => res.json())
+            .then(configData => {
+                if (configData.defaultWorkflowId) {
+                    setDefaultWorkflowId(configData.defaultWorkflowId);
+                }
                 setIsLoading(false);
             })
             .catch(err => {
-                console.error("Failed to load workflows:", err);
+                console.error("Failed to load workflows or config:", err);
                 setError('ワークフロー定義のロードに失敗しました。');
                 setIsLoading(false);
             });
@@ -48,6 +56,35 @@ const DeepResearchTab = ({
         setEditingWorkflow({ ...wf });
     };
 
+    const handleCopy = (wf) => {
+        if (!isManager) return;
+        setEditingWorkflow({
+            ...wf,
+            id: '',
+            name: `${wf.name} のコピー`
+        });
+    };
+
+    const handleSetDefault = async (id) => {
+        if (!isManager) return;
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ defaultWorkflowId: id })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'デフォルトの保存に失敗しました。');
+            }
+            setDefaultWorkflowId(id);
+            alert('デフォルトワークフローを設定しました。');
+        } catch (err) {
+            console.error("Save default workflow error:", err);
+            setError(err.message);
+        }
+    };
+
     const handleCreateNew = () => {
         if (!isManager) return;
         setEditingWorkflow({
@@ -60,7 +97,9 @@ const DeepResearchTab = ({
             output_model: 'gemini-3.1-flash-lite-preview',
             output_prompt: '以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}',
             folder_id: '',
-            pod_id: ''
+            pod_id: '',
+            reference_knowledge: 0,
+            reference_pod_id: ''
         });
     };
 
@@ -174,11 +213,40 @@ const DeepResearchTab = ({
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 >
                                     <option value="">🌐 共通（パブリック）</option>
-                                    {pods.map(p => (
+                                    {Array.isArray(pods) && pods.map(p => p && (
                                         <option key={p.id} value={p.id}>📦 {p.name}</option>
                                     ))}
                                 </select>
                                 <p className="text-[10px] text-gray-400 mt-1">Podを紐付けると、そのPodのアクセス権を持つユーザーのみがこのワークフローを利用でき、実行結果もそのPodに蓄積されます。</p>
+                            </div>
+
+                            <div className="border border-indigo-100 bg-indigo-50/20 p-3 rounded-lg space-y-3">
+                                <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={editingWorkflow.reference_knowledge === 1}
+                                        onChange={(e) => setEditingWorkflow({ ...editingWorkflow, reference_knowledge: e.target.checked ? 1 : 0 })}
+                                        className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                    <span>過去のリサーチ結果を参考にする (RAG)</span>
+                                </label>
+                                
+                                {editingWorkflow.reference_knowledge === 1 && (
+                                    <div className="animate-fadeIn">
+                                        <label className="block text-xs font-semibold text-gray-600 mb-1">参考にするPod</label>
+                                        <select
+                                            value={editingWorkflow.reference_pod_id || ''}
+                                            onChange={(e) => setEditingWorkflow({ ...editingWorkflow, reference_pod_id: e.target.value })}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                            <option value="">🌐 共通（パブリック）</option>
+                                            {Array.isArray(pods) && pods.map(p => p && (
+                                                <option key={p.id} value={p.id}>📦 {p.name}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-[10px] text-gray-400 mt-1">選択したPodに蓄積されたナレッジ記事を、リサーチ開始前に読み込んで結合できます。</p>
+                                    </div>
+                                )}
                             </div>
 
                             <h3 className="text-sm font-bold text-gray-800 border-b border-gray-100 pb-2 pt-2">1. Base Research Agent (リサーチ部)</h3>
@@ -301,7 +369,7 @@ const DeepResearchTab = ({
                     </div>
 
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        {workflows.length === 0 ? (
+                        {(!workflows || workflows.length === 0) ? (
                             <div className="p-8 text-center text-gray-500">
                                 定義済みのワークフローが存在しません。上のボタンから作成してください。
                             </div>
@@ -319,16 +387,21 @@ const DeepResearchTab = ({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 text-gray-700">
-                                    {workflows.map((wf) => (
+                                    {(workflows || []).map((wf) => wf && (
                                         <tr key={wf.id} className="hover:bg-gray-50/50 transition-colors">
                                             <td className="p-4 font-bold text-gray-900">
-                                                <div>{wf.name}</div>
+                                                <div className="flex items-center gap-1.5">
+                                                    {wf.id === defaultWorkflowId && (
+                                                        <span className="text-amber-500" title="デフォルト設定中">★</span>
+                                                    )}
+                                                    <span>{wf.name}</span>
+                                                </div>
                                                 <div className="text-[10px] text-gray-400 font-normal mt-0.5">{wf.description || '説明なし'}</div>
                                             </td>
                                             <td className="p-4">
                                                 {wf.pod_id ? (
                                                     <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                                        📦 {pods.find(p => p.id === wf.pod_id)?.name || wf.pod_id}
+                                                        📦 {Array.isArray(pods) && pods.find(p => p?.id === wf.pod_id)?.name || wf.pod_id}
                                                     </span>
                                                 ) : (
                                                     <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
@@ -349,14 +422,31 @@ const DeepResearchTab = ({
                                             <td className="p-4 font-mono text-[10px] text-gray-500">{wf.output_model || 'デフォルト'}</td>
                                             <td className="p-4 font-mono text-[10px] text-gray-400">{wf.folder_id ? `${wf.folder_id.substring(0, 15)}...` : 'なし'}</td>
                                             {isManager && (
-                                                <td className="p-4 text-right space-x-2">
+                                                <td className="p-4 text-right space-x-3">
                                                     <button
+                                                        type="button"
+                                                        onClick={() => handleSetDefault(wf.id)}
+                                                        className={`font-semibold transition ${wf.id === defaultWorkflowId ? 'text-amber-600 cursor-default' : 'text-gray-400 hover:text-amber-600'}`}
+                                                        disabled={wf.id === defaultWorkflowId}
+                                                    >
+                                                        {wf.id === defaultWorkflowId ? 'デフォルト' : 'デフォルトに設定'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleCopy(wf)}
+                                                        className="text-gray-500 hover:text-gray-900 font-semibold transition"
+                                                    >
+                                                        コピー
+                                                    </button>
+                                                    <button
+                                                        type="button"
                                                         onClick={() => handleEdit(wf)}
                                                         className="text-indigo-600 hover:text-indigo-900 font-semibold transition"
                                                     >
                                                         編集
                                                     </button>
                                                     <button
+                                                        type="button"
                                                         onClick={() => handleDelete(wf.id)}
                                                         className="text-red-500 hover:text-red-700 font-semibold transition"
                                                     >

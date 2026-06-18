@@ -7,10 +7,10 @@ const dotenv = require('dotenv');
 const envFile = process.env.ENV_FILE || '.env';
 dotenv.config({ path: path.resolve(__dirname, envFile) });
 
-const { decrypt } = require('./server/crypto.cjs');
+const { decrypt } = require('../server/crypto.cjs');
 
 // Ensure DB connects
-const dbPath = path.resolve(__dirname, './server/database.sqlite');
+const dbPath = path.resolve(__dirname, '../server/database.sqlite');
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
         console.error('[!] Database connect error:', err.message);
@@ -74,16 +74,21 @@ async function runTest() {
             console.log('[Test] Triggering Google Drive API upload (drive.files.create)...');
             const drive = google.drive({ version: 'v3', auth: oAuth2Client });
             
-            const fileMetadata = { name: 'Test-DeepResearch-Auth-Refresh.txt' };
+            const fileMetadata = { 
+                name: 'Test-DeepResearch-Auth-Refresh.txt',
+                parents: ['1JXLteYtzfpLAog5nzf3LUqEcqETidT7s']
+            };
+            const { Readable } = require('stream');
             const media = {
                 mimeType: 'text/plain',
-                body: 'This is a test file to verify that OAuth tokens properly refresh and Drive API works continuously!'
+                body: Readable.from(Buffer.from('これはテストファイルです。日本語のマルチバイト文字が含まれています。Google Drive APIがContent-Lengthの文字数ズレによる400 Bad Requestを起こさないか検証します。', 'utf-8'))
             };
             
             const response = await drive.files.create({
                 resource: fileMetadata,
                 media: media,
-                fields: 'id, name'
+                fields: 'id, name',
+                supportsAllDrives: true
             });
             
             console.log(`[Test SUCCESS] 🟢 File beautifully uploaded! Name: ${response.data.name}, ID: ${response.data.id}`);

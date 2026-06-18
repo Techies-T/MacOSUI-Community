@@ -32,16 +32,27 @@ const DeepResearch = ({ onOpen }) => {
     const [availableArticles, setAvailableArticles] = useState([]);
     const [selectedArticleIds, setSelectedArticleIds] = useState([]);
 
+    const [pods, setPods] = useState([]);
+    const [targetPodId, setTargetPodId] = useState('');
+
     useEffect(() => {
         if (!selectedWorkflow) {
+            setAvailableArticles([]);
+            setSelectedArticleIds([]);
+            setTargetPodId('');
+            return;
+        }
+        
+        setTargetPodId(selectedWorkflow.pod_id || '');
+
+        if (selectedWorkflow.reference_knowledge !== 1) {
             setAvailableArticles([]);
             setSelectedArticleIds([]);
             return;
         }
         
-        // ワークフローのpod_idに紐づくナレッジを取得（API側でallowed_podsとpod_idフィルタが適用されます）
-        const podId = selectedWorkflow.pod_id || '';
-        fetch(`/api/knowledge?pod_id=${encodeURIComponent(podId)}`)
+        const refPodId = selectedWorkflow.reference_pod_id || '';
+        fetch(`/api/knowledge?pod_id=${encodeURIComponent(refPodId)}`)
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {
@@ -52,7 +63,7 @@ const DeepResearch = ({ onOpen }) => {
                 setSelectedArticleIds([]); // 選択をリセット
             })
             .catch(err => {
-                console.error("Failed to fetch available articles for workflow pod:", err);
+                console.error("Failed to fetch available articles for workflow reference pod:", err);
                 setAvailableArticles([]);
                 setSelectedArticleIds([]);
             });
@@ -112,10 +123,30 @@ const DeepResearch = ({ onOpen }) => {
                         fetch('/api/research/workflows')
                             .then(res => res.json())
                             .then(wfData => {
-                                if (wfData.workflows && wfData.workflows.length > 0) {
+                                if (wfData && Array.isArray(wfData.workflows) && wfData.workflows.length > 0) {
                                     setWorkflows(wfData.workflows);
-                                    setSelectedWorkflow(wfData.workflows[0]);
+                                    const defaultWf = wfData.workflows.find(w => w.id === loadedConfig?.defaultWorkflowId);
+                                    setSelectedWorkflow(defaultWf || wfData.workflows[0]);
+                                } else {
+                                    setWorkflows([]);
+                                    setSelectedWorkflow(null);
                                 }
+                                
+                                // Load pods
+                                fetch('/api/pods')
+                                    .then(res => res.json())
+                                    .then(podData => {
+                                        if (podData && Array.isArray(podData.pods)) {
+                                            setPods(podData.pods);
+                                        } else {
+                                            setPods([]);
+                                        }
+                                    })
+                                    .catch(err => {
+                                        console.error("Failed to load pods:", err);
+                                        setPods([]);
+                                    });
+
                                 // Then check incomplete workflows
                                 return fetch('/api/research/workflow/incomplete');
                             })
@@ -308,9 +339,14 @@ const DeepResearch = ({ onOpen }) => {
                 output_type: 'html',
                 research_model: config?.geminiResearchModel || 'models/gemini-2.5-pro',
                 output_model: config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro',
-                folder_id: config?.geminiResearchFolderId || null
+                folder_id: config?.geminiResearchFolderId || null,
+                pod_id: '',
+                reference_knowledge: 0,
+                reference_pod_id: ''
             };
         }
+
+        const resolvedPodId = activeWorkflow?.pod_id || resumeData?.pod_id || targetPodId || null;
 
         if (resumeData) {
             workflowIdRef.current = resumeData.id;
@@ -351,7 +387,8 @@ const DeepResearch = ({ onOpen }) => {
                         query: userQuery,
                         workflowDefinitionId: activeWorkflow.id,
                         systemInstruction: activeWorkflow.research_prompt || config?.deepResearchPrompt || "",
-                        selected_article_ids: articleIdsToSend
+                        selected_article_ids: articleIdsToSend,
+                        pod_id: resolvedPodId
                     })
                 });
                 const researchData = await researchReq.json();
@@ -404,7 +441,7 @@ const DeepResearch = ({ onOpen }) => {
                         report_text: reportText,
                         total_input_tokens: totalInputTokensRef.current,
                         total_output_tokens: totalOutputTokensRef.current,
-                        pod_id: activeWorkflow?.pod_id || null,
+                        pod_id: resolvedPodId,
                         selected_article_ids: articleIdsToSend
                     })
                 }).catch(e => console.error(e));
@@ -546,7 +583,7 @@ const DeepResearch = ({ onOpen }) => {
                         generated_payload: finalGeneratedPayload,
                         total_input_tokens: totalInputTokensRef.current,
                         total_output_tokens: totalOutputTokensRef.current,
-                        pod_id: activeWorkflow?.pod_id || null,
+                        pod_id: resolvedPodId,
                         selected_article_ids: articleIdsToSend
                     })
                 }).catch(e => console.error(e));
@@ -561,13 +598,14 @@ const DeepResearch = ({ onOpen }) => {
             // Save Report (Google Doc) - Only if not direct HTML
             let saveDocData = null;
             if (!isDirectHtml) {
+                const isOverSizeLimit = reportText.length > 1000000;
                 const saveDocReq = await fetch('/api/drive/upload', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        name: `${documentTitle} (Report)`,
+                        name: isOverSizeLimit ? `${documentTitle} (Report).txt` : `${documentTitle} (Report)`,
                         content: reportText,
-                        isDoc: true,
+                        isDoc: !isOverSizeLimit, // Google Doc size limit is 1,024,000 characters
                         folderId: activeWorkflow.folder_id || config?.geminiResearchFolderId || null
                     })
                 });
@@ -689,7 +727,7 @@ ${reportText.substring(0, 1500)}...`;
                         tags: Array.from(new Set(knowledgeTags)), // Deduplicate
                         input_tokens: totalInputTokensRef.current,
                         output_tokens: totalOutputTokensRef.current,
-                        pod_id: activeWorkflow?.pod_id || null
+                        pod_id: resolvedPodId
                     })
                 });
 
@@ -766,10 +804,12 @@ ${reportText.substring(0, 1500)}...`;
     };
 
     const resumeWorkflow = (workflow) => {
+        if (!workflow) return;
         setIncompleteWorkflow(null);
-        setPipelineType(workflow.pipeline_type);
-        setPendingQuery(workflow.query_text);
-        setMessages([{ role: 'user', text: workflow.query_text }]);
+        setPipelineType(workflow.pipeline_type || 'html');
+        setPendingQuery(workflow.query_text || '');
+        setMessages([{ role: 'user', text: workflow.query_text || '' }]);
+        setTargetPodId(workflow.pod_id || '');
         
         // selectedArticleIds ステートの復元
         let loadedIds = [];
@@ -783,7 +823,7 @@ ${reportText.substring(0, 1500)}...`;
         }
         setSelectedArticleIds(loadedIds);
         
-        executePipeline(workflow.query_text, null, workflow);
+        executePipeline(workflow.query_text || '', null, workflow);
     };
 
     const discardWorkflow = async (id) => {
@@ -825,10 +865,10 @@ ${reportText.substring(0, 1500)}...`;
                             <span className="text-amber-500 text-xl mr-3">⚠️</span>
                             <div>
                                 <h4 className="text-amber-800 font-bold text-sm">前回中断されたリサーチがあります</h4>
-                                <p className="text-amber-700 text-xs mt-1">テーマ: {incompleteWorkflow.query_text}</p>
+                                <p className="text-amber-700 text-xs mt-1">テーマ: {incompleteWorkflow?.query_text || '不明'}</p>
                                 <p className="text-amber-600 text-[10px] mt-1">
-                                    ステータス: {incompleteWorkflow.status === 'generating' ? 'レポート作成完了' : incompleteWorkflow.status === 'saving' ? 'HTML/画像化完了' : incompleteWorkflow.status} |
-                                    消費トークン: {(incompleteWorkflow.total_input_tokens + incompleteWorkflow.total_output_tokens).toLocaleString()}
+                                    ステータス: {incompleteWorkflow?.status === 'generating' ? 'レポート作成完了' : incompleteWorkflow?.status === 'saving' ? 'HTML/画像化完了' : (incompleteWorkflow?.status || '不明')} |
+                                    消費トークン: {((incompleteWorkflow?.total_input_tokens || 0) + (incompleteWorkflow?.total_output_tokens || 0)).toLocaleString()}
                                 </p>
                                 <div className="mt-3 flex gap-2">
                                     <button onClick={() => resumeWorkflow(incompleteWorkflow)} className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs font-semibold shadow-sm transition">
@@ -905,46 +945,64 @@ ${reportText.substring(0, 1500)}...`;
 
             {/* Input Area */}
             <div className="px-6 py-5 bg-white border-t border-gray-100 relative">
-                {/* Workflow Selector */}
-                {workflows.length > 0 && (
-                    <div className="flex items-center gap-2 mb-3 bg-indigo-50/40 p-2 rounded-xl border border-indigo-100/50 max-w-fit shadow-sm">
-                        <span className="text-xs font-semibold text-indigo-700 pl-1">実行ワークフロー:</span>
+                {/* Workflow & Target Pod Selectors */}
+                <div className="flex flex-wrap items-center gap-3 mb-3">
+                    {Array.isArray(workflows) && workflows.length > 0 && (
+                        <div className="flex items-center gap-2 bg-indigo-50/40 p-2 rounded-xl border border-indigo-100/50 shadow-sm">
+                            <span className="text-xs font-semibold text-indigo-700 pl-1">実行ワークフロー:</span>
+                            <select
+                                value={selectedWorkflow?.id || ''}
+                                onChange={(e) => {
+                                    const matched = (workflows || []).find(w => w?.id === e.target.value);
+                                    if (matched) setSelectedWorkflow(matched);
+                                }}
+                                className="bg-white border border-indigo-200 text-xs font-bold text-gray-800 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                                disabled={isLoading}
+                            >
+                                {(workflows || []).map(wf => wf && (
+                                    <option key={wf.id} value={wf.id}>{wf.name} ({wf.output_type === 'html' ? 'HTML/SVG' : 'インフォグラフィック'})</option>
+                                ))}
+                            </select>
+                            {selectedWorkflow && (
+                                <span className="text-[10px] text-gray-500 truncate max-w-[200px] font-medium pl-2 hidden sm:inline border-l border-indigo-200" title={selectedWorkflow.description}>
+                                    {selectedWorkflow.description || '説明なし'}
+                                </span>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="flex items-center gap-2 bg-indigo-50/40 p-2 rounded-xl border border-indigo-100/50 shadow-sm">
+                        <span className="text-xs font-semibold text-indigo-700 pl-1">保存先Pod:</span>
                         <select
-                            value={selectedWorkflow?.id || ''}
-                            onChange={(e) => {
-                                const matched = workflows.find(w => w.id === e.target.value);
-                                if (matched) setSelectedWorkflow(matched);
-                            }}
+                            value={targetPodId}
+                            onChange={(e) => setTargetPodId(e.target.value)}
                             className="bg-white border border-indigo-200 text-xs font-bold text-gray-800 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
                             disabled={isLoading}
                         >
-                            {workflows.map(wf => (
-                                <option key={wf.id} value={wf.id}>{wf.name} ({wf.output_type === 'html' ? 'HTML/SVG' : 'インフォグラフィック'})</option>
+                            <option value="">🌐 共通（パブリック）</option>
+                            {Array.isArray(pods) && pods.map(p => p && (
+                                <option key={p.id} value={p.id}>📦 {p.name}</option>
                             ))}
                         </select>
-                        {selectedWorkflow && (
-                            <span className="text-[10px] text-gray-500 truncate max-w-[300px] font-medium pl-2 hidden sm:inline border-l border-indigo-200">
-                                {selectedWorkflow.description || '説明なし'}
-                            </span>
-                        )}
                     </div>
-                )}
+                </div>
 
                 {/* Knowledge RAG Selector */}
-                {availableArticles.length > 0 && (
+                {selectedWorkflow?.reference_knowledge === 1 && Array.isArray(availableArticles) && availableArticles.length > 0 && (
                     <div className="mb-4 bg-indigo-50/20 rounded-xl border border-indigo-100/40 p-3 shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
                                 📚 過去の関連ナレッジを結合 (任意・最大3件):
                             </span>
                             <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">
-                                {selectedArticleIds.length} / 3 選択中
+                                {(selectedArticleIds || []).length} / 3 選択中
                             </span>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[150px] overflow-y-auto pr-1">
                             {availableArticles.map(art => {
-                                const isChecked = selectedArticleIds.includes(art.id);
-                                const isDisabled = !isChecked && selectedArticleIds.length >= 3;
+                                if (!art) return null;
+                                const isChecked = (selectedArticleIds || []).includes(art.id);
+                                const isDisabled = !isChecked && (selectedArticleIds || []).length >= 3;
                                 return (
                                     <label
                                         key={art.id}
@@ -967,7 +1025,7 @@ ${reportText.substring(0, 1500)}...`;
                                                 {art.title}
                                             </div>
                                             <div className={`text-[10px] mt-0.5 ${isChecked ? 'text-indigo-500' : 'text-gray-400'}`}>
-                                                {new Date(art.created_at).toLocaleDateString()}
+                                                {art.created_at ? new Date(art.created_at).toLocaleDateString() : '不明'}
                                             </div>
                                         </div>
                                     </label>

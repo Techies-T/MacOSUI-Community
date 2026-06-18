@@ -152,7 +152,7 @@ router.post('/start', async (req, res) => {
         // Retrieve workflow definition properties if provided
         let researchModel = null;
         let finalInstruction = req.body.systemInstruction || null;
-        let podId = null;
+        let podId = req.body.pod_id || null;
         
         if (workflowDefinitionId) {
             const definition = await new Promise((resolve) => {
@@ -162,7 +162,9 @@ router.post('/start', async (req, res) => {
             });
             if (definition) {
                 researchModel = definition.research_model;
-                podId = definition.pod_id;
+                if (!podId) {
+                    podId = definition.pod_id;
+                }
                 if (definition.research_prompt) {
                     finalInstruction = definition.research_prompt;
                 }
@@ -353,10 +355,12 @@ async function startDeepResearch(jobId, query, apiKey, customInstruction = null,
             }
             
             if (interaction.status === 'completed') {
-                if (interaction.outputs && interaction.outputs.length > 0) {
+                if (interaction.output_text) {
+                     finalReply = interaction.output_text;
+                } else if (interaction.outputs && interaction.outputs.length > 0) {
                      const parts = [];
                      for (const out of interaction.outputs) {
-                         if (out.text) parts.push(out.text);
+                          if (out.text) parts.push(out.text);
                      }
                      finalReply = parts.join('\n');
                      if (!finalReply) {
@@ -537,9 +541,20 @@ async function getAllowedPodsForUser(user) {
     if (!user) return [];
     try {
         const rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
-        const userRole = user.role || 'user';
-        const rolePolicy = rbacPolicies[userRole] || {};
-        return rolePolicy.allowed_pods || [];
+        const roles = (user.role || 'user').split(',').map(r => r.trim());
+        
+        let allowedPods = [];
+        if (roles.includes('admin')) {
+            allowedPods = ['*'];
+        } else {
+            roles.forEach(r => {
+                const policy = rbacPolicies[r] || {};
+                (policy.allowed_pods || []).forEach(p => {
+                    if (!allowedPods.includes(p)) allowedPods.push(p);
+                });
+            });
+        }
+        return allowedPods;
     } catch (e) {
         console.error("Error reading RBAC policies:", e);
         return [];
@@ -623,7 +638,7 @@ router.post('/workflows', async (req, res) => {
             return res.status(403).json({ error: 'ワークフロー定義の変更権限がありません。管理者のみ可能です。' });
         }
 
-        const { id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, pod_id } = req.body;
+        const { id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, pod_id, reference_knowledge, reference_pod_id } = req.body;
         if (!name) return res.status(400).json({ error: 'Workflow name is required' });
 
         const crypto = require('crypto');
@@ -632,8 +647,8 @@ router.post('/workflows', async (req, res) => {
         // Use INSERT OR REPLACE / ON CONFLICT
         db.run(
             `INSERT INTO deep_research_workflow_definitions 
-             (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, pod_id, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, pod_id, reference_knowledge, reference_pod_id, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
@@ -644,8 +659,10 @@ router.post('/workflows', async (req, res) => {
                 output_prompt = excluded.output_prompt,
                 folder_id = excluded.folder_id,
                 pod_id = excluded.pod_id,
+                reference_knowledge = excluded.reference_knowledge,
+                reference_pod_id = excluded.reference_pod_id,
                 updated_at = CURRENT_TIMESTAMP`,
-            [finalId, name, description || '', research_model || '', research_prompt || '', output_type || 'html', output_model || '', output_prompt || '', folder_id || '', pod_id || null],
+            [finalId, name, description || '', research_model || '', research_prompt || '', output_type || 'html', output_model || '', output_prompt || '', folder_id || '', pod_id || null, reference_knowledge ? 1 : 0, reference_pod_id || null],
             (err) => {
                 if (err) {
                     console.error("Save workflow error:", err);

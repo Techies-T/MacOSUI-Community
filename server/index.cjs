@@ -133,6 +133,8 @@ app.get('/api/config', async (req, res) => {
             mcpQuickPrompts = [];
         }
 
+        const defaultWorkflowId = await db.getSetting('DEFAULT_DEEP_RESEARCH_WORKFLOW_ID') || '';
+
         res.json({
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
@@ -154,7 +156,8 @@ app.get('/api/config', async (req, res) => {
             mcpClientId,
             isMcpSecretConfigured,
             rbacPolicies,
-            mcpQuickPrompts
+            mcpQuickPrompts,
+            defaultWorkflowId
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -162,9 +165,8 @@ app.get('/api/config', async (req, res) => {
     }
 });
 
-// Config: Save settings (Activation)
 app.post('/api/config', requireAuth, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -257,10 +259,15 @@ app.post('/api/config', requireAuth, async (req, res) => {
             await db.setSetting('GOOGLE_DRIVE_RAG_FOLDERS', JSON.stringify(googleDriveRagFolders));
         }
 
-        // Manage Roles fields
         if (req.body.rbacPolicies) {
             if (!hasRolesManage) return res.status(403).json({ error: 'Permission denied. Requires action:manage_roles' });
             await db.setSetting('RBAC_POLICIES', JSON.stringify(req.body.rbacPolicies));
+        }
+
+        // Manage Default Workflow
+        if (defaultWorkflowId !== undefined) {
+            if (!hasWorkflowEdit && !hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:edit_workflow_model or manage_system_settings' });
+            await db.setSetting('DEFAULT_DEEP_RESEARCH_WORKFLOW_ID', defaultWorkflowId);
         }
 
         // 成功を監査ログに記録
@@ -2374,7 +2381,12 @@ app.get('/api/rag/check-sync-needed', requireAuth, async (req, res) => {
 app.post('/api/drive/upload', requireAuth, requireWidgetAccess('app:finder'), async (req, res) => {
     try {
         const { name, content, mimeType, folderId, fileId, isDoc } = req.body;
-        console.log('Upload Request Body:', JSON.stringify({ name, mimeType, folderId, fileId, isDoc }, null, 2));
+        console.log('Upload Request Body Summary:', JSON.stringify({ name, mimeType, folderId, fileId, isDoc }, null, 2));
+        console.log('Upload Request Content Type & Length:', {
+            type: typeof content,
+            length: typeof content === 'string' ? content.length : (Buffer.isBuffer(content) ? content.length : 'unknown'),
+            byteLength: typeof content === 'string' ? Buffer.byteLength(content, 'utf-8') : 'unknown'
+        });
 
         if (!content) return res.status(400).json({ error: 'Content is required' });
 
@@ -2399,10 +2411,12 @@ app.post('/api/drive/upload', requireAuth, requireWidgetAccess('app:finder'), as
             if (mimeType && mimeType.startsWith('image/') && typeof content === 'string' && !content.startsWith('http')) {
                 // Remove the data:image/png;base64, prefix if present
                 const base64Data = content.replace(/^data:image\/\w+;base64,/, '');
-                const buffer = Buffer.from(base64Data, 'base64');
-                bodyStream = Readable.from(buffer);
+                bodyStream = Readable.from(Buffer.from(base64Data, 'base64'));
+            } else if (typeof content === 'string') {
+                // Pass Buffer inside a Readable stream to ensure correct Content-Length (bytes, not characters)
+                // and to avoid Transfer-Encoding: chunked issues or "pipe is not a function" errors.
+                bodyStream = Readable.from(Buffer.from(content, 'utf-8'));
             } else {
-                // Pass string directly to avoid chunked encoding issues with Google Drive API
                 bodyStream = content;
             }
 
@@ -2512,14 +2526,20 @@ app.post('/api/drive/upload', requireAuth, requireWidgetAccess('app:finder'), as
         res.json(response.data);
 
     } catch (error) {
+        const util = require('util');
         console.error("Drive Upload Error:", error.message);
+        console.error("Error Stack:", error.stack);
         if (error.response) {
-            console.error("Error Response Data:", error.response.data);
+            console.error("Error Response Data Dump:", util.inspect(error.response.data, { depth: null }));
+            console.log("Error Response Status:", error.response.status);
+            console.log("Error Response Headers:", util.inspect(error.response.headers, { depth: null }));
         }
         if (error.errors) {
-            console.error("Error Details:", error.errors);
+            console.error("Error Details Array Dump:", util.inspect(error.errors, { depth: null }));
         }
-        console.error("Full Error:", JSON.stringify(error, null, 2));
+        if (error.config) {
+            console.log("Request Config Dump:", util.inspect(error.config, { depth: 3 }));
+        }
         res.status(500).json({
             error: 'Failed to upload file',
             details: error.message,

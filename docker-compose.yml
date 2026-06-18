@@ -21,6 +21,8 @@ services:
   nginx:
     image: nginx:alpine
     container_name: macosui-nginx
+    extra_hosts:
+      - "agile-agent-staging:host-gateway"
     ports:
       - "80:80"
       - "443:443"

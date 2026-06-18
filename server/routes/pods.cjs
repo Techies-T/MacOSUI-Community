@@ -22,8 +22,21 @@ async function getUserAndPolicy(req) {
         if (!user) return null;
         
         const rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
-        const userRole = user.role || 'user';
-        const rolePolicy = rbacPolicies[userRole] || {};
+        const roles = (user.role || 'user').split(',').map(r => r.trim());
+        
+        let allowed_pods = [];
+        if (roles.includes('admin')) {
+            allowed_pods = ['*'];
+        } else {
+            roles.forEach(r => {
+                const policy = rbacPolicies[r] || {};
+                (policy.allowed_pods || []).forEach(p => {
+                    if (!allowed_pods.includes(p)) allowed_pods.push(p);
+                });
+            });
+        }
+        
+        const rolePolicy = { allowed_pods };
         
         return { user, rolePolicy };
     } catch (e) {

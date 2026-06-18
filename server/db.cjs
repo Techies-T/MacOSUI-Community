@@ -230,6 +230,13 @@ function initDb() {
         // Ignore error if column exists
     });
 
+    db.run("ALTER TABLE deep_research_workflow_definitions ADD COLUMN reference_knowledge INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_workflow_definitions ADD COLUMN reference_pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+
     db.run("ALTER TABLE deep_research_workflows ADD COLUMN selected_article_ids TEXT", (err) => {
         // Ignore error if column exists
     });
