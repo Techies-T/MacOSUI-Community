@@ -2947,6 +2947,210 @@ app.post('/api/calendar/events', requireAuth, requireWidgetAccess('app:calendar'
     }
 });
 
+// Helper: 本日の双方の共通空きスロット（30分以上）を計算
+async function getCommonFreeSlots(req, res, targetEmail) {
+    const calendarSelf = await getCalendarClient(req, res, null); // ログインユーザー
+    const calendarTarget = await getCalendarClient(req, res, targetEmail); // 相手
+
+    if (!calendarSelf || !calendarTarget) {
+        throw new Error("Could not initialize calendar clients");
+    }
+
+    const today = new Date();
+    const timeMin = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0).toISOString();
+    const timeMax = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
+
+    // 双方のカレンダーからイベント取得
+    const [resSelf, resTarget] = await Promise.all([
+        calendarSelf.events.list({ calendarId: 'primary', timeMin, timeMax, singleEvents: true }),
+        calendarTarget.events.list({ calendarId: 'primary', timeMin, timeMax, singleEvents: true })
+    ]);
+
+    const eventsSelf = resSelf.data.items || [];
+    const eventsTarget = resTarget.data.items || [];
+
+    // イベントフィルタリング (defaultのみ)
+    const filterDefault = (events) => events.filter(e => !e.eventType || e.eventType === 'default');
+    const filteredSelf = filterDefault(eventsSelf);
+    const filteredTarget = filterDefault(eventsTarget);
+
+    // 除外時間枠（予定が入っている時間枠）の配列を作成
+    const busySlots = [];
+    
+    [...filteredSelf, ...filteredTarget].forEach(event => {
+        const start = new Date(event.start.dateTime || event.start.date);
+        const end = new Date(event.end.dateTime || event.end.date);
+        busySlots.push({ start, end });
+    });
+
+    // 時間順にソート
+    busySlots.sort((a, b) => a.start - b.start);
+
+    // 重なる予定枠を結合する
+    const mergedBusy = [];
+    if (busySlots.length > 0) {
+        let current = busySlots[0];
+        for (let i = 1; i < busySlots.length; i++) {
+            const next = busySlots[i];
+            if (next.start <= current.end) {
+                // 重なっているので結合
+                current.end = new Date(Math.max(current.end, next.end));
+            } else {
+                mergedBusy.push(current);
+                current = next;
+            }
+        }
+        mergedBusy.push(current);
+    }
+
+    // 探索する時間帯の定義
+    // 開始は「現在時刻」と「本日の 9:00」のいずれか遅い方（ただし現在時刻がすでに遅ければ現在時刻）
+    const now = new Date();
+    const workStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 0, 0);
+    const startSearch = now > workStart ? now : workStart;
+    
+    // 終了は「本日の 19:00」
+    const endSearch = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 19, 0, 0);
+
+    if (startSearch >= endSearch) {
+        return []; // 本日の探索時間外
+    }
+
+    const freeSlots = [];
+    let currentPointer = startSearch;
+
+    // 30分のミリ秒数
+    const minDuration = 30 * 60 * 1000;
+
+    for (const busy of mergedBusy) {
+        // 現在のポインタより前の予定は無視
+        if (busy.end <= currentPointer) continue;
+        
+        // 予定の開始時刻が探索終了時刻を過ぎていたら探索終了
+        if (busy.start >= endSearch) break;
+
+        // 空き時間の計算
+        const duration = busy.start - currentPointer;
+        if (duration >= minDuration) {
+            freeSlots.push({ start: new Date(currentPointer), end: new Date(busy.start) });
+        }
+        currentPointer = new Date(Math.max(currentPointer, busy.end));
+    }
+
+    // 最後の空きスロットの計算
+    if (endSearch - currentPointer >= minDuration) {
+        freeSlots.push({ start: new Date(currentPointer), end: new Date(endSearch) });
+    }
+
+    return freeSlots;
+}
+
+// DM API Endpoints
+app.get('/api/dm/messages', requireAuth, (req, res) => {
+    const loginUserId = req.user.id;
+    const targetUserId = parseInt(req.query.targetUserId);
+
+    if (!targetUserId) {
+        return res.status(400).json({ error: 'targetUserId is required' });
+    }
+
+    const sql = `
+        SELECT * FROM dm_messages 
+        WHERE (sender_id = ? AND receiver_id = ?) 
+           OR (sender_id = ? AND receiver_id = ?)
+        ORDER BY created_at ASC
+    `;
+    db.all(sql, [loginUserId, targetUserId, targetUserId, loginUserId], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: 'Failed to fetch DM messages' });
+        }
+        res.json({ messages: rows });
+    });
+});
+
+app.post('/api/dm/messages', requireAuth, async (req, res) => {
+    const loginUserId = req.user.id;
+    const { receiverId, text } = req.body;
+
+    if (!receiverId || !text) {
+        return res.status(400).json({ error: 'receiverId and text are required' });
+    }
+
+    db.run(
+        "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text) VALUES (?, ?, 'user', ?)",
+        [loginUserId, receiverId, text],
+        async function(err) {
+            if (err) {
+                return res.status(500).json({ error: 'Failed to send message' });
+            }
+
+            const insertedId = this.lastID;
+
+            db.get("SELECT * FROM users WHERE id = ?", [receiverId], async (err, targetUser) => {
+                if (err || !targetUser) {
+                    return res.json({ status: 'ok', messageId: insertedId });
+                }
+
+                let replyText = '';
+                let isAssistant = false;
+                const userText = text;
+
+                const isMeetingRequest = userText.includes('打ち合わせ') || 
+                                         userText.includes('会議') || 
+                                         userText.includes('ミーティング') || 
+                                         userText.includes('話');
+
+                if (targetUser.current_room === 'focus-zone') {
+                    replyText = `すみません、現在 ${targetUser.name} は「集中ゾーン」で別作業に没頭しているため、応答できません。代わりにアシスタントの私が後ほど伝言を伝えておきますね！🙇‍♂️`;
+                    isAssistant = true;
+                } else if (targetUser.current_room === 'remote') {
+                    if (isMeetingRequest) {
+                        isAssistant = true;
+                        try {
+                            const freeSlots = await getCommonFreeSlots(req, res, targetUser.email);
+                            
+                            if (freeSlots.length > 0) {
+                                let slotsText = freeSlots.slice(0, 3).map(slot => {
+                                    const startStr = slot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    const endStr = slot.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    return `・ ${startStr} 〜 ${endStr}`;
+                                }).join('\n');
+
+                                replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}\n➔ [💻 ミーティングを仮調整する]`;
+                            } else {
+                                replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。本日中はお互いのカレンダーに共通して空いている時間帯（30分以上）が見当たりませんでした。個別調整が必要ですので、後ほど伝えておきます！`;
+                            }
+                        } catch (err) {
+                            console.error("Failed to calculate free slots:", err);
+                            replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が返答します。お二人のカレンダーの取得に失敗しましたが、チャットでのご相談であればいつでも大丈夫です！`;
+                        }
+                    } else {
+                        replyText = `${targetUser.name} は現在リモート勤務中ですが、アシスタントの私から本人にチャットが届いている旨をプッシュ通知で伝えておきますね！ご用件をこのままお書きください。`;
+                        isAssistant = true;
+                    }
+                } else if (targetUser.current_room.startsWith('meeting-room')) {
+                    replyText = `現在 ${targetUser.name} は「会議室」で打ち合わせ中のため、代理でアシスタントが受け付けております。会議が終わり次第、本人が対応いたします。`;
+                    isAssistant = true;
+                }
+
+                if (replyText) {
+                    setTimeout(() => {
+                        db.run(
+                            "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text) VALUES (?, ?, ?, ?)",
+                            [receiverId, loginUserId, isAssistant ? 'assistant' : 'user', replyText],
+                            (err) => {
+                                if (err) console.error("Failed to insert auto reply:", err);
+                            }
+                        );
+                    }, 1000);
+                }
+
+                res.json({ status: 'ok', messageId: insertedId });
+            });
+        }
+    );
+});
+
 // ==========================================
 // USER PREFERENCES API
 // ==========================================

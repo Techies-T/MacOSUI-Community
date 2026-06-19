@@ -216,6 +216,15 @@ function initDb() {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS dm_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id INTEGER NOT NULL,
+        receiver_id INTEGER NOT NULL,
+        sender_type TEXT DEFAULT 'user',
+        text TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     // Add pod_id column to existing tables for logical separation
     db.run("ALTER TABLE knowledge_articles ADD COLUMN pod_id TEXT", (err) => {
         // Ignore error if column exists

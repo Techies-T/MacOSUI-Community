@@ -4,32 +4,52 @@ const DmChat = ({ targetUser, urgent }) => {
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState('');
     const [isTyping, setIsTyping] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null);
     const messagesEndRef = useRef(null);
 
-    // デフォルトのターゲットユーザー（プロップがない場合のフォールバック）
+    // デフォルトのターゲットユーザー（フォールバック）
     const user = targetUser || {
         id: 1,
         name: '戌亥稔',
         avatar_url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Inui',
         current_room: 'open-space',
         status_text: 'Active',
-        is_remote: false
+        is_remote: false,
+        email: 'minoru.inui@techiespod.jp'
+    };
+
+    // 自分のログイン情報を取得
+    useEffect(() => {
+        fetch('/api/auth/me')
+            .then(res => res.json())
+            .then(data => {
+                if (data.user) {
+                    setCurrentUser(data.user);
+                }
+            })
+            .catch(err => console.error("Failed to fetch auth info:", err));
+    }, []);
+
+    // メッセージ履歴の取得処理
+    const fetchMessages = () => {
+        if (!user.id) return;
+        fetch(`/api/dm/messages?targetUserId=${user.id}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.messages) {
+                    setMessages(data.messages);
+                }
+            })
+            .catch(err => console.error("Failed to fetch DM messages:", err));
     };
 
     useEffect(() => {
-        // 初期の歓迎メッセージ
-        const welcomeMsgs = [
-            {
-                id: 1,
-                sender: 'them',
-                text: urgent 
-                    ? `⚠️ [緊急通知を受信しました] どうされましたか？集中スペースにいますが、何かお急ぎでしょうか？`
-                    : `こんにちは！何かご用件ですか？（ステータス: ${user.status_text || 'Active'} / ${user.is_remote ? '🏡 自宅勤務中' : '🏢 オフィス勤務中'}）`,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }
-        ];
-        setMessages(welcomeMsgs);
-    }, [user.id, urgent]);
+        fetchMessages();
+
+        // 3秒間隔でポーリングして双方向同期
+        const timer = setInterval(fetchMessages, 3000);
+        return () => clearInterval(timer);
+    }, [user.id]);
 
     useEffect(() => {
         // 自動スクロール
@@ -40,105 +60,67 @@ const DmChat = ({ targetUser, urgent }) => {
         e.preventDefault();
         if (!inputValue.trim()) return;
 
-        const newUserMessage = {
-            id: Date.now(),
-            sender: 'me',
-            text: inputValue,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-
-        setMessages(prev => [...prev, newUserMessage]);
-        const userText = inputValue;
+        const textToSend = inputValue;
         setInputValue('');
 
-        // 相手からの自動返信シミュレーション（AIエージェントの模擬）
         setIsTyping(true);
 
-        const startTime = Date.now();
-        let calendarResult = { status: 'unknown', currentEvent: null };
+        try {
+            const res = await fetch('/api/dm/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    receiverId: user.id,
+                    text: textToSend
+                })
+            });
 
-        // リモートワーク中で、打ち合わせなどのキーワードが含まれる場合にカレンダーをチェック
-        const needsCalendarCheck = user.current_room === 'remote' && 
-            (userText.includes('打ち合わせ') || userText.includes('会議') || userText.includes('ミーティング') || userText.includes('話'));
-        if (needsCalendarCheck) {
-            try {
-                const res = await fetch(`/api/calendar/events?email=${encodeURIComponent(user.email || '')}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    const events = data.events || [];
-                    const now = new Date();
-                    
-                    // 現在進行中のイベントを検索
-                    const currentEvent = events.find(event => {
-                        const start = new Date(event.start.dateTime || event.start.date);
-                        const end = new Date(event.end.dateTime || event.end.date);
-                        return now >= start && now < end;
-                    });
-
-                    if (currentEvent) {
-                        calendarResult = { status: 'busy', currentEvent };
-                    } else {
-                        calendarResult = { status: 'free', currentEvent: null };
-                    }
-                } else {
-                    calendarResult = { status: 'error' };
-                }
-            } catch (err) {
-                console.error("Failed to fetch calendar events:", err);
-                calendarResult = { status: 'error' };
+            if (res.ok) {
+                // 送信完了したら即時ロード
+                fetchMessages();
             }
+        } catch (err) {
+            console.error("Failed to send DM message:", err);
+        } finally {
+            // タイピングインジケータを1秒後に非表示
+            setTimeout(() => {
+                setIsTyping(false);
+            }, 1000);
+        }
+    };
+
+    // 仮想的ウェルカムメッセージを含む、表示用メッセージデータの整形
+    const getDisplayMessages = () => {
+        if (!currentUser) return [];
+
+        const formatted = messages.map(msg => {
+            const isMe = msg.sender_id === currentUser.id;
+            return {
+                id: msg.id,
+                sender: isMe ? 'me' : (msg.sender_type === 'assistant' ? 'assistant' : 'them'),
+                text: msg.text,
+                time: new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            };
+        });
+
+        // 履歴が空の場合のみ、アシスタントのウェルカムメッセージを表示
+        if (formatted.length === 0) {
+            const roomName = 
+                user.current_room === 'focus-zone' ? '集中ゾーン' :
+                user.current_room === 'remote' ? 'リモートワーク中' : '会議室';
+            
+            return [{
+                id: 'welcome',
+                sender: 'assistant',
+                text: `こんにちは！${user.name}は現在「${roomName}」のため応答できません。用件がありましたら、代わりにアシスタントの私が伝言を承ります。お互いのカレンダーから「空き時間（30分）」の仮調整も可能です。`,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }];
         }
 
-        // 最低1.5秒のタイピングインジケータ表示時間を確保する
-        const elapsed = Date.now() - startTime;
-        const delay = Math.max(0, 1500 - elapsed);
-
-        setTimeout(() => {
-            setIsTyping(false);
-            
-            let replyText = '了解しました！';
-            
-            // 相手のステータスに応じた賢い自動返信
-            if (user.current_room === 'focus-zone') {
-                replyText = `すみません、今「集中ゾーン」で別のドキュメント作成作業に没頭しているので、確認次第またすぐチャットでご連絡しますね！🙇‍♂️`;
-            } else if (user.current_room === 'remote') {
-                if (userText.includes('打ち合わせ') || userText.includes('会議') || userText.includes('ミーティング') || userText.includes('話')) {
-                    if (calendarResult.status === 'busy') {
-                        const event = calendarResult.currentEvent;
-                        const endStr = event.end.dateTime 
-                            ? new Date(event.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                            : '終日';
-                        replyText = `自宅からログインしています！カレンダーを確認したところ、現在「${event.summary}」の予定が入っております（${endStr}まで）。終わり次第、こちらのビデオ会議用URLでお待ちしております ➔ [💻 ビデオ会議室へ入る]`;
-                    } else if (calendarResult.status === 'free') {
-                        replyText = `自宅からログインしています！打ち合わせですね、OKです。今カレンダーを確認したところ本当に空いていますので、こちらのビデオ会議用URLから入っていただけますか？ ➔ [💻 ビデオ会議室へ入る]`;
-                    } else if (calendarResult.status === 'error') {
-                        replyText = `自宅からログインしています！カレンダーの取得に失敗しましたが、予定は空いているはずです。こちらのビデオ会議用URLから入っていただけますか？ ➔ [💻 ビデオ会議室へ入る]`;
-                    } else {
-                        replyText = `自宅からログインしています！打ち合わせですね、OKです。今カレンダー空いているので、こちらのビデオ会議用URLから入っていただけますか？ ➔ [💻 ビデオ会議室へ入る]`;
-                    }
-                } else {
-                    replyText = `自宅でリモートワーク中ですが、チャットでの相談ならいつでも大丈夫ですよ！何かお困りのことがあれば何でも聞いてください。`;
-                }
-            } else if (user.current_room.startsWith('meeting-room')) {
-                replyText = `現在「会議室」に入って打ち合わせ中のため、少し反応が遅れるかもしれません！終わり次第オフィスに戻ります。`;
-            } else {
-                // オープンスペース等
-                if (userText.includes('打ち合わせ') || userText.includes('会議') || userText.includes('話')) {
-                    replyText = `今オープンスペースにいますので、少時間（10分程度）の立ち話打ち合わせ、今すぐ大丈夫ですよ！そちらの席まで伺いましょうか？`;
-                } else {
-                    replyText = `了解しました！ありがとうございます。今オフィスフロアにいるので、直接そちらに向かうこともできますよ。`;
-                }
-            }
-
-            const newReply = {
-                id: Date.now() + 1,
-                sender: 'them',
-                text: replyText,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            };
-            setMessages(prev => [...prev, newReply]);
-        }, delay);
+        return formatted;
     };
+
+    const displayMessages = getDisplayMessages();
 
     return (
         <div className="h-full flex flex-col bg-[#0b0f19] text-[#e2e8f0] overflow-hidden font-sans">
@@ -165,7 +147,7 @@ const DmChat = ({ targetUser, urgent }) => {
 
             {/* Message History */}
             <div className="flex-1 p-5 overflow-y-auto space-y-4 bg-[#0b0f19]/30">
-                {messages.map(msg => (
+                {displayMessages.map(msg => (
                     <div 
                         key={msg.id}
                         className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}
@@ -174,21 +156,87 @@ const DmChat = ({ targetUser, urgent }) => {
                             {msg.sender === 'them' && (
                                 <img src={user.avatar_url} alt={user.name} className="w-6 h-6 rounded-md bg-gray-800" />
                             )}
+                            {msg.sender === 'assistant' && (
+                                <div className="w-6 h-6 rounded-md bg-indigo-950/80 border border-indigo-500/30 flex items-center justify-center text-xs shadow-sm select-none">
+                                    🤖
+                                </div>
+                            )}
                             <div className="flex flex-col">
+                                {msg.sender === 'assistant' && (
+                                    <span className="text-[8px] text-indigo-400 font-bold mb-0.5 ml-1 select-none">
+                                        {user.name}のアシスタント
+                                    </span>
+                                )}
                                 <div className={`px-4 py-2.5 rounded-2xl text-xs leading-relaxed shadow-sm break-all ${
                                     msg.sender === 'me' 
                                         ? 'bg-indigo-600 text-white rounded-br-none' 
-                                        : 'bg-gray-900 text-gray-200 border border-gray-800 rounded-bl-none'
+                                        : msg.sender === 'assistant'
+                                            ? 'bg-[#151124]/90 text-indigo-100 border border-indigo-500/30 rounded-bl-none relative pr-4'
+                                            : 'bg-gray-900 text-gray-200 border border-gray-800 rounded-bl-none'
                                 }`}>
-                                    {msg.text.includes('💻 ビデオ会議室へ入る') ? (
+                                    {msg.text.includes('➔') ? (
                                         <>
                                             {msg.text.split('➔')[0]} ➔ 
-                                            <button 
-                                                onClick={() => alert('ビデオチャットルームを起動します（モック）')}
-                                                className="ml-1 text-cyan-400 font-bold hover:underline"
-                                            >
-                                                💻 ビデオ会議室へ入る
-                                            </button>
+                                            {msg.text.includes('💻 ミーティングを仮調整する') ? (
+                                                <button 
+                                                    onClick={() => {
+                                                        const lines = msg.text.split('\n');
+                                                        let targetSlot = '';
+                                                        for (const line of lines) {
+                                                            if (line.trim().startsWith('・')) {
+                                                                targetSlot = line.replace('・', '').trim();
+                                                                break;
+                                                            }
+                                                        }
+                                                        
+                                                        let startIso = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+                                                        let endIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+                                                        
+                                                        if (targetSlot) {
+                                                            const parts = targetSlot.split('〜').map(p => p.trim());
+                                                            const today = new Date();
+                                                            if (parts[0]) {
+                                                                const [h, m] = parts[0].split(':').map(Number);
+                                                                const startD = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m);
+                                                                startIso = startD.toISOString();
+                                                            }
+                                                            if (parts[1]) {
+                                                                const [h, m] = parts[1].split(':').map(Number);
+                                                                const endD = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m);
+                                                                endIso = endD.toISOString();
+                                                            }
+                                                        }
+
+                                                        fetch('/api/calendar/events', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({
+                                                                summary: `ミーティング: ${currentUser?.name || ''} & ${user.name}`,
+                                                                description: 'AIアシスタントによる自動仮調整予定',
+                                                                start: startIso,
+                                                                end: endIso
+                                                            })
+                                                        }).then(res => {
+                                                            if (res.ok) {
+                                                                alert(`双方のカレンダーに「${targetSlot || '空き時間'}」で予定を仮登録しました！`);
+                                                            } else {
+                                                                alert('予定の登録に失敗しました。');
+                                                            }
+                                                            fetchMessages();
+                                                        });
+                                                    }}
+                                                    className="ml-1 text-cyan-400 font-bold hover:underline"
+                                                >
+                                                    💻 ミーティングを仮調整する
+                                                </button>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => alert('ビデオチャットルームを起動します（モック）')}
+                                                    className="ml-1 text-cyan-400 font-bold hover:underline"
+                                                >
+                                                    💻 ビデオ会議室へ入る
+                                                </button>
+                                            )}
                                         </>
                                     ) : msg.text}
                                 </div>
