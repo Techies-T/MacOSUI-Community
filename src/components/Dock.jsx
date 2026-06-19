@@ -119,6 +119,22 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
                 </svg>
             )
         },
+        {
+            id: 'virtual-office', name: 'Virtual Office', icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#06b6d4' }}>
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+                    <line x1="9" y1="22" x2="9" y2="16" />
+                    <line x1="15" y1="22" x2="15" y2="16" />
+                    <line x1="9" y1="16" x2="15" y2="16" />
+                    <path d="M8 6h.01" />
+                    <path d="M16 6h.01" />
+                    <path d="M8 10h.01" />
+                    <path d="M16 10h.01" />
+                    <path d="M12 6h.01" />
+                    <path d="M12 10h.01" />
+                </svg>
+            )
+        },
     ];
 
     const handleAppClick = (appId) => {

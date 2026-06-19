@@ -14,6 +14,9 @@ import AppRunnerDashboard from '../apps/AppRunnerDashboard';
 import KnowledgeBase from '../apps/KnowledgeBase';
 import ExternalWidget from '../apps/ExternalWidget';
 import McpChat from '../apps/McpChat';
+import VirtualOffice from '../apps/VirtualOffice';
+import DmChat from '../apps/DmChat';
+
 
 const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate, user }) => {
     const renderApp = (win) => {
@@ -32,6 +35,8 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'knowledge-base': return <KnowledgeBase />;
             case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
             case 'mcp-chat': return <McpChat />;
+            case 'virtual-office': return <VirtualOffice onOpen={onOpen} user={user} />;
+            case 'dm-chat': return <DmChat {...win.props} />;
             case 'external-skill': return <ExternalWidget url={win.props.url} title={win.title} widgetId={win.id || 'external-skill'} />;
             default: return null;
         }

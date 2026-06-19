@@ -1079,6 +1079,46 @@ app.put('/api/users/me/avatar', requireAuth, (req, res) => {
     });
 });
 
+app.get('/api/virtual-office/users', requireAuth, (req, res) => {
+    db.all("SELECT id, email, name, avatar_url, role FROM users", (err, rows) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        
+        const enriched = rows.map(user => {
+            const isRemote = user.id === 24 || user.id % 2 === 0;
+            return {
+                ...user,
+                is_remote: isRemote,
+                current_room: isRemote ? 'remote' : (user.id === 1 ? 'meeting-room-a' : 'open-space'),
+                status_text: isRemote ? 'Home Office' : (user.id === 1 ? 'In a Meeting' : 'Active')
+            };
+        });
+        res.json(enriched);
+    });
+});
+
+app.post('/api/virtual-office/generate-avatar', requireAuth, (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    
+    const avatarSeeds = [
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=John',
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=Jane',
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=Minoru',
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=Inui',
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=AI',
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=Nico',
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=Leo',
+        'https://api.dicebear.com/7.x/pixel-art/svg?seed=Mimi'
+    ];
+    
+    const randomAvatar = avatarSeeds[Math.floor(Math.random() * avatarSeeds.length)];
+    
+    db.run("UPDATE users SET avatar_url = ? WHERE id = ?", [randomAvatar, userId], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json({ success: true, avatar_url: randomAvatar });
+    });
+});
+
 app.get('/api/invitations', requireAuth, (req, res) => {
     const allowed = req.user.allowed_actions || [];
     if (!allowed.includes('*') && !allowed.includes('action:manage_users') && !allowed.includes('action:invite_users')) {
@@ -2790,7 +2830,7 @@ app.get('/api/drive/read', requireAuth, requireWidgetAccess('app:finder'), async
 });
 
 // Calendar API endpoints
-async function getCalendarClient(req, res) {
+async function getCalendarClient(req, res, targetEmail = null) {
     const token = req.cookies.token;
     if (!token) {
         res.status(401).json({ error: 'Not authenticated' });
@@ -2805,7 +2845,12 @@ async function getCalendarClient(req, res) {
                 return;
             }
 
-            db.get("SELECT access_token, refresh_token FROM users WHERE google_id = ?", [decoded.googleId], async (err, row) => {
+            const query = targetEmail 
+                ? "SELECT access_token, refresh_token, google_id FROM users WHERE email = ?" 
+                : "SELECT access_token, refresh_token, google_id FROM users WHERE google_id = ?";
+            const param = targetEmail ? targetEmail : decoded.googleId;
+
+            db.get(query, [param], async (err, row) => {
                 if (err || !row || !row.access_token) {
                     res.status(401).json({ error: 'No access token found' });
                     resolve(null);
@@ -2823,7 +2868,7 @@ async function getCalendarClient(req, res) {
                         const updateSql = `UPDATE users SET access_token = ?` + (tokens.refresh_token ? `, refresh_token = ?` : ``) + ` WHERE google_id = ?`;
                         const params = [encrypt(tokens.access_token)];
                         if (tokens.refresh_token) params.push(encrypt(tokens.refresh_token));
-                        params.push(decoded.googleId);
+                        params.push(row.google_id);
                         db.run(updateSql, params, (err) => {
                             if (err) console.error("Failed to update tokens during API call:", err);
                         });
@@ -2838,47 +2883,26 @@ async function getCalendarClient(req, res) {
 
 app.get('/api/calendar/events', requireAuth, requireWidgetAccess('app:calendar'), async (req, res) => {
     try {
-        const calendar = await getCalendarClient(req, res);
+        const { timeMin, timeMax, email } = req.query;
+        const calendar = await getCalendarClient(req, res, email);
         if (!calendar) return;
 
-        const { timeMin, timeMax } = req.query;
-
-        // 1. Get List of all calendars
-        const calendarList = await calendar.calendarList.list({
-            minAccessRole: 'reader'
+        // 1. Fetch events from primary calendar only
+        const response = await calendar.events.list({
+            calendarId: 'primary',
+            timeMin: timeMin || (new Date(new Date().getFullYear(), new Date().getMonth(), 1)).toISOString(),
+            timeMax: timeMax,
+            singleEvents: true,
+            orderBy: 'startTime',
         });
 
-        const allCalendars = calendarList.data.items || [];
-        console.log(`Found ${allCalendars.length} calendars for user.`);
+        let allEvents = (response.data.items || []).map(item => ({
+            ...item,
+            calendarId: 'primary',
+            calendarSummary: 'Primary'
+        }));
 
-        // 2. Fetch events from all calendars concurrently
-        const eventPromises = allCalendars.map(async (cal) => {
-            try {
-                const response = await calendar.events.list({
-                    calendarId: cal.id,
-                    timeMin: timeMin || (new Date(new Date().getFullYear(), new Date().getMonth(), 1)).toISOString(),
-                    timeMax: timeMax,
-                    singleEvents: true,
-                    orderBy: 'startTime',
-                });
-                // Tag events with calendar color or id if needed
-                return (response.data.items || []).map(item => ({
-                    ...item,
-                    calendarId: cal.id,
-                    calendarSummary: cal.summary,
-                    backgroundColor: cal.backgroundColor,
-                    foregroundColor: cal.foregroundColor
-                }));
-            } catch (err) {
-                console.error(`Failed to fetch events for calendar ${cal.id}:`, err.message);
-                return [];
-            }
-        });
-
-        const eventsArrays = await Promise.all(eventPromises);
-        let allEvents = eventsArrays.flat();
-
-        // 3. Filter out non-default events (workingLocation, outOfOffice, etc.)
+        // 2. Filter out non-default events (workingLocation, outOfOffice, etc.)
         allEvents = allEvents.filter(event => {
             // eventType is 'default' for regular meetings. 
             // 'workingLocation' is used for things like "自宅".

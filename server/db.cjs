@@ -306,18 +306,44 @@ async function autoActivate() {
                 },
                 "researcher": {
                     "name": "Researcher",
-                    "allowed_widgets": ["app:deep-research", "app:knowledge-base", "app:gemini", "app:browser", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor"],
+                    "allowed_widgets": ["app:deep-research", "app:knowledge-base", "app:gemini", "app:browser", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["*"],
                     "allowed_actions": ["action:generate_infographic", "action:use_mcp_tools"]
                 },
                 "user": {
                     "name": "General User",
-                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser"],
+                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["model:gemini-flash"],
                     "allowed_actions": []
                 }
             });
             await db.setSetting('RBAC_POLICIES', defaultPolicies);
+        } else {
+            try {
+                const policies = JSON.parse(existingPolicies);
+                let updated = false;
+                
+                ['researcher', 'user'].forEach(roleKey => {
+                    if (policies[roleKey] && policies[roleKey].allowed_widgets) {
+                        const widgets = policies[roleKey].allowed_widgets;
+                        if (!widgets.includes('app:virtual-office')) {
+                            widgets.push('app:virtual-office');
+                            updated = true;
+                        }
+                        if (!widgets.includes('app:dm-chat')) {
+                            widgets.push('app:dm-chat');
+                            updated = true;
+                        }
+                    }
+                });
+                
+                if (updated) {
+                    console.log('DEBUG: Updating existing RBAC policies with virtual-office and dm-chat widgets...');
+                    await db.setSetting('RBAC_POLICIES', JSON.stringify(policies));
+                }
+            } catch (err) {
+                console.error("Failed to migrate RBAC policies:", err);
+            }
         }
 
         console.log("DEBUG: Fetching GOOGLE_CLIENT_ID...");

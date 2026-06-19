@@ -118,6 +118,12 @@ const Desktop = ({ user, onLogout, config }) => {
       } else if (type === 'knowledge-base') {
         width = 900;
         height = 650;
+      } else if (type === 'virtual-office') {
+        width = 750;
+        height = 550;
+      } else if (type === 'dm-chat') {
+        width = 380;
+        height = 500;
       }
 
       return [...prev, {
@@ -230,6 +236,7 @@ const Desktop = ({ user, onLogout, config }) => {
             'knowledge-base': 'Knowledge Base',
             'deep-research': 'Deep Research',
             'mcp-chat': 'MCP Chat Client',
+            'virtual-office': 'Virtual Office',
             settings: 'System Settings',
             browser: 'Safari',
             'html-editor': 'HTML Editor'
