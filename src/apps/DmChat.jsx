@@ -272,15 +272,11 @@ const DmChat = ({ targetUser, urgent }) => {
                     >
                         <div className={`flex items-end space-x-2 max-w-[75%] ${msg.sender === 'me' ? 'flex-row-reverse space-x-reverse' : 'flex-row'}`}>
                             {msg.sender === 'them' && (
-                                <img src={user.avatar_url} alt={user.name} className="w-6 h-6 rounded-md bg-gray-800 object-cover" />
+                                <img src={user.avatar_url} alt={user.name} className="w-6 h-6 rounded-md bg-gray-800 object-cover flex-shrink-0" />
                             )}
                             {msg.sender === 'assistant' && (
-                                <div className="w-6 h-6 rounded-md overflow-hidden bg-indigo-950/80 border border-indigo-500/30 flex items-center justify-center shadow-sm select-none">
-                                    <img 
-                                        src={`https://api.dicebear.com/7.x/bottts-neutral/svg?seed=Assistant-${encodeURIComponent(user.name)}`} 
-                                        alt="AI Assistant" 
-                                        className="w-full h-full object-cover" 
-                                    />
+                                <div className="w-6 h-6 rounded-md flex-shrink-0 bg-indigo-950/80 border border-indigo-500/30 flex items-center justify-center text-xs shadow-sm select-none">
+                                    🤖
                                 </div>
                             )}
                             <div className="flex flex-col">
