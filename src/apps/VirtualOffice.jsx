@@ -311,7 +311,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                                     <div className="w-24 h-24 rounded-2xl overflow-hidden bg-gray-900 border-2 border-gray-800 shadow-xl">
                                         <img src={selectedUser.avatar_url} alt={selectedUser.name} className="w-full h-full object-cover" />
                                     </div>
-                                    {selectedUser.is_remote && (
+                                    {!!selectedUser.is_remote && (
                                         <div className="absolute -top-1 -right-1 bg-cyan-500 border-2 border-[#111827] rounded-full p-1 text-xs" title="Remote Active">
                                             🏡
                                         </div>
@@ -362,7 +362,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                             </div>
 
                             {/* AI Avatar Creator Section */}
-                            {(selectedUser.is_photo_avatar || selectedUser.is_placeholder_avatar) && (
+                            {(!!selectedUser.is_photo_avatar || !!selectedUser.is_placeholder_avatar) && (
                                 <div className="bg-indigo-950/20 border border-indigo-500/20 p-4 rounded-xl space-y-3">
                                     <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
                                         <span>🤖</span> AI Avatar Creator
