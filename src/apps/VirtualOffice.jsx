@@ -258,7 +258,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                         </div>
 
                                                         {/* Status indicators */}
-                                                        {u.is_remote && (
+                                                        {!!u.is_remote && (
                                                             <div className="absolute -top-1 -right-1 bg-cyan-500 border border-[#0b0f19] rounded-full p-0.5 text-[8px]" title="Remote Login">
                                                                 🏡
                                                             </div>
