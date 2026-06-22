@@ -12,42 +12,61 @@ const VirtualOffice = ({ onOpen, user }) => {
     const [error, setError] = useState('');
 
     useEffect(() => {
-        loadUsers();
-    }, []);
+        loadUsers(true);
 
-    const loadUsers = async () => {
+        const timer = setInterval(() => {
+            loadUsers(false);
+        }, 3000);
+
+        return () => clearInterval(timer);
+    }, [user?.id]);
+
+    const loadUsers = async (isFirst = false) => {
         try {
-            setLoading(true);
+            if (isFirst) setLoading(true);
             const res = await fetch('/api/virtual-office/users');
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to load users');
             
             // アバター未設定ユーザーに対するランダムアバターの割り当て
-            const processedUsers = data.map((user, idx) => {
-                if (!user.avatar_url) {
+            const processedUsers = data.map((u, idx) => {
+                let avatarUrl = u.avatar_url;
+                let isPlaceholder = false;
+                if (!avatarUrl) {
                     const seed = DEFAULT_AVATAR_SEEDS[idx % DEFAULT_AVATAR_SEEDS.length];
-                    return {
-                        ...user,
-                        avatar_url: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${seed}`,
-                        is_placeholder_avatar: true
-                    };
+                    avatarUrl = `https://api.dicebear.com/7.x/pixel-art/svg?seed=${seed}`;
+                    isPlaceholder = true;
                 }
-                // 実写写真かどうかの判定 (GoogleフォトのURLなど、特定のドメイン等を含む場合を判定)
-                const isPhoto = user.avatar_url.includes('googleusercontent.com') || 
-                                user.avatar_url.includes('lh3.google') ||
-                                user.avatar_url.startsWith('http') && !user.avatar_url.includes('dicebear.com');
+                
+                // 実写写真かどうかの判定 (GoogleフォトのURLなど)
+                const isPhoto = avatarUrl.includes('googleusercontent.com') || 
+                                avatarUrl.includes('lh3.google') ||
+                                (avatarUrl.startsWith('http') && !avatarUrl.includes('dicebear.com'));
                 return {
-                    ...user,
+                    ...u,
+                    avatar_url: avatarUrl,
+                    is_placeholder_avatar: isPlaceholder,
                     is_photo_avatar: isPhoto
                 };
             });
 
             setUsers(processedUsers);
+
+            // 自分の最新ステータスを myStatus に同期
+            if (user) {
+                const meInDb = processedUsers.find(u => u.id === user.id);
+                if (meInDb) {
+                    setMyStatus({
+                        room: meInDb.current_room || 'open-space',
+                        text: meInDb.status_text || 'Active'
+                    });
+                }
+            }
         } catch (err) {
             console.error(err);
             setError(err.message);
         } finally {
-            setLoading(false);
+            if (isFirst) setLoading(false);
         }
     };
 
@@ -94,9 +113,9 @@ const VirtualOffice = ({ onOpen, user }) => {
     };
 
     // 自分のステータス（位置・状態テキスト）の更新
-    const handleUpdateMyStatus = (room, text) => {
+    const handleUpdateMyStatus = async (room, text) => {
+        // 即座にUIに反映（楽観的更新）
         setMyStatus({ room, text });
-        // ローカルでの自分アバター表示を更新 (ID 24 または 戌亥稔 ID 1 とする)
         setUsers(prev => prev.map(u => {
             const isMe = u.id === user?.id;
             if (isMe) {
@@ -104,11 +123,30 @@ const VirtualOffice = ({ onOpen, user }) => {
                     ...u,
                     current_room: room,
                     status_text: text,
-                    is_remote: room === 'remote'
+                    is_remote: room === 'remote' ? 1 : 0
                 };
             }
             return u;
         }));
+
+        try {
+            const res = await fetch('/api/virtual-office/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    current_room: room,
+                    status_text: text,
+                    is_remote: room === 'remote' ? 1 : 0
+                })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to update status');
+            }
+        } catch (err) {
+            console.error('Status update failed:', err);
+            setError(err.message);
+        }
     };
 
     // 部屋（エリア）の定義
@@ -176,7 +214,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                             return (
                                 <div 
                                     key={roomId}
-                                    className={`p-5 rounded-2xl border ${roomInfo.color} transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/5 relative overflow-hidden`}
+                                    onClick={() => handleUpdateMyStatus(roomId, roomId === 'focus-zone' ? 'Busy' : (roomId === 'remote' ? 'Home Office' : 'Active'))}
+                                    className={`p-5 rounded-2xl border ${roomInfo.color} cursor-pointer hover:border-indigo-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/5 relative overflow-hidden`}
                                 >
                                     <div className="flex justify-between items-start mb-4">
                                         <div>
@@ -196,7 +235,10 @@ const VirtualOffice = ({ onOpen, user }) => {
                                             roomUsers.map(u => (
                                                 <div 
                                                     key={u.id}
-                                                    onClick={() => setSelectedUser(u)}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedUser(u);
+                                                    }}
                                                     className="group flex flex-col items-center space-y-1.5 cursor-pointer relative"
                                                 >
                                                     {/* Avatar Wrap */}

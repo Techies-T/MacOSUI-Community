@@ -1080,19 +1080,53 @@ app.put('/api/users/me/avatar', requireAuth, (req, res) => {
 });
 
 app.get('/api/virtual-office/users', requireAuth, (req, res) => {
-    db.all("SELECT id, email, name, avatar_url, role FROM users", (err, rows) => {
+    db.all("SELECT id, email, name, avatar_url, role, current_room, status_text, is_remote FROM users", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         
         const enriched = rows.map(user => {
-            const isRemote = user.id === 24 || user.id % 2 === 0;
             return {
                 ...user,
-                is_remote: isRemote,
-                current_room: isRemote ? 'remote' : (user.id === 1 ? 'meeting-room-a' : 'open-space'),
-                status_text: isRemote ? 'Home Office' : (user.id === 1 ? 'In a Meeting' : 'Active')
+                is_remote: user.is_remote ?? 0,
+                current_room: user.current_room || 'open-space',
+                status_text: user.status_text || 'Active'
             };
         });
         res.json(enriched);
+    });
+});
+
+app.post('/api/virtual-office/status', requireAuth, (req, res) => {
+    const { current_room, status_text, is_remote } = req.body;
+    
+    db.get("SELECT current_room, status_text, is_remote FROM users WHERE id = ?", [req.user.id], (err, user) => {
+        if (err) {
+            console.error('Error fetching user status:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        
+        const nextRoom = current_room !== undefined ? current_room : (user.current_room || 'open-space');
+        const nextStatus = status_text !== undefined ? status_text : (user.status_text || 'Active');
+        const nextRemote = is_remote !== undefined ? is_remote : (user.is_remote ?? 0);
+        
+        db.run(
+            "UPDATE users SET current_room = ?, status_text = ?, is_remote = ? WHERE id = ?",
+            [nextRoom, nextStatus, nextRemote, req.user.id],
+            function(updateErr) {
+                if (updateErr) {
+                    console.error('Error updating user status:', updateErr);
+                    return res.status(500).json({ error: 'Database error' });
+                }
+                res.json({
+                    success: true,
+                    status: {
+                        current_room: nextRoom,
+                        status_text: nextStatus,
+                        is_remote: nextRemote
+                    }
+                });
+            }
+        );
     });
 });
 

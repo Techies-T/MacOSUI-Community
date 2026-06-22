@@ -5,7 +5,40 @@ const DmChat = ({ targetUser, urgent }) => {
     const [inputValue, setInputValue] = useState('');
     const [isTyping, setIsTyping] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
+    const [inMeeting, setInMeeting] = useState(false);
     const messagesEndRef = useRef(null);
+
+    const handleJoinMeeting = async () => {
+        setInMeeting(true);
+        try {
+            await fetch('/api/virtual-office/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    current_room: 'meeting-room-a',
+                    status_text: 'In a Meeting'
+                })
+            });
+        } catch (err) {
+            console.error('Failed to update status to meeting:', err);
+        }
+    };
+
+    const handleLeaveMeeting = async () => {
+        setInMeeting(false);
+        try {
+            await fetch('/api/virtual-office/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    current_room: 'open-space',
+                    status_text: 'Active'
+                })
+            });
+        } catch (err) {
+            console.error('Failed to update status to open-space:', err);
+        }
+    };
 
     // デフォルトのターゲットユーザー（フォールバック）
     const user = targetUser || {
@@ -122,6 +155,62 @@ const DmChat = ({ targetUser, urgent }) => {
 
     const displayMessages = getDisplayMessages();
 
+    if (inMeeting) {
+        return (
+            <div className="h-full flex flex-col bg-[#0b0f19] text-[#e2e8f0] font-sans justify-between items-center p-6 relative">
+                {/* 会議ヘッダー */}
+                <div className="w-full flex justify-between items-center px-4 py-2 bg-gray-900/60 border border-gray-800 rounded-xl backdrop-blur-md">
+                    <div className="flex items-center space-x-2">
+                        <span className="animate-pulse w-2 h-2 bg-red-500 rounded-full"></span>
+                        <span className="text-xs font-bold text-gray-300">Meeting Room A (Live)</span>
+                    </div>
+                    <span className="text-[10px] text-gray-500">経過時間: 00:45</span>
+                </div>
+
+                {/* ビデオストリームグリッド */}
+                <div className="flex-1 w-full grid grid-cols-2 gap-4 my-6 items-center">
+                    {/* 自分 */}
+                    <div className="relative aspect-video bg-gray-950 rounded-2xl border border-indigo-500/20 overflow-hidden flex flex-col justify-center items-center group hover:border-indigo-500/40 transition-all">
+                        <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-900 border-2 border-indigo-500 shadow-lg mb-2">
+                            <img src={currentUser?.avatar_url || 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Me'} alt="Me" className="w-full h-full object-cover" />
+                        </div>
+                        <span className="text-xs font-semibold text-gray-300">{currentUser?.name || 'あなた'} (自分)</span>
+                        <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/60 text-[9px] text-gray-400">マイクオン</span>
+                    </div>
+
+                    {/* 相手 */}
+                    <div className="relative aspect-video bg-gray-950 rounded-2xl border border-gray-800 overflow-hidden flex flex-col justify-center items-center group hover:border-gray-700 transition-all">
+                        <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-900 border-2 border-gray-800 shadow-lg mb-2">
+                            <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                        </div>
+                        <span className="text-xs font-semibold text-gray-300">{user.name}</span>
+                        <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/60 text-[9px] text-gray-400">音声のみ接続</span>
+                    </div>
+                </div>
+
+                {/* 会議コントロールバー */}
+                <div className="w-full flex justify-center items-center space-x-6 py-4 border-t border-gray-900">
+                    <button type="button" className="w-10 h-10 rounded-full bg-gray-800 hover:bg-gray-700 text-sm flex items-center justify-center transition" title="Mute Mic">
+                        🎤
+                    </button>
+                    <button type="button" className="w-10 h-10 rounded-full bg-gray-800 hover:bg-gray-700 text-sm flex items-center justify-center transition" title="Camera Off">
+                        📹
+                    </button>
+                    <button type="button" className="w-10 h-10 rounded-full bg-gray-800 hover:bg-gray-700 text-sm flex items-center justify-center transition" title="Share Screen">
+                        🖥️
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={handleLeaveMeeting}
+                        className="px-6 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-xl text-xs font-bold transition shadow-md shadow-red-900/20"
+                    >
+                        📞 会議から退出する
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-full flex flex-col bg-[#0b0f19] text-[#e2e8f0] overflow-hidden font-sans">
             {/* Header */}
@@ -231,7 +320,7 @@ const DmChat = ({ targetUser, urgent }) => {
                                                 </button>
                                             ) : (
                                                 <button 
-                                                    onClick={() => alert('ビデオチャットルームを起動します（モック）')}
+                                                    onClick={handleJoinMeeting}
                                                     className="ml-1 text-cyan-400 font-bold hover:underline"
                                                 >
                                                     💻 ビデオ会議室へ入る

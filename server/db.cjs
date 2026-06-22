@@ -22,6 +22,9 @@ function initDb() {
     access_token TEXT,
     refresh_token TEXT,
     last_deep_research_at DATETIME,
+    current_room TEXT DEFAULT 'open-space',
+    status_text TEXT DEFAULT 'Active',
+    is_remote INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -48,6 +51,15 @@ function initDb() {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE users ADD COLUMN token_expiry INTEGER", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN current_room TEXT DEFAULT 'open-space'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN status_text TEXT DEFAULT 'Active'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN is_remote INTEGER DEFAULT 0", (err) => {
         // Ignore error if column exists
     });
 
