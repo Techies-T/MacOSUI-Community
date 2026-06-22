@@ -303,7 +303,7 @@ const DmChat = ({ targetUser, urgent }) => {
                                     {msg.text.includes('➔') ? (
                                         <>
                                             {msg.text.split('➔')[0]} ➔ 
-                                            {msg.text.includes('💻 ミーティングを仮調整する') ? (
+                                            {(msg.text.includes('💻 ミーティングを仮調整する') || msg.text.includes('💻 時間外でBOSSに確認する')) ? (
                                                 <button 
                                                     onClick={() => {
                                                         const lines = msg.text.split('\n');
@@ -337,14 +337,22 @@ const DmChat = ({ targetUser, urgent }) => {
                                                             method: 'POST',
                                                             headers: { 'Content-Type': 'application/json' },
                                                             body: JSON.stringify({
-                                                                summary: `ミーティング: ${currentUser?.name || ''} & ${user.name}`,
-                                                                description: 'AIアシスタントによる自動仮調整予定',
+                                                                summary: msg.text.includes('💻 時間外でBOSSに確認する') 
+                                                                    ? `【時間外】ミーティング: ${currentUser?.name || ''} & ${user.name}`
+                                                                    : `ミーティング: ${currentUser?.name || ''} & ${user.name}`,
+                                                                description: msg.text.includes('💻 時間外でBOSSに確認する') 
+                                                                    ? 'AIアシスタントによる時間外（BOSS確認中）の自動仮調整予定'
+                                                                    : 'AIアシスタントによる自動仮調整予定',
                                                                 start: startIso,
                                                                 end: endIso
                                                             })
                                                         }).then(res => {
                                                             if (res.ok) {
-                                                                alert(`双方のカレンダーに「${targetSlot || '空き時間'}」で予定を仮登録しました！`);
+                                                                if (msg.text.includes('💻 時間外でBOSSに確認する')) {
+                                                                    alert(`時間外のため、カレンダーに仮登録した上で、${user.name}(BOSS)へ確認要求を送信しました！`);
+                                                                } else {
+                                                                    alert(`双方のカレンダーに「${targetSlot || '空き時間'}」で予定を仮登録しました！`);
+                                                                }
                                                             } else {
                                                                 alert('予定の登録に失敗しました。');
                                                             }
@@ -353,7 +361,7 @@ const DmChat = ({ targetUser, urgent }) => {
                                                     }}
                                                     className="ml-1 text-cyan-400 font-bold hover:underline"
                                                 >
-                                                    💻 ミーティングを仮調整する
+                                                    {msg.text.includes('💻 時間外でBOSSに確認する') ? '💻 時間外でBOSSに確認する' : '💻 ミーティングを仮調整する'}
                                                 </button>
                                             ) : (
                                                 <button 

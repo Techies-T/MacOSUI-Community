@@ -1083,6 +1083,7 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
     const loginUserId = req.user.id;
     const sql = `
         SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote,
+               u.assistant_work_start, u.assistant_work_end, u.assistant_meeting_buffer,
                (SELECT COUNT(*) FROM dm_messages m WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0) as unread_count
         FROM users u
     `;
@@ -1095,11 +1096,35 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
                 is_remote: user.is_remote ?? 0,
                 current_room: user.current_room || 'open-space',
                 status_text: user.status_text || 'Active',
-                unread_count: user.unread_count || 0
+                unread_count: user.unread_count || 0,
+                assistant_work_start: user.assistant_work_start || '09:00',
+                assistant_work_end: user.assistant_work_end || '17:30',
+                assistant_meeting_buffer: user.assistant_meeting_buffer !== undefined ? user.assistant_meeting_buffer : 30
             };
         });
         res.json(enriched);
     });
+});
+
+app.post('/api/virtual-office/settings', requireAuth, (req, res) => {
+    const { assistant_work_start, assistant_work_end, assistant_meeting_buffer } = req.body;
+    const userId = req.user.id;
+
+    db.run(
+        `UPDATE users SET 
+            assistant_work_start = COALESCE(?, assistant_work_start), 
+            assistant_work_end = COALESCE(?, assistant_work_end), 
+            assistant_meeting_buffer = COALESCE(?, assistant_meeting_buffer) 
+         WHERE id = ?`,
+        [assistant_work_start, assistant_work_end, assistant_meeting_buffer, userId],
+        (err) => {
+            if (err) {
+                console.error("Failed to update assistant settings:", err);
+                return res.status(500).json({ error: 'Failed to update assistant settings' });
+            }
+            res.json({ status: 'ok' });
+        }
+    );
 });
 
 app.post('/api/virtual-office/status', requireAuth, (req, res) => {
@@ -2990,7 +3015,7 @@ app.post('/api/calendar/events', requireAuth, requireWidgetAccess('app:calendar'
 });
 
 // Helper: 本日の双方の共通空きスロット（30分以上）を計算
-async function getCommonFreeSlots(req, res, targetEmail) {
+async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
     const calendarSelf = await getCalendarClient(req, res, null); // ログインユーザー
     const calendarTarget = await getCalendarClient(req, res, targetEmail); // 相手
 
@@ -3057,45 +3082,66 @@ async function getCommonFreeSlots(req, res, targetEmail) {
         mergedBusy.push(current);
     }
 
+    // ユーザー個人のアシスタント調整ルール設定 (デフォルトあり)
+    const assistantWorkStart = settings.workStart || '09:00';
+    const assistantWorkEnd = settings.workEnd || '17:30';
+    const assistantMeetingBuffer = settings.meetingBuffer !== undefined ? settings.meetingBuffer : 30; // 分単位
+
     // 探索する時間帯の定義
-    // 開始は「現在時刻」と「本日の JST 9:00」のいずれか遅い方（ただし現在時刻がすでに遅ければ現在時刻）
-    const workStart = new Date(`${y}-${m}-${d}T09:00:00+09:00`);
+    // 開始は、「現在時刻の30分後」と「本日の JST assistantWorkStart」のいずれか遅い方 (急すぎる日程調整を防ぐため)
+    const startBufferMs = 30 * 60 * 1000;
+    const workStart = new Date(`${y}-${m}-${d}T${assistantWorkStart}:00+09:00`);
+    const startSearch = now.getTime() + startBufferMs > workStart.getTime()
+        ? new Date(now.getTime() + startBufferMs)
+        : workStart;
+
+    // 就業時間の終点
+    const workEnd = new Date(`${y}-${m}-${d}T${assistantWorkEnd}:00+09:00`);
     
-    // 終了は「本日の JST 19:00」
-    const endSearch = new Date(`${y}-${m}-${d}T19:00:00+09:00`);
-    const startSearch = now > workStart ? now : workStart;
+    // 通常の探索終了時刻（終業時間の meetingBuffer 分前。会議中に終業時間を超えないようにするため）
+    const endSearch = new Date(workEnd.getTime() - assistantMeetingBuffer * 60 * 1000);
 
-    if (startSearch >= endSearch) {
-        return []; // 本日の探索時間外
-    }
+    // 時間外の探索終了時刻（終業時間の1時間後。ただしその終了時刻の30分前を開始不可ラインとする）
+    const extendedEndSearch = new Date(workEnd.getTime() + 60 * 60 * 1000 - 30 * 60 * 1000);
 
-    const freeSlots = [];
-    let currentPointer = startSearch;
+    const calculateSlotsForRange = (rangeStart, rangeEnd) => {
+        if (rangeStart >= rangeEnd) return [];
+        const slots = [];
+        let currentPointer = rangeStart;
+        const minDuration = 30 * 60 * 1000;
 
-    // 30分のミリ秒数
-    const minDuration = 30 * 60 * 1000;
-
-    for (const busy of mergedBusy) {
-        // 現在のポインタより前の予定は無視
-        if (busy.end <= currentPointer) continue;
-        
-        // 予定の開始時刻が探索終了時刻を過ぎていたら探索終了
-        if (busy.start >= endSearch) break;
-
-        // 空き時間の計算
-        const duration = busy.start - currentPointer;
-        if (duration >= minDuration) {
-            freeSlots.push({ start: new Date(currentPointer), end: new Date(busy.start) });
+        for (const busy of mergedBusy) {
+            if (busy.end <= currentPointer) continue;
+            if (busy.start >= rangeEnd) break;
+            const duration = busy.start - currentPointer;
+            if (duration >= minDuration) {
+                slots.push({ start: new Date(currentPointer), end: new Date(busy.start) });
+            }
+            currentPointer = new Date(Math.max(currentPointer, busy.end));
         }
-        currentPointer = new Date(Math.max(currentPointer, busy.end));
+
+        if (rangeEnd - currentPointer >= minDuration) {
+            slots.push({ start: new Date(currentPointer), end: new Date(rangeEnd) });
+        }
+        return slots;
+    };
+
+    // 1. まずは通常の就業時間内（最終受付デッドラインまで）で探索
+    const inWorkSlots = calculateSlotsForRange(startSearch, endSearch);
+    if (inWorkSlots.length > 0) {
+        return { slots: inWorkSlots, isOvertime: false };
     }
 
-    // 最後の空きスロットの計算
-    if (endSearch - currentPointer >= minDuration) {
-        freeSlots.push({ start: new Date(currentPointer), end: new Date(endSearch) });
+    // 2. 就業時間内に空きスロットがない場合、時間外（終業後1時間まで）で再探索
+    if (startSearch < extendedEndSearch) {
+        const overtimeStart = startSearch > endSearch ? startSearch : endSearch;
+        const overtimeSlots = calculateSlotsForRange(overtimeStart, extendedEndSearch);
+        if (overtimeSlots.length > 0) {
+            return { slots: overtimeSlots, isOvertime: true };
+        }
     }
 
-    return freeSlots;
+    return { slots: [], isOvertime: false };
 }
 
 // DM API Endpoints
@@ -3234,7 +3280,14 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                         if (isMeetingRequest) {
                             isAssistant = true;
                             try {
-                                const freeSlots = await getCommonFreeSlots(req, res, targetUser.email);
+                                const settings = {
+                                    workStart: targetUser.assistant_work_start,
+                                    workEnd: targetUser.assistant_work_end,
+                                    meetingBuffer: targetUser.assistant_meeting_buffer
+                                };
+                                const result = await getCommonFreeSlots(req, res, targetUser.email, settings);
+                                const freeSlots = result.slots;
+                                const isOvertime = result.isOvertime;
                                 
                                 if (freeSlots.length > 0) {
                                     let slotsText = freeSlots.slice(0, 3).map(slot => {
@@ -3244,7 +3297,14 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                                         return `・ ${startStr} 〜 ${endStr}`;
                                     }).join('\n');
 
-                                    replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}\n➔ [💻 ミーティングを仮調整する]`;
+                                    if (isOvertime) {
+                                        const workStartFormatted = targetUser.assistant_work_start || '09:00';
+                                        const workEndFormatted = targetUser.assistant_work_end || '17:30';
+                                        const bufferMin = targetUser.assistant_meeting_buffer !== undefined ? targetUser.assistant_meeting_buffer : 30;
+                                        replyText = `${targetUser.name} の就業時間は ${workStartFormatted}〜${workEndFormatted} まで（最終受付は終了 ${bufferMin}分前）となっておりますが、本日就業時間内に共通の空き時間がございません。もしお急ぎでしたら時間外になりますが以下の時間帯で調整可能か、本人（BOSS）に確認いたしますがいかがでしょうか？\n${slotsText}\n➔ [💻 時間外でBOSSに確認する]`;
+                                    } else {
+                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}\n➔ [💻 ミーティングを仮調整する]`;
+                                    }
                                 } else {
                                     replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。本日中はお互いのカレンダーに共通して空いている時間帯（30分以上）が見当たりませんでした。個別調整が必要ですので、後ほど伝えておきます！`;
                                 }

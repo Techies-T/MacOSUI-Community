@@ -149,6 +149,48 @@ const VirtualOffice = ({ onOpen, user }) => {
         }
     };
 
+    const handleUpdateSettings = async (workStart, workEnd, meetingBuffer) => {
+        setUsers(users.map(u => {
+            if (u.id === user?.id) {
+                return {
+                    ...u,
+                    assistant_work_start: workStart,
+                    assistant_work_end: workEnd,
+                    assistant_meeting_buffer: meetingBuffer
+                };
+            }
+            return u;
+        }));
+
+        if (selectedUser && selectedUser.id === user?.id) {
+            setSelectedUser(prev => ({
+                ...prev,
+                assistant_work_start: workStart,
+                assistant_work_end: workEnd,
+                assistant_meeting_buffer: meetingBuffer
+            }));
+        }
+
+        try {
+            const res = await fetch('/api/virtual-office/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    assistant_work_start: workStart,
+                    assistant_work_end: workEnd,
+                    assistant_meeting_buffer: meetingBuffer
+                })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Failed to update assistant settings');
+            }
+        } catch (err) {
+            console.error('Settings update failed:', err);
+            setError(err.message);
+        }
+    };
+
     // 部屋（エリア）の定義
     const ROOMS = {
         'open-space': { name: '🌳 Open Space', desc: '会話自由・カジュアルな相談向け', color: 'border-emerald-500/30 bg-emerald-500/5' },
@@ -360,6 +402,61 @@ const VirtualOffice = ({ onOpen, user }) => {
                                     </span>
                                 </div>
                             </div>
+
+                            {/* Assistant Rules Panel (Only for Me / Boss settings) */}
+                            {selectedUser.id === user?.id && (
+                                <div className="bg-indigo-950/20 border border-indigo-500/20 p-4 rounded-xl space-y-3">
+                                    <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                                         <span>🤖</span> アシスタント調整ルール
+                                    </h4>
+                                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                                        BOSS（あなた）の予定をアシスタントが代理調整する際の就業ルールを決めます。
+                                    </p>
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-semibold text-gray-400">就業開始時間</span>
+                                            <select
+                                                value={selectedUser.assistant_work_start || '09:00'}
+                                                onChange={(e) => handleUpdateSettings(e.target.value, selectedUser.assistant_work_end, selectedUser.assistant_meeting_buffer)}
+                                                className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                            >
+                                                <option value="08:00">08:00</option>
+                                                <option value="08:30">08:30</option>
+                                                <option value="09:00">09:00</option>
+                                                <option value="09:30">09:30</option>
+                                                <option value="10:00">10:00</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-semibold text-gray-400">就業終了時間</span>
+                                            <select
+                                                value={selectedUser.assistant_work_end || '17:30'}
+                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, e.target.value, selectedUser.assistant_meeting_buffer)}
+                                                className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                            >
+                                                <option value="17:00">17:00</option>
+                                                <option value="17:30">17:30</option>
+                                                <option value="18:00">18:00</option>
+                                                <option value="18:30">18:30</option>
+                                                <option value="19:00">19:00</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-semibold text-gray-400">終了前バッファ</span>
+                                            <select
+                                                value={selectedUser.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30}
+                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, parseInt(e.target.value))}
+                                                className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                            >
+                                                <option value="15">15分前まで</option>
+                                                <option value="30">30分前まで</option>
+                                                <option value="45">45分前まで</option>
+                                                <option value="60">60分前まで</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* AI Avatar Creator Section */}
                             {(!!selectedUser.is_photo_avatar || !!selectedUser.is_placeholder_avatar) && (
