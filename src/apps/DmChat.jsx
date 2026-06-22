@@ -76,6 +76,18 @@ const DmChat = ({ targetUser, urgent }) => {
             .catch(err => console.error("Failed to fetch DM messages:", err));
     };
 
+    // inMeeting の最新状態を ref で保持（クリーンアップ用）
+    const inMeetingRef = useRef(inMeeting);
+    useEffect(() => {
+        inMeetingRef.current = inMeeting;
+    }, [inMeeting]);
+
+    // 別のユーザーを選択し直した（user.id が変わった）場合は、チャット入力欄と会議ステートをリセット
+    useEffect(() => {
+        setInMeeting(false);
+        setInputValue('');
+    }, [user.id]);
+
     useEffect(() => {
         fetchMessages();
 
@@ -83,6 +95,23 @@ const DmChat = ({ targetUser, urgent }) => {
         const timer = setInterval(fetchMessages, 3000);
         return () => clearInterval(timer);
     }, [user.id]);
+
+    // ウィンドウが閉じられた（コンポーネントがアンマウントされた）ときのクリーンアップ
+    useEffect(() => {
+        return () => {
+            // ビデオ会議中にウィンドウが閉じられた場合、自動でオープンスペースに戻す
+            if (inMeetingRef.current) {
+                fetch('/api/virtual-office/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        current_room: 'open-space',
+                        status_text: 'Active'
+                    })
+                }).catch(err => console.error("Cleanup meeting status failed:", err));
+            }
+        };
+    }, []);
 
     useEffect(() => {
         // 自動スクロール
