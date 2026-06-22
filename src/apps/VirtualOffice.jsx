@@ -405,6 +405,55 @@ const VirtualOffice = ({ onOpen, user }) => {
                                     </button>
                                 )}
                             </div>
+
+                            {/* Debug Controls (Test other users' positions) */}
+                            {selectedUser.id !== user?.id && (
+                                <div className="bg-indigo-950/20 border border-dashed border-indigo-500/30 p-4 rounded-xl space-y-2 mt-4">
+                                    <span className="text-[9px] font-bold text-indigo-400 block uppercase">⚙️ テスト用デバッグツール</span>
+                                    <p className="text-[9px] text-gray-400 leading-relaxed font-normal">
+                                        このメンバーの配置を強制変更して、AIアシスタントの自動応答やボタンの出し分けをシミュレートできます。
+                                    </p>
+                                    <select
+                                        value={selectedUser.current_room || 'open-space'}
+                                        onChange={async (e) => {
+                                            const room = e.target.value;
+                                            const isRemote = room === 'remote' ? 1 : 0;
+                                            const status = room === 'focus-zone' ? 'Busy' : (room === 'remote' ? 'Home Office' : 'Active');
+                                            
+                                            try {
+                                                const res = await fetch('/api/virtual-office/status', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({
+                                                        targetUserId: selectedUser.id,
+                                                        current_room: room,
+                                                        status_text: status,
+                                                        is_remote: isRemote
+                                                    })
+                                                });
+                                                if (res.ok) {
+                                                    setSelectedUser(prev => ({
+                                                        ...prev,
+                                                        current_room: room,
+                                                        status_text: status,
+                                                        is_remote: isRemote
+                                                    }));
+                                                    loadUsers(false);
+                                                }
+                                            } catch (err) {
+                                                console.error(err);
+                                            }
+                                        }}
+                                        className="w-full bg-gray-900 border border-gray-700 text-[10px] rounded px-1.5 py-1 text-gray-300 focus:outline-none cursor-pointer"
+                                    >
+                                        <option value="open-space">🌳 オープンスペース (出社中)</option>
+                                        <option value="meeting-room-a">💬 会議室 A (ミーティング中)</option>
+                                        <option value="meeting-room-b">🎥 会議室 B (ミーティング中)</option>
+                                        <option value="focus-zone">🤫 集中ゾーン (話しかけ不可)</option>
+                                        <option value="remote">🏡 自宅 (リモートワーク中)</option>
+                                    </select>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="h-full flex flex-col justify-center items-center text-center space-y-3 text-gray-500">

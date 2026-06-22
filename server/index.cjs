@@ -1096,9 +1096,10 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
 });
 
 app.post('/api/virtual-office/status', requireAuth, (req, res) => {
-    const { current_room, status_text, is_remote } = req.body;
+    const { current_room, status_text, is_remote, targetUserId } = req.body;
+    const userId = targetUserId !== undefined ? targetUserId : req.user.id;
     
-    db.get("SELECT current_room, status_text, is_remote FROM users WHERE id = ?", [req.user.id], (err, user) => {
+    db.get("SELECT current_room, status_text, is_remote FROM users WHERE id = ?", [userId], (err, user) => {
         if (err) {
             console.error('Error fetching user status:', err);
             return res.status(500).json({ error: 'Database error' });
@@ -1111,7 +1112,7 @@ app.post('/api/virtual-office/status', requireAuth, (req, res) => {
         
         db.run(
             "UPDATE users SET current_room = ?, status_text = ?, is_remote = ? WHERE id = ?",
-            [nextRoom, nextStatus, nextRemote, req.user.id],
+            [nextRoom, nextStatus, nextRemote, userId],
             function(updateErr) {
                 if (updateErr) {
                     console.error('Error updating user status:', updateErr);
