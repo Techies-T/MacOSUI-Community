@@ -100,8 +100,23 @@ select:not(.appearance-none) {
   cursor: pointer;
 }
 
-/* Ensure options have clean styling as well */
 select:not(.appearance-none) option {
   background-color: #ffffff;
   color: #111827;
+}
+
+/* MacOS Toast Notification Animations */
+@keyframes slideIn {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

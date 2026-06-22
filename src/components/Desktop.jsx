@@ -11,6 +11,63 @@ const Desktop = ({ user, onLogout, config }) => {
   const isInitialMount = useRef(true);
   const stickiesRef = useRef(null);
 
+  const [notifications, setNotifications] = useState([]);
+  const notifiedIdsRef = useRef(new Set());
+
+  // 3秒ポーリングによる未読メッセージ監視
+  useEffect(() => {
+    let intervalId;
+
+    const checkUnread = async () => {
+      try {
+        const res = await fetch('/api/dm/unread');
+        if (res.ok) {
+          const data = await res.json();
+          const newUnreads = data.unread || [];
+
+          let addedAny = false;
+          const currentNewNotifications = [];
+
+          newUnreads.forEach(msg => {
+            if (!notifiedIdsRef.current.has(msg.id)) {
+              notifiedIdsRef.current.add(msg.id);
+              currentNewNotifications.push({
+                id: msg.id,
+                senderId: msg.sender_id,
+                senderName: msg.sender_name,
+                senderAvatar: msg.sender_avatar,
+                text: msg.text,
+                createdAt: msg.created_at
+              });
+              addedAny = true;
+            }
+          });
+
+          if (addedAny) {
+            setNotifications(prev => [...prev, ...currentNewNotifications]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch unread notifications:", err);
+      }
+    };
+
+    checkUnread();
+    intervalId = setInterval(checkUnread, 3000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // 5秒後の自動フェードアウト
+  useEffect(() => {
+    if (notifications.length > 0) {
+      const timer = setTimeout(() => {
+        setNotifications(prev => prev.slice(1));
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notifications]);
+
   // Load installed skills
   const fetchSkills = async () => {
     try {
@@ -141,6 +198,13 @@ const Desktop = ({ user, onLogout, config }) => {
     });
   }, []);
 
+  const handleNotificationClick = (senderId, senderName, senderAvatar) => {
+    openWindow(`dm-chat-${senderId}`, 'dm-chat', `Chat with ${senderName}`, {
+      targetUser: { id: senderId, name: senderName, avatar_url: senderAvatar }
+    });
+    setNotifications(prev => prev.filter(n => n.senderId !== senderId));
+  };
+
   const closeWindow = React.useCallback((id) => {
     console.log("Desktop: closeWindow", id);
     setWindows(prev => prev.filter(w => w.id !== id));
@@ -182,7 +246,68 @@ const Desktop = ({ user, onLogout, config }) => {
         justifyContent: 'space-between'
       }}
     >
-      <MenuBar onLogout={onLogout} />
+      <MenuBar 
+        onLogout={onLogout} 
+        notifications={notifications} 
+        onNotificationClick={handleNotificationClick} 
+      />
+
+      {/* MacOS-style Toast Notifications */}
+      <div 
+        style={{
+          position: 'absolute',
+          top: '45px',
+          right: '20px',
+          zIndex: 999999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          maxWidth: '320px',
+          width: '100%'
+        }}
+      >
+        {notifications.map(n => (
+          <div
+            key={n.id}
+            onClick={() => handleNotificationClick(n.senderId, n.senderName, n.senderAvatar)}
+            className="flex items-start p-3 bg-gray-900/85 text-white rounded-xl border border-gray-800/80 shadow-2xl cursor-pointer hover:bg-gray-800/90 transition duration-200 select-none animate-slide-in"
+            style={{
+              backdropFilter: 'blur(16px)',
+              boxShadow: '0 10px 30px -10px rgba(0, 0, 0, 0.5)',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <img 
+              src={n.senderAvatar} 
+              alt={n.senderName} 
+              className="w-10 h-10 rounded-lg object-cover mr-3 border border-gray-700/80"
+              onError={(e) => {
+                e.target.src = `https://api.dicebear.com/7.x/initials/svg?seed=${n.senderName}`;
+              }}
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-xs font-bold text-gray-100 truncate">{n.senderName}</span>
+                <span className="text-[9px] text-gray-400">現在</span>
+              </div>
+              <p className="text-[11px] text-gray-300 line-clamp-2 leading-relaxed">
+                {n.text}
+              </p>
+              <div className="flex justify-end mt-2">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNotificationClick(n.senderId, n.senderName, n.senderAvatar);
+                  }}
+                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[9px] font-semibold transition"
+                >
+                  返信する
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* Stickies Layer - Below windows but above background */}
       <StickiesLayer ref={stickiesRef} />

@@ -234,8 +234,14 @@ function initDb() {
         receiver_id INTEGER NOT NULL,
         sender_type TEXT DEFAULT 'user',
         text TEXT NOT NULL,
+        is_read INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    // Add is_read column to existing dm_messages for migration
+    db.run("ALTER TABLE dm_messages ADD COLUMN is_read INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
 
     // Add pod_id column to existing tables for logical separation
     db.run("ALTER TABLE knowledge_articles ADD COLUMN pod_id TEXT", (err) => {

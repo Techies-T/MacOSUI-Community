@@ -257,6 +257,13 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                             />
                                                         </div>
 
+                                                        {/* Unread count badge */}
+                                                        {u.unread_count > 0 && (
+                                                            <div className="absolute -top-1 -left-1 bg-red-600 border border-[#0b0f19] rounded-full px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm shadow-red-500/20 animate-pulse z-10">
+                                                                {u.unread_count}
+                                                            </div>
+                                                        )}
+
                                                         {/* Status indicators */}
                                                         {!!u.is_remote && (
                                                             <div className="absolute -top-1 -right-1 bg-cyan-500 border border-[#0b0f19] rounded-full p-0.5 text-[8px]" title="Remote Login">
@@ -316,6 +323,11 @@ const VirtualOffice = ({ onOpen, user }) => {
                                     <span className="px-2.5 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-[10px] text-gray-400 capitalize inline-block mt-1">
                                         {selectedUser.role || 'Member'}
                                     </span>
+                                    {selectedUser.unread_count > 0 && (
+                                         <span className="ml-1.5 px-2 py-0.5 rounded-full bg-red-600/20 border border-red-500/50 text-[10px] text-red-400 font-bold inline-block mt-1 animate-pulse">
+                                             🔴 {selectedUser.unread_count}件の未読
+                                         </span>
+                                     )}
                                 </div>
                             </div>
 
@@ -384,24 +396,24 @@ const VirtualOffice = ({ onOpen, user }) => {
                             <div className="space-y-2 pt-2 border-t border-gray-800">
                                 {selectedUser.is_remote ? (
                                     <button 
-                                        onClick={() => onOpen('dm-chat', 'dm-chat', `Chat with ${selectedUser.name}`, { targetUser: selectedUser })}
+                                        onClick={() => onOpen(`dm-chat-${selectedUser.id}`, 'dm-chat', `Chat with ${selectedUser.name}`, { targetUser: selectedUser })}
                                         className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-xs font-semibold transition shadow-sm"
                                     >
-                                        💬 チャットで会議を提案 (Remote推奨)
+                                        💬 チャットを開く (Remote推奨)
                                     </button>
                                 ) : selectedUser.current_room === 'focus-zone' ? (
                                     <button 
-                                        onClick={() => onOpen('dm-chat', 'dm-chat', `Chat with ${selectedUser.name}`, { targetUser: selectedUser, urgent: true })}
+                                        onClick={() => onOpen(`dm-chat-${selectedUser.id}`, 'dm-chat', `Chat with ${selectedUser.name}`, { targetUser: selectedUser, urgent: true })}
                                         className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition shadow-sm"
                                     >
-                                        ⚠️ 緊急メッセージを送る (Focus中)
+                                        ⚠️ 緊急チャットを送る (Focus中)
                                     </button>
                                 ) : (
                                     <button 
                                         onClick={() => onOpen('dm-chat', 'dm-chat', `Chat with ${selectedUser.name}`, { targetUser: selectedUser })}
                                         className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition shadow-sm"
                                     >
-                                        👋 立ち話（10分打ち合わせ）を申し込む
+                                        💬 チャットを開く (相談/立ち話)
                                     </button>
                                 )}
                             </div>

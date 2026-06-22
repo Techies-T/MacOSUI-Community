@@ -1080,7 +1080,13 @@ app.put('/api/users/me/avatar', requireAuth, (req, res) => {
 });
 
 app.get('/api/virtual-office/users', requireAuth, (req, res) => {
-    db.all("SELECT id, email, name, avatar_url, role, current_room, status_text, is_remote FROM users", (err, rows) => {
+    const loginUserId = req.user.id;
+    const sql = `
+        SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote,
+               (SELECT COUNT(*) FROM dm_messages m WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0) as unread_count
+        FROM users u
+    `;
+    db.all(sql, [loginUserId], (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         
         const enriched = rows.map(user => {
@@ -1088,7 +1094,8 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
                 ...user,
                 is_remote: user.is_remote ?? 0,
                 current_room: user.current_room || 'open-space',
-                status_text: user.status_text || 'Active'
+                status_text: user.status_text || 'Active',
+                unread_count: user.unread_count || 0
             };
         });
         res.json(enriched);
@@ -3099,7 +3106,34 @@ app.get('/api/dm/messages', requireAuth, (req, res) => {
         if (err) {
             return res.status(500).json({ error: 'Failed to fetch DM messages' });
         }
+        
+        // 相手から自分宛ての未読メッセージを既読にする
+        db.run(
+            "UPDATE dm_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0",
+            [targetUserId, loginUserId],
+            (updateErr) => {
+                if (updateErr) console.error("Failed to mark messages as read:", updateErr);
+            }
+        );
+
         res.json({ messages: rows });
+    });
+});
+
+app.get('/api/dm/unread', requireAuth, (req, res) => {
+    const loginUserId = req.user.id;
+    const sql = `
+        SELECT m.id, m.sender_id, m.text, m.created_at, u.name as sender_name, u.avatar_url as sender_avatar
+        FROM dm_messages m
+        JOIN users u ON m.sender_id = u.id
+        WHERE m.receiver_id = ? AND m.is_read = 0 AND m.sender_type = 'user'
+        ORDER BY m.created_at DESC
+    `;
+    db.all(sql, [loginUserId], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: 'Failed to fetch unread messages' });
+        }
+        res.json({ unread: rows });
     });
 });
 
@@ -3111,79 +3145,127 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'receiverId and text are required' });
     }
 
-    db.run(
-        "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text) VALUES (?, ?, 'user', ?)",
-        [loginUserId, receiverId, text],
-        async function(err) {
-            if (err) {
-                return res.status(500).json({ error: 'Failed to send message' });
-            }
+    const MAX_ACTIVE_SESSIONS = 2;
 
-            const insertedId = this.lastID;
+    // 受信者の直近10分間のアクティブセッション数（今回送信した loginUserId 以外のユニークな会話相手の数）をカウント
+    const sessionSql = `
+        SELECT COUNT(DISTINCT partner_id) as active_count FROM (
+            SELECT receiver_id as partner_id FROM dm_messages 
+            WHERE sender_id = ? AND created_at >= datetime('now', '-10 minutes') AND sender_type = 'user'
+            UNION
+            SELECT sender_id as partner_id FROM dm_messages 
+            WHERE receiver_id = ? AND created_at >= datetime('now', '-10 minutes') AND sender_type = 'user'
+        )
+        WHERE partner_id != ?
+    `;
 
-            db.get("SELECT * FROM users WHERE id = ?", [receiverId], async (err, targetUser) => {
-                if (err || !targetUser) {
+    db.get(sessionSql, [receiverId, receiverId, loginUserId], async (sessionErr, sessionRow) => {
+        if (sessionErr) {
+            console.error("Failed to check active sessions:", sessionErr);
+        }
+
+        const activeCount = sessionRow ? sessionRow.active_count : 0;
+        const isSessionLimitExceeded = activeCount >= MAX_ACTIVE_SESSIONS;
+
+        // セッション制限超過の場合は is_read=1 (既読) でメッセージを保存して、受信者側への通知を抑制する。
+        // 超過していない場合は is_read=0 (未読) で保存。
+        const initialIsRead = isSessionLimitExceeded ? 1 : 0;
+
+        db.run(
+            "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text, is_read) VALUES (?, ?, 'user', ?, ?)",
+            [loginUserId, receiverId, text, initialIsRead],
+            async function(err) {
+                if (err) {
+                    return res.status(500).json({ error: 'Failed to send message' });
+                }
+
+                const insertedId = this.lastID;
+
+                // セッション制限超過時の処理
+                if (isSessionLimitExceeded) {
+                    db.get("SELECT name FROM users WHERE id = ?", [receiverId], (err, targetUser) => {
+                        const targetName = targetUser ? targetUser.name : '相手';
+                        const replyText = `ただいま、${targetName} は複数のチャットが立ち上がっているため、対応できません。しばらく経ってから試してください。`;
+                        
+                        setTimeout(() => {
+                            db.run(
+                                "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text, is_read) VALUES (?, ?, 'assistant', ?, 1)",
+                                [receiverId, loginUserId, replyText],
+                                (replyErr) => {
+                                    if (replyErr) console.error("Failed to insert session limit decline reply:", replyErr);
+                                }
+                            );
+                        }, 1000);
+                    });
+
                     return res.json({ status: 'ok', messageId: insertedId });
                 }
 
-                let replyText = '';
-                let isAssistant = false;
-                const userText = text;
+                // セッション制限以下の場合は、通常のステータスに応じた自動返信処理
+                db.get("SELECT * FROM users WHERE id = ?", [receiverId], async (err, targetUser) => {
+                    if (err || !targetUser) {
+                        return res.json({ status: 'ok', messageId: insertedId });
+                    }
 
-                const isMeetingRequest = userText.includes('打ち合わせ') || 
-                                         userText.includes('会議') || 
-                                         userText.includes('ミーティング') || 
-                                         userText.includes('話');
+                    let replyText = '';
+                    let isAssistant = false;
+                    const userText = text;
 
-                if (targetUser.current_room === 'focus-zone') {
-                    replyText = `すみません、現在 ${targetUser.name} は「集中ゾーン」で別作業に没頭しているため、応答できません。代わりにアシスタントの私が後ほど伝言を伝えておきますね！🙇‍♂️`;
-                    isAssistant = true;
-                } else if (targetUser.current_room === 'remote') {
-                    if (isMeetingRequest) {
+                    const isMeetingRequest = userText.includes('打ち合わせ') || 
+                                             userText.includes('会議') || 
+                                             userText.includes('ミーティング') || 
+                                             userText.includes('話');
+
+                    if (targetUser.current_room === 'focus-zone') {
+                        replyText = `すみません、現在 ${targetUser.name} は「集中ゾーン」で別作業に没頭しているため、応答できません。代わりにアシスタントの私が後ほど伝言を伝えておきますね！🙇‍♂️`;
                         isAssistant = true;
-                        try {
-                            const freeSlots = await getCommonFreeSlots(req, res, targetUser.email);
-                            
-                            if (freeSlots.length > 0) {
-                                let slotsText = freeSlots.slice(0, 3).map(slot => {
-                                    const startStr = slot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                    const endStr = slot.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                    return `・ ${startStr} 〜 ${endStr}`;
-                                }).join('\n');
+                    } else if (targetUser.current_room === 'remote') {
+                        if (isMeetingRequest) {
+                            isAssistant = true;
+                            try {
+                                const freeSlots = await getCommonFreeSlots(req, res, targetUser.email);
+                                
+                                if (freeSlots.length > 0) {
+                                    let slotsText = freeSlots.slice(0, 3).map(slot => {
+                                        const startStr = slot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                        const endStr = slot.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                        return `・ ${startStr} 〜 ${endStr}`;
+                                    }).join('\n');
 
-                                replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}\n➔ [💻 ミーティングを仮調整する]`;
-                            } else {
-                                replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。本日中はお互いのカレンダーに共通して空いている時間帯（30分以上）が見当たりませんでした。個別調整が必要ですので、後ほど伝えておきます！`;
+                                    replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}\n➔ [💻 ミーティングを仮調整する]`;
+                                } else {
+                                    replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。本日中はお互いのカレンダーに共通して空いている時間帯（30分以上）が見当たりませんでした。個別調整が必要ですので、後ほど伝えておきます！`;
+                                }
+                            } catch (err) {
+                                console.error("Failed to calculate free slots:", err);
+                                replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が返答します。お二人のカレンダーの取得に失敗しましたが、チャットでのご相談であればいつでも大丈夫です！`;
                             }
-                        } catch (err) {
-                            console.error("Failed to calculate free slots:", err);
-                            replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が返答します。お二人のカレンダーの取得に失敗しましたが、チャットでのご相談であればいつでも大丈夫です！`;
+                        } else {
+                            replyText = `${targetUser.name} は現在リモート勤務中ですが、アシスタントの私から本人にチャットが届いている旨をプッシュ通知で伝えておきますね！ご用件をこのままお書きください。`;
+                            isAssistant = true;
                         }
-                    } else {
-                        replyText = `${targetUser.name} は現在リモート勤務中ですが、アシスタントの私から本人にチャットが届いている旨をプッシュ通知で伝えておきますね！ご用件をこのままお書きください。`;
+                    } else if (targetUser.current_room && targetUser.current_room.startsWith('meeting-room')) {
+                        replyText = `現在 ${targetUser.name} は「会議室」で打ち合わせ中のため、代理でアシスタントが受け付けております。会議が終わり次第、本人が対応いたします。`;
                         isAssistant = true;
                     }
-                } else if (targetUser.current_room.startsWith('meeting-room')) {
-                    replyText = `現在 ${targetUser.name} は「会議室」で打ち合わせ中のため、代理でアシスタントが受け付けております。会議が終わり次第、本人が対応いたします。`;
-                    isAssistant = true;
-                }
 
-                if (replyText) {
-                    setTimeout(() => {
-                        db.run(
-                            "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text) VALUES (?, ?, ?, ?)",
-                            [receiverId, loginUserId, isAssistant ? 'assistant' : 'user', replyText],
-                            (err) => {
-                                if (err) console.error("Failed to insert auto reply:", err);
-                            }
-                        );
-                    }, 1000);
-                }
+                    if (replyText) {
+                        setTimeout(() => {
+                            db.run(
+                                "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text, is_read) VALUES (?, ?, ?, ?, 1)",
+                                [receiverId, loginUserId, isAssistant ? 'assistant' : 'user', replyText],
+                                (err) => {
+                                    if (err) console.error("Failed to insert auto reply:", err);
+                                }
+                            );
+                        }, 1000);
+                    }
 
-                res.json({ status: 'ok', messageId: insertedId });
-            });
-        }
-    );
+                    res.json({ status: 'ok', messageId: insertedId });
+                });
+            }
+        );
+    });
 });
 
 // ==========================================
