@@ -161,7 +161,15 @@ const DmChat = ({ targetUser, urgent }) => {
                 id: msg.id,
                 sender: isMe ? 'me' : (msg.sender_type === 'assistant' ? 'assistant' : 'them'),
                 text: msg.text,
-                time: new Date(msg.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                time: (() => {
+                    if (!msg.created_at) {
+                        return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    }
+                    const utcStr = msg.created_at.includes('T') 
+                        ? msg.created_at 
+                        : msg.created_at.replace(' ', 'T') + 'Z';
+                    return new Date(utcStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                })()
             };
         });
 

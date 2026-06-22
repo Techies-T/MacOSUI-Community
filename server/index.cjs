@@ -2998,9 +2998,21 @@ async function getCommonFreeSlots(req, res, targetEmail) {
         throw new Error("Could not initialize calendar clients");
     }
 
-    const today = new Date();
-    const timeMin = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0).toISOString();
-    const timeMax = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
+    const now = new Date();
+    // JSTタイムゾーンでの「本日」を取得
+    const formatter = new Intl.DateTimeFormat('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    const parts = formatter.formatToParts(now);
+    const y = parts.find(p => p.type === 'year').value;
+    const m = parts.find(p => p.type === 'month').value;
+    const d = parts.find(p => p.type === 'day').value;
+
+    const timeMin = `${y}-${m}-${d}T00:00:00+09:00`;
+    const timeMax = `${y}-${m}-${d}T23:59:59+09:00`;
 
     // 双方のカレンダーからイベント取得
     const [resSelf, resTarget] = await Promise.all([
@@ -3046,13 +3058,12 @@ async function getCommonFreeSlots(req, res, targetEmail) {
     }
 
     // 探索する時間帯の定義
-    // 開始は「現在時刻」と「本日の 9:00」のいずれか遅い方（ただし現在時刻がすでに遅ければ現在時刻）
-    const now = new Date();
-    const workStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, 0, 0);
-    const startSearch = now > workStart ? now : workStart;
+    // 開始は「現在時刻」と「本日の JST 9:00」のいずれか遅い方（ただし現在時刻がすでに遅ければ現在時刻）
+    const workStart = new Date(`${y}-${m}-${d}T09:00:00+09:00`);
     
-    // 終了は「本日の 19:00」
-    const endSearch = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 19, 0, 0);
+    // 終了は「本日の JST 19:00」
+    const endSearch = new Date(`${y}-${m}-${d}T19:00:00+09:00`);
+    const startSearch = now > workStart ? now : workStart;
 
     if (startSearch >= endSearch) {
         return []; // 本日の探索時間外
@@ -3227,8 +3238,9 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                                 
                                 if (freeSlots.length > 0) {
                                     let slotsText = freeSlots.slice(0, 3).map(slot => {
-                                        const startStr = slot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                        const endStr = slot.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                        const options = { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false };
+                                        const startStr = slot.start.toLocaleTimeString('ja-JP', options);
+                                        const endStr = slot.end.toLocaleTimeString('ja-JP', options);
                                         return `・ ${startStr} 〜 ${endStr}`;
                                     }).join('\n');
 
