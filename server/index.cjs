@@ -3030,10 +3030,10 @@ function getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings) {
     
     // 1. 通常枠のデッドライン (終業のバッファ分前)
     const endSearchNormal = new Date(workEnd.getTime() - assistantMeetingBuffer * 60 * 1000);
-    // 2. 就業時間内ギリギリのデッドライン (終業30分前。ミーティングが就業時間内に収まる限界)
-    const endSearchInWork = new Date(workEnd.getTime() - 30 * 60 * 1000);
-    // 3. 時間外のデッドライン (終業1時間後までにミーティングが終わる限界)
-    const endSearchOvertime = new Date(workEnd.getTime() + 60 * 60 * 1000 - 30 * 60 * 1000);
+    // 2. 就業時間内ギリギリのデッドライン (終業時間そのもの。ミーティングが就業時間内に収まる限界)
+    const endSearchInWork = workEnd;
+    // 3. 時間外のデッドライン (終業1時間後。時間外ミーティングが終了する限界)
+    const endSearchOvertime = new Date(workEnd.getTime() + 60 * 60 * 1000);
 
     const calculateSlotsForRange = (rangeStart, rangeEnd) => {
         if (rangeStart >= rangeEnd) return [];
