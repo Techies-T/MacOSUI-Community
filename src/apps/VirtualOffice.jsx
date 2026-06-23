@@ -25,8 +25,16 @@ const VirtualOffice = ({ onOpen, user }) => {
         try {
             if (isFirst) setLoading(true);
             const res = await fetch('/api/virtual-office/users');
+            if (!res.ok) {
+                let errMsg = 'Failed to load users';
+                try {
+                    const data = await res.json();
+                    errMsg = data.error || errMsg;
+                } catch (_) {}
+                throw new Error(errMsg);
+            }
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to load users');
+            setError(null);
             
             // アバター未設定ユーザーに対するランダムアバターの割り当て
             const processedUsers = data.map((u, idx) => {
@@ -79,8 +87,15 @@ const VirtualOffice = ({ onOpen, user }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId })
             });
+            if (!res.ok) {
+                let errMsg = 'Failed to generate avatar';
+                try {
+                    const data = await res.json();
+                    errMsg = data.error || errMsg;
+                } catch (_) {}
+                throw new Error(errMsg);
+            }
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to generate avatar');
             
             // ユーザー一覧の状態を即座に更新
             setUsers(prev => prev.map(u => {
