@@ -3027,8 +3027,13 @@ function getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings) {
         : workStart;
 
     const workEnd = new Date(`${y}-${m}-${d}T${assistantWorkEnd}:00+09:00`);
-    const endSearch = new Date(workEnd.getTime() - assistantMeetingBuffer * 60 * 1000);
-    const extendedEndSearch = new Date(workEnd.getTime() + 60 * 60 * 1000 - 30 * 60 * 1000);
+    
+    // 1. 通常枠のデッドライン (終業のバッファ分前)
+    const endSearchNormal = new Date(workEnd.getTime() - assistantMeetingBuffer * 60 * 1000);
+    // 2. 就業時間内ギリギリのデッドライン (終業30分前。ミーティングが就業時間内に収まる限界)
+    const endSearchInWork = new Date(workEnd.getTime() - 30 * 60 * 1000);
+    // 3. 時間外のデッドライン (終業1時間後までにミーティングが終わる限界)
+    const endSearchOvertime = new Date(workEnd.getTime() + 60 * 60 * 1000 - 30 * 60 * 1000);
 
     const calculateSlotsForRange = (rangeStart, rangeEnd) => {
         if (rangeStart >= rangeEnd) return [];
@@ -3052,20 +3057,31 @@ function getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings) {
         return slots;
     };
 
-    const inWorkSlots = calculateSlotsForRange(startSearch, endSearch);
-    if (inWorkSlots.length > 0) {
-        return { slots: inWorkSlots, isOvertime: false };
+    // 1段階：通常枠の探索
+    const normalSlots = calculateSlotsForRange(startSearch, endSearchNormal);
+    if (normalSlots.length > 0) {
+        return { slots: normalSlots, isOvertime: false, isBufferMitigated: false };
     }
 
-    if (startSearch < extendedEndSearch) {
-        const overtimeStart = startSearch > endSearch ? startSearch : endSearch;
-        const overtimeSlots = calculateSlotsForRange(overtimeStart, extendedEndSearch);
-        if (overtimeSlots.length > 0) {
-            return { slots: overtimeSlots, isOvertime: true };
+    // 2段階：通常枠になければ、就業時間内のバッファ緩和枠を探索
+    if (startSearch < endSearchInWork) {
+        const mitigationStart = startSearch > endSearchNormal ? startSearch : endSearchNormal;
+        const mitigatedSlots = calculateSlotsForRange(mitigationStart, endSearchInWork);
+        if (mitigatedSlots.length > 0) {
+            return { slots: mitigatedSlots, isOvertime: false, isBufferMitigated: true };
         }
     }
 
-    return { slots: [], isOvertime: false };
+    // 3段階：就業時間内にもなければ、時間外枠を探索
+    if (startSearch < endSearchOvertime) {
+        const overtimeStart = startSearch > endSearchInWork ? startSearch : endSearchInWork;
+        const overtimeSlots = calculateSlotsForRange(overtimeStart, endSearchOvertime);
+        if (overtimeSlots.length > 0) {
+            return { slots: overtimeSlots, isOvertime: true, isBufferMitigated: false };
+        }
+    }
+
+    return { slots: [], isOvertime: false, isBufferMitigated: false };
 }
 
 // カレンダーの予定一覧から移動が必要な予定を検出し、移動時間を推測する
@@ -3205,7 +3221,7 @@ async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
             mergedBusy.push(current);
         }
         const result = getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings);
-        return { slots: result.slots, isOvertime: result.isOvertime, travelDetails: [] };
+        return { slots: result.slots, isOvertime: result.isOvertime, isBufferMitigated: result.isBufferMitigated, travelDetails: [] };
     }
 
     try {
@@ -3302,6 +3318,7 @@ async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
         return {
             slots: result.slots,
             isOvertime: result.isOvertime,
+            isBufferMitigated: result.isBufferMitigated,
             travelDetails: travelDetails
         };
 
@@ -3329,7 +3346,7 @@ async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
             mergedBusy.push(current);
         }
         const result = getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings);
-        return { slots: result.slots, isOvertime: result.isOvertime, travelDetails: [] };
+        return { slots: result.slots, isOvertime: result.isOvertime, isBufferMitigated: result.isBufferMitigated, travelDetails: [] };
     }
 }
 
@@ -3477,6 +3494,7 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                                 const result = await getCommonFreeSlots(req, res, targetUser.email, settings);
                                 const freeSlots = result.slots;
                                 const isOvertime = result.isOvertime;
+                                const isBufferMitigated = result.isBufferMitigated;
                                 
                                 if (freeSlots.length > 0) {
                                     let slotsText = freeSlots.slice(0, 3).map(slot => {
@@ -3498,6 +3516,8 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                                         const workEndFormatted = targetUser.assistant_work_end || '17:30';
                                         const bufferMin = targetUser.assistant_meeting_buffer !== undefined ? targetUser.assistant_meeting_buffer : 30;
                                         replyText = `${targetUser.name} の就業時間は ${workStartFormatted}〜${workEndFormatted} まで（最終受付は終了 ${bufferMin}分前）となっておりますが、本日就業時間内に共通の空き時間がございません。もしお急ぎでしたら時間外になりますが以下の時間帯で調整可能か、本人（BOSS）に確認いたしますがいかがでしょうか？\n${slotsText}${travelText}\n➔ [💻 時間外でBOSSに確認する]`;
+                                    } else if (isBufferMitigated) {
+                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。就業終了間際（設定されたバッファ時間内）になりますが、本日就業時間内に共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}${travelText}\n➔ [💻 ミーティングを仮調整する]`;
                                     } else {
                                         replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}${travelText}\n➔ [💻 ミーティングを仮調整する]`;
                                     }
