@@ -333,6 +333,17 @@ const DmChat = ({ targetUser, urgent }) => {
                                                             }
                                                         }
 
+                                                        let desc = msg.text.includes('💻 時間外でBOSSに確認する') 
+                                                            ? 'AIアシスタントによる時間外（BOSS確認中）の自動仮調整予定'
+                                                            : 'AIアシスタントによる自動仮調整予定';
+                                                        
+                                                        const travelIndex = msg.text.indexOf('【考慮した移動時間】');
+                                                        if (travelIndex !== -1) {
+                                                            const travelPart = msg.text.substring(travelIndex);
+                                                            const cleanTravelPart = travelPart.split('➔')[0].trim();
+                                                            desc += '\n\n' + cleanTravelPart;
+                                                        }
+
                                                         fetch('/api/calendar/events', {
                                                             method: 'POST',
                                                             headers: { 'Content-Type': 'application/json' },
@@ -340,9 +351,7 @@ const DmChat = ({ targetUser, urgent }) => {
                                                                 summary: msg.text.includes('💻 時間外でBOSSに確認する') 
                                                                     ? `【時間外】ミーティング: ${currentUser?.name || ''} & ${user.name}`
                                                                     : `ミーティング: ${currentUser?.name || ''} & ${user.name}`,
-                                                                description: msg.text.includes('💻 時間外でBOSSに確認する') 
-                                                                    ? 'AIアシスタントによる時間外（BOSS確認中）の自動仮調整予定'
-                                                                    : 'AIアシスタントによる自動仮調整予定',
+                                                                description: desc,
                                                                 start: startIso,
                                                                 end: endIso
                                                             })

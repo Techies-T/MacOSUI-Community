@@ -3014,7 +3014,131 @@ app.post('/api/calendar/events', requireAuth, requireWidgetAccess('app:calendar'
     }
 });
 
-// Helper: 本日の双方の共通空きスロット（30分以上）を計算
+// Helper: 従来のプログラム計算ロジック（フォールバック用）
+function getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings) {
+    const assistantWorkStart = settings.workStart || '09:00';
+    const assistantWorkEnd = settings.workEnd || '17:30';
+    const assistantMeetingBuffer = settings.meetingBuffer !== undefined ? settings.meetingBuffer : 30;
+
+    const startBufferMs = 30 * 60 * 1000;
+    const workStart = new Date(`${y}-${m}-${d}T${assistantWorkStart}:00+09:00`);
+    const startSearch = now.getTime() + startBufferMs > workStart.getTime()
+        ? new Date(now.getTime() + startBufferMs)
+        : workStart;
+
+    const workEnd = new Date(`${y}-${m}-${d}T${assistantWorkEnd}:00+09:00`);
+    const endSearch = new Date(workEnd.getTime() - assistantMeetingBuffer * 60 * 1000);
+    const extendedEndSearch = new Date(workEnd.getTime() + 60 * 60 * 1000 - 30 * 60 * 1000);
+
+    const calculateSlotsForRange = (rangeStart, rangeEnd) => {
+        if (rangeStart >= rangeEnd) return [];
+        const slots = [];
+        let currentPointer = rangeStart;
+        const minDuration = 30 * 60 * 1000;
+
+        for (const busy of mergedBusy) {
+            if (busy.end <= currentPointer) continue;
+            if (busy.start >= rangeEnd) break;
+            const duration = busy.start - currentPointer;
+            if (duration >= minDuration) {
+                slots.push({ start: new Date(currentPointer), end: new Date(busy.start) });
+            }
+            currentPointer = new Date(Math.max(currentPointer, busy.end));
+        }
+
+        if (rangeEnd - currentPointer >= minDuration) {
+            slots.push({ start: new Date(currentPointer), end: new Date(rangeEnd) });
+        }
+        return slots;
+    };
+
+    const inWorkSlots = calculateSlotsForRange(startSearch, endSearch);
+    if (inWorkSlots.length > 0) {
+        return { slots: inWorkSlots, isOvertime: false };
+    }
+
+    if (startSearch < extendedEndSearch) {
+        const overtimeStart = startSearch > endSearch ? startSearch : endSearch;
+        const overtimeSlots = calculateSlotsForRange(overtimeStart, extendedEndSearch);
+        if (overtimeSlots.length > 0) {
+            return { slots: overtimeSlots, isOvertime: true };
+        }
+    }
+
+    return { slots: [], isOvertime: false };
+}
+
+// カレンダーの予定一覧から移動が必要な予定を検出し、移動時間を推測する
+async function estimateTravelTimes(apiKey, events, ownerName) {
+    if (!events || events.length === 0) return [];
+    
+    try {
+        const client = new GoogleGenAI({ apiKey });
+        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
+
+        const formatEventsForTravel = (events) => {
+            return events.map(e => {
+                const start = e.start.dateTime || e.start.date;
+                const end = e.end.dateTime || e.end.date;
+                return {
+                    id: e.id,
+                    summary: e.summary,
+                    location: e.location || '',
+                    start,
+                    end
+                };
+            });
+        };
+
+        const eventsText = JSON.stringify(formatEventsForTravel(events), null, 2);
+
+        const prompt = `あなたはカレンダーの予定から移動時間を正確に予測するAIアシスタントです。
+提供された ${ownerName} のカレンダー予定リストから、「外出」「訪問」「アポイント」「客先」などの移動が発生する予定（または場所がオフィス外と推測される予定）を特定し、それぞれの予定に必要な「往路移動時間（分）」と「復路移動時間（分）」を予測してください。
+
+【予測のルール】
+1. BOSS（ユーザー）のオフィスまたは拠点は「品川」と想定してください。
+2. 予定のタイトルや場所（location）に含まれる地名（例：八王子、新宿、横浜、渋谷など）を元に、拠点（品川）からの電車の現実的な所要時間を推測してください。
+   （例：新宿 ➔ 片道30分、八王子 ➔ 片道75分、横浜 ➔ 片道45分、渋谷 ➔ 片道20分、など。駅名や地名に応じた実際の電車所要時間をベースにしてください）
+3. 場所や目的地が不明だがタイトル等から「外出」であることが明らかな予定の場合は、デフォルトとして一律「前後30分」の移動時間を適用してください。
+4. 社内会議やオンライン会議（例：「Teams」「Zoom」「オンライン」「Web面談」などの記述がある予定）や、明らかに移動が発生しない予定（例：「デスクワーク」「開発」「社内」など）については、移動時間を 0 分としてください。
+
+以下のJSONフォーマット（配列）のみで出力してください。思考プロセスやマークダウンブロックの \`\`\`json などの囲み、説明文などは一切出力せず、純粋なJSON文字列のみを返してください。
+[
+  {
+    "id": "予定のID",
+    "summary": "予定のタイトル",
+    "outboundMinutes": 往路移動時間（数値・分）,
+    "inboundMinutes": 復路移動時間（数値・分）,
+    "reason": "移動時間を推測した理由（例: 品川から新宿まで山手線で約20分＋徒歩10分を考慮）"
+  }
+]
+もし移動が発生する予定がない場合は、空の配列 [] を返してください。
+
+【予定リスト】
+${eventsText}`;
+
+        const aiResponse = await client.models.generateContent({
+            model: modelName,
+            contents: prompt
+        });
+
+        const textResponse = aiResponse.text.trim();
+        console.log(`Gemini Travel Time Estimation Output (${ownerName}):`, textResponse);
+
+        const cleanJson = textResponse.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
+        const travelEstimations = JSON.parse(cleanJson);
+        
+        if (Array.isArray(travelEstimations)) {
+            return travelEstimations;
+        }
+        return [];
+    } catch (err) {
+        console.error(`Failed to estimate travel times for ${ownerName}:`, err);
+        return [];
+    }
+}
+
+// Helper: 本日の双方の共通空きスロット（30分以上）を計算（Gemini推論併用）
 async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
     const calendarSelf = await getCalendarClient(req, res, null); // ログインユーザー
     const calendarTarget = await getCalendarClient(req, res, targetEmail); // 相手
@@ -3053,95 +3177,160 @@ async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
     const filteredSelf = filterDefault(eventsSelf);
     const filteredTarget = filterDefault(eventsTarget);
 
-    // 除外時間枠（予定が入っている時間枠）の配列を作成
-    const busySlots = [];
+    // Gemini APIキーの有無をチェック
+    const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
     
-    [...filteredSelf, ...filteredTarget].forEach(event => {
-        const start = new Date(event.start.dateTime || event.start.date);
-        const end = new Date(event.end.dateTime || event.end.date);
-        busySlots.push({ start, end });
-    });
-
-    // 時間順にソート
-    busySlots.sort((a, b) => a.start - b.start);
-
-    // 重なる予定枠を結合する
-    const mergedBusy = [];
-    if (busySlots.length > 0) {
-        let current = busySlots[0];
-        for (let i = 1; i < busySlots.length; i++) {
-            const next = busySlots[i];
-            if (next.start <= current.end) {
-                // 重なっているので結合
-                current.end = new Date(Math.max(current.end, next.end));
-            } else {
-                mergedBusy.push(current);
-                current = next;
+    // APIキーがない場合は従来のロジックで移動時間を0としてフォールバック
+    if (!apiKey) {
+        console.log("Gemini API Key not set. Falling back to programmatic free slots calculator (no travel time).");
+        const busySlots = [];
+        [...filteredSelf, ...filteredTarget].forEach(event => {
+            const start = new Date(event.start.dateTime || event.start.date);
+            const end = new Date(event.end.dateTime || event.end.date);
+            busySlots.push({ start, end });
+        });
+        busySlots.sort((a, b) => a.start - b.start);
+        const mergedBusy = [];
+        if (busySlots.length > 0) {
+            let current = busySlots[0];
+            for (let i = 1; i < busySlots.length; i++) {
+                const next = busySlots[i];
+                if (next.start <= current.end) {
+                    current.end = new Date(Math.max(current.end, next.end));
+                } else {
+                    mergedBusy.push(current);
+                    current = next;
+                }
             }
+            mergedBusy.push(current);
         }
-        mergedBusy.push(current);
+        const result = getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings);
+        return { slots: result.slots, isOvertime: result.isOvertime, travelDetails: [] };
     }
 
-    // ユーザー個人のアシスタント調整ルール設定 (デフォルトあり)
-    const assistantWorkStart = settings.workStart || '09:00';
-    const assistantWorkEnd = settings.workEnd || '17:30';
-    const assistantMeetingBuffer = settings.meetingBuffer !== undefined ? settings.meetingBuffer : 30; // 分単位
+    try {
+        console.log("Estimating travel times using Gemini...");
+        const [travelSelf, travelTarget] = await Promise.all([
+            estimateTravelTimes(apiKey, filteredSelf, 'BOSS'),
+            estimateTravelTimes(apiKey, filteredTarget, '対話相手')
+        ]);
 
-    // 探索する時間帯の定義
-    // 開始は、「現在時刻の30分後」と「本日の JST assistantWorkStart」のいずれか遅い方 (急すぎる日程調整を防ぐため)
-    const startBufferMs = 30 * 60 * 1000;
-    const workStart = new Date(`${y}-${m}-${d}T${assistantWorkStart}:00+09:00`);
-    const startSearch = now.getTime() + startBufferMs > workStart.getTime()
-        ? new Date(now.getTime() + startBufferMs)
-        : workStart;
+        const busySlots = [];
+        const travelDetails = [];
 
-    // 就業時間の終点
-    const workEnd = new Date(`${y}-${m}-${d}T${assistantWorkEnd}:00+09:00`);
-    
-    // 通常の探索終了時刻（終業時間の meetingBuffer 分前。会議中に終業時間を超えないようにするため）
-    const endSearch = new Date(workEnd.getTime() - assistantMeetingBuffer * 60 * 1000);
+        // BOSSの予定処理（移動時間を考慮した仮想Busy枠の追加）
+        filteredSelf.forEach(event => {
+            const start = new Date(event.start.dateTime || event.start.date);
+            const end = new Date(event.end.dateTime || event.end.date);
+            busySlots.push({ start, end });
 
-    // 時間外の探索終了時刻（終業時間の1時間後。ただしその終了時刻の30分前を開始不可ラインとする）
-    const extendedEndSearch = new Date(workEnd.getTime() + 60 * 60 * 1000 - 30 * 60 * 1000);
-
-    const calculateSlotsForRange = (rangeStart, rangeEnd) => {
-        if (rangeStart >= rangeEnd) return [];
-        const slots = [];
-        let currentPointer = rangeStart;
-        const minDuration = 30 * 60 * 1000;
-
-        for (const busy of mergedBusy) {
-            if (busy.end <= currentPointer) continue;
-            if (busy.start >= rangeEnd) break;
-            const duration = busy.start - currentPointer;
-            if (duration >= minDuration) {
-                slots.push({ start: new Date(currentPointer), end: new Date(busy.start) });
+            const est = travelSelf.find(t => t.id === event.id);
+            if (est) {
+                if (est.outboundMinutes > 0) {
+                    const vStart = new Date(start.getTime() - est.outboundMinutes * 60 * 1000);
+                    busySlots.push({ start: vStart, end: start });
+                    travelDetails.push({
+                        summary: event.summary,
+                        type: '往路',
+                        minutes: est.outboundMinutes,
+                        reason: est.reason
+                    });
+                }
+                if (est.inboundMinutes > 0) {
+                    const vEnd = new Date(end.getTime() + est.inboundMinutes * 60 * 1000);
+                    busySlots.push({ start: end, end: vEnd });
+                    travelDetails.push({
+                        summary: event.summary,
+                        type: '復路',
+                        minutes: est.inboundMinutes,
+                        reason: est.reason
+                    });
+                }
             }
-            currentPointer = new Date(Math.max(currentPointer, busy.end));
+        });
+
+        // 相手の予定処理（移動時間を考慮した仮想Busy枠の追加）
+        filteredTarget.forEach(event => {
+            const start = new Date(event.start.dateTime || event.start.date);
+            const end = new Date(event.end.dateTime || event.end.date);
+            busySlots.push({ start, end });
+
+            const est = travelTarget.find(t => t.id === event.id);
+            if (est) {
+                if (est.outboundMinutes > 0) {
+                    const vStart = new Date(start.getTime() - est.outboundMinutes * 60 * 1000);
+                    busySlots.push({ start: vStart, end: start });
+                    travelDetails.push({
+                        summary: `(相手) ${event.summary}`,
+                        type: '往路',
+                        minutes: est.outboundMinutes,
+                        reason: est.reason
+                    });
+                }
+                if (est.inboundMinutes > 0) {
+                    const vEnd = new Date(end.getTime() + est.inboundMinutes * 60 * 1000);
+                    busySlots.push({ start: end, end: vEnd });
+                    travelDetails.push({
+                        summary: `(相手) ${event.summary}`,
+                        type: '復路',
+                        minutes: est.inboundMinutes,
+                        reason: est.reason
+                    });
+                }
+            }
+        });
+
+        busySlots.sort((a, b) => a.start - b.start);
+
+        // 重なる予定枠を結合する
+        const mergedBusy = [];
+        if (busySlots.length > 0) {
+            let current = busySlots[0];
+            for (let i = 1; i < busySlots.length; i++) {
+                const next = busySlots[i];
+                if (next.start <= current.end) {
+                    current.end = new Date(Math.max(current.end, next.end));
+                } else {
+                    mergedBusy.push(current);
+                    current = next;
+                }
+            }
+            mergedBusy.push(current);
         }
 
-        if (rangeEnd - currentPointer >= minDuration) {
-            slots.push({ start: new Date(currentPointer), end: new Date(rangeEnd) });
-        }
-        return slots;
-    };
+        const result = getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings);
+        return {
+            slots: result.slots,
+            isOvertime: result.isOvertime,
+            travelDetails: travelDetails
+        };
 
-    // 1. まずは通常の就業時間内（最終受付デッドラインまで）で探索
-    const inWorkSlots = calculateSlotsForRange(startSearch, endSearch);
-    if (inWorkSlots.length > 0) {
-        return { slots: inWorkSlots, isOvertime: false };
+    } catch (aiErr) {
+        console.error("Travel estimation failed, falling back to no-travel calculation:", aiErr);
+        const busySlots = [];
+        [...filteredSelf, ...filteredTarget].forEach(event => {
+            const start = new Date(event.start.dateTime || event.start.date);
+            const end = new Date(event.end.dateTime || event.end.date);
+            busySlots.push({ start, end });
+        });
+        busySlots.sort((a, b) => a.start - b.start);
+        const mergedBusy = [];
+        if (busySlots.length > 0) {
+            let current = busySlots[0];
+            for (let i = 1; i < busySlots.length; i++) {
+                const next = busySlots[i];
+                if (next.start <= current.end) {
+                    current.end = new Date(Math.max(current.end, next.end));
+                } else {
+                    mergedBusy.push(current);
+                    current = next;
+                }
+            }
+            mergedBusy.push(current);
+        }
+        const result = getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings);
+        return { slots: result.slots, isOvertime: result.isOvertime, travelDetails: [] };
     }
-
-    // 2. 就業時間内に空きスロットがない場合、時間外（終業後1時間まで）で再探索
-    if (startSearch < extendedEndSearch) {
-        const overtimeStart = startSearch > endSearch ? startSearch : endSearch;
-        const overtimeSlots = calculateSlotsForRange(overtimeStart, extendedEndSearch);
-        if (overtimeSlots.length > 0) {
-            return { slots: overtimeSlots, isOvertime: true };
-        }
-    }
-
-    return { slots: [], isOvertime: false };
 }
 
 // DM API Endpoints
@@ -3297,13 +3486,20 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                                         return `・ ${startStr} 〜 ${endStr}`;
                                     }).join('\n');
 
+                                    let travelText = '';
+                                    if (result.travelDetails && result.travelDetails.length > 0) {
+                                        travelText = '\n\n【考慮した移動時間】\n' + result.travelDetails.map(t => {
+                                            return `・${t.summary} (${t.type}): ${t.minutes}分を追加 (${t.reason})`;
+                                        }).join('\n');
+                                    }
+
                                     if (isOvertime) {
                                         const workStartFormatted = targetUser.assistant_work_start || '09:00';
                                         const workEndFormatted = targetUser.assistant_work_end || '17:30';
                                         const bufferMin = targetUser.assistant_meeting_buffer !== undefined ? targetUser.assistant_meeting_buffer : 30;
-                                        replyText = `${targetUser.name} の就業時間は ${workStartFormatted}〜${workEndFormatted} まで（最終受付は終了 ${bufferMin}分前）となっておりますが、本日就業時間内に共通の空き時間がございません。もしお急ぎでしたら時間外になりますが以下の時間帯で調整可能か、本人（BOSS）に確認いたしますがいかがでしょうか？\n${slotsText}\n➔ [💻 時間外でBOSSに確認する]`;
+                                        replyText = `${targetUser.name} の就業時間は ${workStartFormatted}〜${workEndFormatted} まで（最終受付は終了 ${bufferMin}分前）となっておりますが、本日就業時間内に共通の空き時間がございません。もしお急ぎでしたら時間外になりますが以下の時間帯で調整可能か、本人（BOSS）に確認いたしますがいかがでしょうか？\n${slotsText}${travelText}\n➔ [💻 時間外でBOSSに確認する]`;
                                     } else {
-                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}\n➔ [💻 ミーティングを仮調整する]`;
+                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}${travelText}\n➔ [💻 ミーティングを仮調整する]`;
                                     }
                                 } else {
                                     replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。本日中はお互いのカレンダーに共通して空いている時間帯（30分以上）が見当たりませんでした。個別調整が必要ですので、後ほど伝えておきます！`;
