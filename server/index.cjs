@@ -323,7 +323,7 @@ app.use('/api/pods', requireAuth, podsModule.router);
 
 // Knowledge Base MCP Server route
 const knowledgeMcpModule = require('./routes/knowledgeMcp.cjs');
-app.use('/api/mcp/knowledge', knowledgeMcpModule.router);
+app.use('/api/mcp/knowledge', requireAgentOrUserAuth, knowledgeMcpModule.router);
 
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
@@ -705,6 +705,117 @@ app.post('/api/auth/token-exchange', requireAuth, (req, res) => {
         expires_in: 3600
     });
 });
+
+// Middleware to support both User sessions (Cookie) and Agent-to-Agent (Authorization Header or Query Parameter)
+function requireAgentOrUserAuth(req, res, next) {
+    let token = null;
+
+    // 1. Try to extract token from Authorization Header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+    }
+
+    // 2. Try to extract token from query parameter (for SSE GET requests)
+    if (!token && req.query && req.query.access_token) {
+        token = req.query.access_token;
+    }
+
+    // 3. Try to extract token from cookie
+    if (!token) {
+        token = req.cookies.token;
+    }
+
+    if (!token) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+        if (err) {
+            return res.status(403).json({ error: 'Invalid or expired token' });
+        }
+
+        // If it is an Agent-to-Agent (A2A) token
+        if (decoded.type === 'agent_token') {
+            // Verify if the token was issued for accessing this specific API resource.
+            // Under our model, the audience (aud) for knowledge base MCP can be 'app:knowledge-base' or 'mcp:knowledge'
+            const validAudiences = ['app:knowledge-base', 'mcp:knowledge', '*'];
+            if (!validAudiences.includes(decoded.aud)) {
+                return res.status(403).json({ error: 'Access denied. Invalid audience for agent token.' });
+            }
+
+            req.user = decoded;
+            // No need to query database for agent tokens, as they are downscoped and transient.
+            return next();
+        }
+
+        // Otherwise, it is a regular user session token.
+        // Perform standard ZTA context check.
+        const hashes = getContextHashes(req);
+        const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+        if (!isContextValid) {
+            auditDb.logEvent({
+                userId: decoded.id,
+                userEmail: decoded.email,
+                eventType: 'session_hijacking_detected',
+                action: `${req.method} ${req.originalUrl}`,
+                status: 'blocked',
+                req: req,
+                details: { 
+                    expectedIpHash: decoded.ip_hash, 
+                    gotIpHash: hashes.ipHash, 
+                    expectedUaHash: decoded.ua_hash, 
+                    gotUaHash: hashes.uaHash,
+                    clientIp: hashes.ip,
+                    userAgent: hashes.ua
+                }
+            });
+            res.clearCookie('token');
+            return res.status(403).json({ error: 'Session context mismatch. Security policy requires re-authentication.' });
+        }
+
+        // RBAC dynamic policy lookup for user
+        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+            if (err || !row) return res.status(401).json({ error: 'User not found in database' });
+            
+            req.user = decoded;
+            req.user.role = row.role;
+            
+            let rbacPolicies;
+            try {
+                rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+            } catch(e) {
+                rbacPolicies = {};
+            }
+            
+            const roles = (row.role || 'user').split(',').map(r => r.trim());
+            const allowed_widgets_set = new Set();
+            const allowed_actions_set = new Set();
+            let hasWildcardModels = false;
+            const allowed_models_set = new Set();
+
+            roles.forEach(roleName => {
+                const policy = rbacPolicies[roleName] || {};
+                const widgets = policy.allowed_widgets || [];
+                const actions = policy.allowed_actions || [];
+                const models = policy.allowed_models || [];
+
+                widgets.forEach(w => allowed_widgets_set.add(w));
+                actions.forEach(a => allowed_actions_set.add(a));
+                models.forEach(m => {
+                    if (m === '*') hasWildcardModels = true;
+                    else allowed_models_set.add(m);
+                });
+            });
+
+            req.user.allowed_widgets = Array.from(allowed_widgets_set);
+            req.user.allowed_actions = Array.from(allowed_actions_set);
+            req.user.allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
+
+            return next();
+        });
+    });
+}
 
 // Middleware to check user auth (ZTA Real-time PDP Enforcement with Dynamic Context Check)
 function requireAuth(req, res, next) {

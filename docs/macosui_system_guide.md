@@ -16,7 +16,7 @@ graph TD
 ```
 
 * **Iframe サンドボックスによる隔離**:
-  外部でホストされたウィジェットは、安全性を担保するため、すべて `<iframe sandbox="allow-scripts allow-same-origin">` 内に隔離されて描画されます。これにより、万が一ウィジェットに悪意のあるコードが含まれていても、MacOSUI本体（親）のDOMやローカルストレージへ直接干渉されるリスクを防ぎます。
+  外部でホストされたウィジェットは、安全性を担保するため、すべて `<iframe sandbox="allow-scripts allow-same-origin allow-forms">` 内に隔離されて描画されます。これにより、必要な機能を有効（フォーム送信やスクリプト実行など）にしつつ、万が一ウィジェットに悪意のあるコードが含まれていても、MacOSUI本体（親）のDOMやローカルストレージへ直接干渉されるリスクを防ぎます。
 * **postMessage 通信ブリッジ**:
   親（MacOSUI）と子（Iframeウィジェット）のデータ連携は、ブラウザ標準の安全な非同期通信 `postMessage` を経由した「非同期通信ブリッジ (SDK)」によって疎結合に制御されます。
 * **URLベースの動的インストール**:
@@ -71,32 +71,46 @@ API接続には最新の公式SDK (`@google/genai`) を使用し、会話の履�
 
 ## 5. 外部連携 (MCP・A2A連携)
 
-MacOSUIは、外部サービスや他のエージェントと安全に会話するための高度な連携プロトコルを搭載しています。
+MacOSUIは、外部サービスや他のエージェント、および外部ウィジェットと安全に通信するための高度な連携プロトコルと ZTA 認証フローを搭載しています。
+
+### 認証・通信モデル
+
+通信方向や対象に応じて、以下の異なる認証経路が適用されます。
 
 ```mermaid
 sequenceDiagram
-    participant Agent as MacOSUI (Client)
-    participant Server as MCP Server (External)
-    
-    Note over Agent, Server: 1. ZTA / A2A Token Exchange
-    Agent->>Server: POST /api/mcp/service/token (Client Credentials)
-    Server-->>Agent: 200 OK (JWT Access Token)
-    
-    Note over Agent, Server: 2. SSE Connection (GET /sse)
-    Agent->>Server: GET /sse?token=<JWT>
-    Server-->>Agent: SSE Stream (Session ID Established)
-    
-    Note over Agent, Server: 3. Message Exchange (POST /message)
-    Agent->>Server: POST /message (Authorization Bearer <JWT>)
-    Server-->>Agent: Push Response via SSE Stream
+    rect rgb(240, 248, 255)
+    Note over Widget, MacOSUI: 経路 A: 外部ウィジェット ➔ MacOSUI本体
+    Widget->>MacOSUI: POST /api/auth/token-exchange (OAuth Token Exchange)
+    MacOSUI-->>Widget: 200 OK (一時 JWT Token / 1時間有効)
+    end
+
+    rect rgb(255, 240, 245)
+    Note over MacOSUI, External MCP: 経路 B: MacOSUI本体 ➔ 外部MCPサーバー
+    MacOSUI->>External MCP: POST <token_url> (Client Credentials)
+    External MCP-->>MacOSUI: 200 OK (OAuth Access Token)
+    MacOSUI->>External MCP: GET /sse?access_token=<Token>
+    External MCP-->>MacOSUI: SSE Stream Established
+    MacOSUI->>External MCP: POST /message (Authorization Bearer <Token>)
+    end
+
+    rect rgb(245, 255, 250)
+    Note over MacOSUI, Internal MCP: 経路 C: MacOSUI本体 ➔ 内蔵MCPサーバー (knowledge-base-mcp)
+    MacOSUI->>Internal MCP: GET /api/mcp/knowledge/sse?access_token=<JWT> (ZTA 検証)
+    Internal MCP-->>MacOSUI: SSE Stream Established
+    MacOSUI->>Internal MCP: POST /api/mcp/knowledge/message?sessionId=... (Authorization Bearer <JWT>)
+    end
 ```
 
 * **Model Context Protocol (MCP) の統合**:
-  外部APIをGeminiの `tools`（関数呼び出し）に動的に差し込み、AIが状況に応じて自動的に外部の機能やデータを呼び出せるようにする標準仕様です。
+  外部および内蔵の各種機能をGeminiの `tools`（関数呼び出し）に動的に差し込み、AIが状況に応じて自動的に外部の機能やデータを呼び出せるようにする標準仕様です。
 * **SSE (Server-Sent Events) トランスポート方式**:
   通信は従来の標準入力（stdio）ではなく、HTTP経由の双方向通信である **SSE（Server-Sent Events）** 方式を採用。`GET /sse` で持続的なストリーム（セッション）を確立し、`POST /message` で安全にメッセージを送受信します。
 * **A2A (Agent-to-Agent) 認証とサイレントリフレッシュ**:
-  エージェント間の通信は、`client_id` と `client_secret` に基づく一時的な JWT を発行して実行します。トークン有効期限（1時間）が切れた際は、バックグラウンドで自動的にトークンを再取得（サイレントリフレッシュ）し、通信の切断を防ぎます。
+  - **外部ウィジェット ➔ 本体**: ユーザー認可に基づき `POST /api/auth/token-exchange` (RFC 8693 Token Exchange) フローによりダウンスコープされた一時的な JWT（Agent Token）を発行します。期限（1時間）が切れた際は、Iframe 内のウィジェットから postMessage 経由でリフレッシュ要求を受け取り、サイレントリフレッシュを実行します。
+  - **本体 ➔ 外部MCPサーバー**: 登録された `client_id` と `client_secret` を使用して `token_url` からアクセストークンを取得し、有効期限が切れた場合は自動で再取得して通信を切断させない仕組みを構築しています。
+* **内蔵 MCP サーバーの ZTA 保護 (ゼロトラスト適用)**:
+  システム内のナレッジベースなどを提供する内蔵 MCP サーバー（`/api/mcp/knowledge`）に対しても、A2Aトークンまたはユーザーセッションの JWT 署名検証を行う `requireAgentOrUserAuth` ミドルウェアが適用されており、認証のない不正なアクセスを厳格に遮断します。
 
 ---
 

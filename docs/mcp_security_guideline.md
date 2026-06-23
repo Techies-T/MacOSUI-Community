@@ -8,20 +8,22 @@
 
 ## 1. ゼロトラスト認証 (ZTA / A2A Token Verification)
 
-MCP サーバーへのすべての接続・リクエストは、Agent-to-Agent (A2A) 認証フローに基づいて、厳格に暗号化および検証されなければなりません。
+各エージェント、外部ウィジェット、および MCP サーバーへの接続・リクエストは、Agent-to-Agent (A2A) 認証フローに基づいて、厳格に暗号化および検証されなければなりません。
 
-### ① Client Credentials によるトークン発行
-* **エンドポイント**: `POST /api/mcp/[service-name]/token`
+### ① A2A トークンの発行とトークン交換 (RFC 8693)
+* **MacOSUI 本体が提供する認証エンドポイント**: `POST /api/auth/token-exchange`
 * **動作仕様**:
-  * クライアントは `client_id` と `client_secret` を使用してアクセストークンを請求します。
-  * `JWT_SECRET`（`MacOSUI/server/development.env` などの環境変数から解決される共通鍵）で署名された一時的な JWT アクセストークンを発行します。
-  * トークンの有効期限は **1 時間 (3600秒)** とし、発行完了のレスポンスに `expires_in` を明記します。
-  * 発行される JWT ペイロードには、適切なスコープ/クレーム（例: `type: 'agent_token'`, `aud: 'app:[service-name]'`）を付与します。
+  * 外部ウィジェットまたはエージェントは、ユーザー認可のもとで一時的なダウンスコープされた JWT (Agent Token) を請求します。
+  * 発行される JWT ペイロードには、適切なスコープ/クレーム（例: `type: 'agent_token'`, `aud: '<widget_id>'`）が付与されます。
+  * トークンの有効期限は **1 時間 (3600秒)** とし、発行完了のレスポンスに `expires_in: 3600` を明記します。
+* **外部 MCP サーバーが要求する認証**:
+  * MacOSUI本体が外部のMCPサーバーを呼び出す際は、そのサーバー固有の `token_url`（通常は Client Credentials フロー `POST <token_url>`）を利用して OAuth アクセストークンを請求します。
 
 ### ② JWT 署名と有効期限の厳格検証 (ZTA PEP)
 * **ミドルウェアでの検証**:
-  * トークンが正しく `JWT_SECRET` で署名されていること、有効期限 (exp) 内であることを確認します。
-  * 対象オーディエンス (`aud`) や発行元、トークンタイプ (`type === 'agent_token'`) などの RFC 8693 に基づくコンテキスト検証を行い、適合しないリクエストはすべて `403 Forbidden` / `invalid_token` で即座に遮断します。
+  * 本体または内蔵 MCP サーバーがリクエストを受ける際、トークンが正しく `JWT_SECRET`（`MacOSUI/server/development.env` などの環境変数から解決される共通鍵）で署名されていること、および有効期限内であることを確認します。
+  * 対象オーディエンス (`aud`) やトークンタイプ (`type === 'agent_token'`) などの検証を行い、適合しないリクエストはすべて `403 Forbidden` / `invalid_token` で即座に遮断します。
+  * システム内蔵 MCP サーバー（`/api/mcp/knowledge`）は、JWT 署名検証を行う `requireAgentOrUserAuth` ミドルウェアで保護し、認証なしの接続を一切拒否します。
 
 ---
 

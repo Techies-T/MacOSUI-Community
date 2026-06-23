@@ -40,7 +40,7 @@
 1. **Skill Manifest (マニフェストファイル)**
    開発者は `skill.json` という設定ファイルを公開します。ユーザーはこのURLをMacOSUIの「Settings」に入力するだけでインストールが完了します。
 2. **Widget UI (Iframe サンドボックス)**
-   MacOSUIは、マニフェストに記載されたURLを `<iframe sandbox="allow-scripts">` としてデスクトップ上にレンダリングします。これにより、Reactの複雑なビルドに依存せず、かつセキュリティ（XSS対策）を保ったまま外部アプリを動かせます。
+   MacOSUIは、マニフェストに記載されたURLを `<iframe sandbox="allow-scripts allow-same-origin allow-forms">` としてデスクトップ上にレンダリングします。これにより、Reactの複雑なビルドに依存せず、かつセキュリティ（XSS対策）を保ったまま外部アプリを動かせます。
 3. **AI Tools (関数呼び出し / Function Calling)**
    マニフェストには、そのSkillが提供する「AI用のツール（APIエンドポイント）」が定義されます。MacOSUIのバックエンドはこれを読み取り、Geminiに `functionDeclarations` として動的にアタッチします。
 
@@ -50,12 +50,12 @@
 
 ### 【開発者の作業】
 開発者は自身のサーバーに以下の3つをデプロイします。
-1. `manifest.json` (Skillの名前、アイコン、ツールの定義など)
+1. `skill.json` (Skillの名前、アイコン、ツールの定義など)
 2. `index.html` (ウィジェットの見た目。グラフ表示など)
 3. `/api/weather` (実際の天気データを返すAPI)
 
 ### 【MacOSUI側の挙動】
-1. **インストール**: ユーザーが `https://dev-server.com/manifest.json` を入力してインストール。
+1. **インストール**: ユーザーが `https://dev-server.com/skill.json` を入力してインストール。
 2. **チャット連携**: ユーザーがGemini Chatで「明日の天気を教えて」と聞くと、Geminiは「お天気Skill」のツールが存在することに気づき、MacOSUI経由で外部の `/api/weather` にアクセスしてデータを取得し、回答します。
 3. **ウィジェット連携**: ユーザーがデスクトップでお天気ウィジェットを開くと、`index.html` がIframeで表示されます。Iframe内のJSは `window.postMessage` を使ってMacOSUI本体と通信し、「MacOSUIのAIを使って、この天気を要約して！」といった依頼を投げることができます。
 
