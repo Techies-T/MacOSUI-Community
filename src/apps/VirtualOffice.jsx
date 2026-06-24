@@ -10,6 +10,13 @@ const VirtualOffice = ({ onOpen, user }) => {
     const [myStatus, setMyStatus] = useState({ room: 'open-space', text: 'Active' });
     const [generatingAvatarId, setGeneratingAvatarId] = useState(null);
     const [error, setError] = useState('');
+    const [assistantPrompt, setAssistantPrompt] = useState('');
+
+    useEffect(() => {
+        if (selectedUser && selectedUser.id === user?.id) {
+            setAssistantPrompt(selectedUser.assistant_prompt || '');
+        }
+    }, [selectedUser, user?.id]);
 
     useEffect(() => {
         loadUsers(true);
@@ -164,14 +171,17 @@ const VirtualOffice = ({ onOpen, user }) => {
         }
     };
 
-    const handleUpdateSettings = async (workStart, workEnd, meetingBuffer) => {
+    const handleUpdateSettings = async (workStart, workEnd, meetingBuffer, promptValue) => {
+        const targetPrompt = promptValue !== undefined ? promptValue : (selectedUser?.assistant_prompt || '');
+
         setUsers(users.map(u => {
             if (u.id === user?.id) {
                 return {
                     ...u,
                     assistant_work_start: workStart,
                     assistant_work_end: workEnd,
-                    assistant_meeting_buffer: meetingBuffer
+                    assistant_meeting_buffer: meetingBuffer,
+                    assistant_prompt: targetPrompt
                 };
             }
             return u;
@@ -182,7 +192,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                 ...prev,
                 assistant_work_start: workStart,
                 assistant_work_end: workEnd,
-                assistant_meeting_buffer: meetingBuffer
+                assistant_meeting_buffer: meetingBuffer,
+                assistant_prompt: targetPrompt
             }));
         }
 
@@ -193,7 +204,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                 body: JSON.stringify({
                     assistant_work_start: workStart,
                     assistant_work_end: workEnd,
-                    assistant_meeting_buffer: meetingBuffer
+                    assistant_meeting_buffer: meetingBuffer,
+                    assistant_prompt: targetPrompt
                 })
             });
             if (!res.ok) {
@@ -468,6 +480,29 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                 <option value="45">45分前まで</option>
                                                 <option value="60">60分前まで</option>
                                             </select>
+                                        </div>
+                                        <div className="pt-2 border-t border-indigo-500/10 space-y-1.5">
+                                            <span className="text-[10px] font-semibold text-indigo-300">AI アシスタント プロンプト</span>
+                                            <textarea
+                                                value={assistantPrompt}
+                                                onChange={(e) => setAssistantPrompt(e.target.value)}
+                                                rows={5}
+                                                placeholder={`例：あなたは{name}のAIアシスタントです。主人は現在 {room} にいます。`}
+                                                className="w-full bg-gray-900 border border-gray-800 text-[10px] rounded p-1.5 text-gray-300 focus:outline-none resize-none font-mono leading-relaxed"
+                                            />
+                                            <div className="flex justify-end">
+                                                <button
+                                                    onClick={() => handleUpdateSettings(
+                                                        selectedUser.assistant_work_start,
+                                                        selectedUser.assistant_work_end,
+                                                        selectedUser.assistant_meeting_buffer,
+                                                        assistantPrompt
+                                                    )}
+                                                    className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[9px] font-bold px-2 py-0.5 rounded transition duration-150"
+                                                >
+                                                    プロンプト保存
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

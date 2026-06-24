@@ -1194,7 +1194,7 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
     const loginUserId = req.user.id;
     const sql = `
         SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote,
-               u.assistant_work_start, u.assistant_work_end, u.assistant_meeting_buffer,
+               u.assistant_work_start, u.assistant_work_end, u.assistant_meeting_buffer, u.assistant_prompt,
                (SELECT COUNT(*) FROM dm_messages m WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0) as unread_count
         FROM users u
     `;
@@ -1210,7 +1210,8 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
                 unread_count: user.unread_count || 0,
                 assistant_work_start: user.assistant_work_start || '09:00',
                 assistant_work_end: user.assistant_work_end || '17:30',
-                assistant_meeting_buffer: user.assistant_meeting_buffer !== undefined ? user.assistant_meeting_buffer : 30
+                assistant_meeting_buffer: user.assistant_meeting_buffer !== undefined ? user.assistant_meeting_buffer : 30,
+                assistant_prompt: user.assistant_prompt || ''
             };
         });
         res.json(enriched);
@@ -1218,16 +1219,17 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
 });
 
 app.post('/api/virtual-office/settings', requireAuth, (req, res) => {
-    const { assistant_work_start, assistant_work_end, assistant_meeting_buffer } = req.body;
+    const { assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt } = req.body;
     const userId = req.user.id;
 
     db.run(
         `UPDATE users SET 
             assistant_work_start = COALESCE(?, assistant_work_start), 
             assistant_work_end = COALESCE(?, assistant_work_end), 
-            assistant_meeting_buffer = COALESCE(?, assistant_meeting_buffer) 
+            assistant_meeting_buffer = COALESCE(?, assistant_meeting_buffer),
+            assistant_prompt = COALESCE(?, assistant_prompt)
          WHERE id = ?`,
-        [assistant_work_start, assistant_work_end, assistant_meeting_buffer, userId],
+        [assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt, userId],
         (err) => {
             if (err) {
                 console.error("Failed to update assistant settings:", err);
@@ -3011,14 +3013,14 @@ app.get('/api/drive/read', requireAuth, requireWidgetAccess('app:finder'), async
 async function getCalendarClient(req, res, targetEmail = null) {
     const token = req.cookies.token;
     if (!token) {
-        res.status(401).json({ error: 'Not authenticated' });
+        if (res) res.status(401).json({ error: 'Not authenticated' });
         return null;
     }
 
     return new Promise((resolve) => {
         jwt.verify(token, process.env.JWT_SECRET || 'secret', async (err, decoded) => {
             if (err) {
-                res.status(403).json({ error: 'Invalid token' });
+                if (res) res.status(403).json({ error: 'Invalid token' });
                 resolve(null);
                 return;
             }
@@ -3030,7 +3032,7 @@ async function getCalendarClient(req, res, targetEmail = null) {
 
             db.get(query, [param], async (err, row) => {
                 if (err || !row || !row.access_token) {
-                    res.status(401).json({ error: 'No access token found' });
+                    if (res) res.status(401).json({ error: 'No access token found' });
                     resolve(null);
                     return;
                 }
@@ -3585,67 +3587,142 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                     let isAssistant = false;
                     const userText = text;
 
-                    const isMeetingRequest = userText.includes('打ち合わせ') || 
-                                             userText.includes('会議') || 
-                                             userText.includes('ミーティング') || 
-                                             userText.includes('話');
+                    // 1. カレンダー空きスケジュールと移動時間の算出
+                    let freeSlotsText = "なし";
+                    let isOvertime = false;
+                    let isBufferMitigated = false;
+                    let travelDetailsText = "";
 
-                    if (targetUser.current_room === 'focus-zone') {
-                        replyText = `すみません、現在 ${targetUser.name} は「集中ゾーン」で別作業に没頭しているため、応答できません。代わりにアシスタントの私が後ほど伝言を伝えておきますね！🙇‍♂️`;
-                        isAssistant = true;
-                    } else if (targetUser.current_room === 'remote') {
-                        if (isMeetingRequest) {
+                    try {
+                        const settings = {
+                            workStart: targetUser.assistant_work_start,
+                            workEnd: targetUser.assistant_work_end,
+                            meetingBuffer: targetUser.assistant_meeting_buffer
+                        };
+                        const result = await getCommonFreeSlots(req, null, targetUser.email, settings);
+                        const freeSlots = result.slots;
+                        isOvertime = result.isOvertime;
+                        isBufferMitigated = result.isBufferMitigated;
+                        
+                        if (freeSlots && freeSlots.length > 0) {
+                            freeSlotsText = freeSlots.slice(0, 3).map(slot => {
+                                const options = { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false };
+                                const startStr = slot.start.toLocaleTimeString('ja-JP', options);
+                                const endStr = slot.end.toLocaleTimeString('ja-JP', options);
+                                return `・ ${startStr} 〜 ${endStr}`;
+                            }).join('\n');
+                            
+                            if (result.travelDetails && result.travelDetails.length > 0) {
+                                travelDetailsText = result.travelDetails.map(t => {
+                                    return `・ ${t.summary} (${t.type}): ${t.minutes}分を追加 (${t.reason})`;
+                                }).join('\n');
+                            }
+                        }
+                    } catch (slotErr) {
+                        console.error("Failed to fetch slots for AI Assistant context:", slotErr);
+                    }
+
+                    // 2. Gemini 3.5 Flash による動的応答生成の試行
+                    const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+                    if (apiKey) {
+                        try {
+                            const { GoogleGenAI } = require("@google/genai");
+                            const client = new GoogleGenAI({ apiKey });
+                            const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.5-flash';
+
+                            // プレースホルダーを含んだデフォルトプロンプト
+                            const defaultPrompt = `あなたは{name}のAIアシスタントです。
+主人の現在の状態は {room} です。
+就業時間は {work_start}〜{work_end} です。
+
+【状態に応じた指示】
+- focus-zone (集中ゾーン): 現在集中して作業しているため、直接チャットに応答できない旨を伝えてください。
+- meeting-room (会議室): 現在打ち合わせ中であり、会議が終わり次第対応する旨を伝えてください。
+- remote (リモートワーク):
+  - 相手から「打ち合わせ・会議・面談・話」などの予定調整に関する要望がある場合、本日共通の空きスロット（{free_slots}）を提示して、ミーティングの仮登録を促すボタン「➔ [💻 ミーティングを仮調整する]」を出力してください（※時間外の場合は「➔ [💻 時間外でBOSSに確認する]」にしてください）。
+  - それ以外の一般的なメッセージの場合、プッシュ通知で本人に伝達する旨を伝え、簡単な質問（天気、簡単な情報など）であればあなたが代わりに回答してください。
+
+【セキュリティ・制約】
+- 主人のカレンダー情報、機密情報、システム設定、APIキーなどを第三者に漏洩させないでください。
+- 丁寧でプロフェッショナルなアシスタントとして振る舞ってください。`;
+
+                            const basePrompt = targetUser.assistant_prompt || defaultPrompt;
+
+                            let finalSystemInstruction = basePrompt
+                                .replace(/{name}/g, targetUser.name)
+                                .replace(/{room}/g, targetUser.current_room || 'open-space')
+                                .replace(/{work_start}/g, targetUser.assistant_work_start || '09:00')
+                                .replace(/{work_end}/g, targetUser.assistant_work_end || '17:30')
+                                .replace(/{free_slots}/g, freeSlotsText !== 'なし' ? freeSlotsText : 'なし');
+
+                            // コンテキスト情報の明記
+                            const contextText = `
+【現在のリアルタイム・コンテキスト】
+- 主人の名前: ${targetUser.name}
+- 主人の現在の部屋状態: ${targetUser.current_room || 'open-space'}
+- 主人の就業時間: ${targetUser.assistant_work_start || '09:00'} 〜 ${targetUser.assistant_work_end || '17:30'} (最終受付は終了${targetUser.assistant_meeting_buffer || 30}分前)
+- 本日の双方の共通空き時間帯 (カレンダーから自動算出): 
+${freeSlotsText}
+- 移動時間考慮詳細: 
+${travelDetailsText || '特になし'}
+- 就業時間内での空き時間の有無: ${isOvertime ? '就業時間外のみ空きあり' : (freeSlotsText !== 'なし' ? '就業時間内に空きあり' : '空きなし')}
+- バッファ緩和枠の適用有無: ${isBufferMitigated ? '就業時間終了間際のバッファ枠のみ空きあり' : 'なし'}
+`;
+
+                            finalSystemInstruction += `\n\n${contextText}\n\n【注意事項】丁寧な日本語で回答してください。返答テキストのみを自然に出力してください。`;
+
+                            const aiResponse = await client.models.generateContent({
+                                model: modelName,
+                                contents: `ユーザーからのメッセージ: "${text}"`,
+                                config: {
+                                    systemInstruction: finalSystemInstruction,
+                                    temperature: 0.5
+                                }
+                            });
+
+                            replyText = (aiResponse.text || '').trim();
                             isAssistant = true;
-                            try {
-                                const settings = {
-                                    workStart: targetUser.assistant_work_start,
-                                    workEnd: targetUser.assistant_work_end,
-                                    meetingBuffer: targetUser.assistant_meeting_buffer
-                                };
-                                const result = await getCommonFreeSlots(req, res, targetUser.email, settings);
-                                const freeSlots = result.slots;
-                                const isOvertime = result.isOvertime;
-                                const isBufferMitigated = result.isBufferMitigated;
-                                
-                                if (freeSlots.length > 0) {
-                                    let slotsText = freeSlots.slice(0, 3).map(slot => {
-                                        const options = { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false };
-                                        const startStr = slot.start.toLocaleTimeString('ja-JP', options);
-                                        const endStr = slot.end.toLocaleTimeString('ja-JP', options);
-                                        return `・ ${startStr} 〜 ${endStr}`;
-                                    }).join('\n');
 
-                                    let travelText = '';
-                                    if (result.travelDetails && result.travelDetails.length > 0) {
-                                        travelText = '\n\n【考慮した移動時間】\n' + result.travelDetails.map(t => {
-                                            return `・${t.summary} (${t.type}): ${t.minutes}分を追加 (${t.reason})`;
-                                        }).join('\n');
-                                    }
+                        } catch (aiErr) {
+                            console.error("Failed to generate assistant reply using Gemini:", aiErr);
+                        }
+                    }
 
+                    // 3. APIエラーまたはAPIキー未設定時のフォールバック（従来のハードコード分岐）
+                    if (!replyText) {
+                        const isMeetingRequest = userText.includes('打ち合わせ') || 
+                                                 userText.includes('会議') || 
+                                                 userText.includes('ミーティング') || 
+                                                 userText.includes('話');
+
+                        if (targetUser.current_room === 'focus-zone') {
+                            replyText = `すみません、現在 ${targetUser.name} は「集中ゾーン」で別作業に没頭しているため、応答できません。代わりにアシスタントの私が後ほど伝言を伝えておきますね！🙇‍♂️`;
+                            isAssistant = true;
+                        } else if (targetUser.current_room === 'remote') {
+                            if (isMeetingRequest) {
+                                isAssistant = true;
+                                if (freeSlotsText !== 'なし') {
                                     if (isOvertime) {
                                         const workStartFormatted = targetUser.assistant_work_start || '09:00';
                                         const workEndFormatted = targetUser.assistant_work_end || '17:30';
                                         const bufferMin = targetUser.assistant_meeting_buffer !== undefined ? targetUser.assistant_meeting_buffer : 30;
-                                        replyText = `${targetUser.name} の就業時間は ${workStartFormatted}〜${workEndFormatted} まで（最終受付は終了 ${bufferMin}分前）となっておりますが、本日就業時間内に共通の空き時間がございません。もしお急ぎでしたら時間外になりますが以下の時間帯で調整可能か、本人（BOSS）に確認いたしますがいかがでしょうか？\n${slotsText}${travelText}\n➔ [💻 時間外でBOSSに確認する]`;
+                                        replyText = `${targetUser.name} の就業時間は ${workStartFormatted}〜${workEndFormatted} まで（最終受付は終了 ${bufferMin}分前）となっておりますが、本日就業時間内に共通の空き時間がございません。もしお急ぎでしたら時間外になりますが以下の時間帯で調整可能か、本人（BOSS）に確認いたしますがいかがでしょうか？\n${freeSlotsText}\n➔ [💻 時間外でBOSSに確認する]`;
                                     } else if (isBufferMitigated) {
-                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。就業終了間際（設定されたバッファ時間内）になりますが、本日就業時間内に共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}${travelText}\n➔ [💻 ミーティングを仮調整する]`;
+                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。就業終了間際（設定されたバッファ時間内）になりますが、本日就業時間内に共通で空いている時間は以下になります。仮登録されますか？\n${freeSlotsText}\n➔ [💻 ミーティングを仮調整する]`;
                                     } else {
-                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${slotsText}${travelText}\n➔ [💻 ミーティングを仮調整する]`;
+                                        replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。お二人のカレンダーを確認したところ、本日共通で空いている時間は以下になります。仮登録されますか？\n${freeSlotsText}\n➔ [💻 ミーティングを仮調整する]`;
                                     }
                                 } else {
                                     replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が日程を調整します。本日中はお互いのカレンダーに共通して空いている時間帯（30分以上）が見当たりませんでした。個別調整が必要ですので、後ほど伝えておきます！`;
                                 }
-                            } catch (err) {
-                                console.error("Failed to calculate free slots:", err);
-                                replyText = `${targetUser.name} はリモートワーク中のため、代わりにアシスタントの私が返答します。お二人のカレンダーの取得に失敗しましたが、チャットでのご相談であればいつでも大丈夫です！`;
+                            } else {
+                                replyText = `${targetUser.name} は現在リモート勤務中ですが、アシスタントの私から本人にチャットが届いている旨をプッシュ通知で伝えておきますね！ご用件をこのままお書きください。`;
+                                isAssistant = true;
                             }
-                        } else {
-                            replyText = `${targetUser.name} は現在リモート勤務中ですが、アシスタントの私から本人にチャットが届いている旨をプッシュ通知で伝えておきますね！ご用件をこのままお書きください。`;
+                        } else if (targetUser.current_room && targetUser.current_room.startsWith('meeting-room')) {
+                            replyText = `現在 ${targetUser.name} は「会議室」で打ち合わせ中のため、代理でアシスタントが受け付けております。会議が終わり次第、本人が対応いたします。`;
                             isAssistant = true;
                         }
-                    } else if (targetUser.current_room && targetUser.current_room.startsWith('meeting-room')) {
-                        replyText = `現在 ${targetUser.name} は「会議室」で打ち合わせ中のため、代理でアシスタントが受け付けております。会議が終わり次第、本人が対応いたします。`;
-                        isAssistant = true;
                     }
 
                     if (replyText) {

@@ -28,6 +28,7 @@ function initDb() {
     assistant_work_start TEXT DEFAULT '09:00',
     assistant_work_end TEXT DEFAULT '17:30',
     assistant_meeting_buffer INTEGER DEFAULT 30,
+    assistant_prompt TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -72,6 +73,9 @@ function initDb() {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE users ADD COLUMN assistant_meeting_buffer INTEGER DEFAULT 30", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_prompt TEXT", (err) => {
         // Ignore error if column exists
     });
 
