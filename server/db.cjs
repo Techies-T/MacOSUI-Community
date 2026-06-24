@@ -479,6 +479,27 @@ async function autoActivate() {
             await db.setSetting('MCP_QUICK_PROMPTS', defaultPrompts);
         }
 
+        // Auto-register Default Assistant Prompt
+        const existingDefaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT');
+        if (!existingDefaultPrompt) {
+            console.log('DEBUG: Initializing DEFAULT_ASSISTANT_PROMPT...');
+            const defaultPrompt = `あなたは{name}のAIアシスタントです。
+主人の現在の状態は {room} です。
+就業時間は {work_start}〜{work_end} です。
+
+【状態に応じた指示】
+- focus-zone (集中ゾーン): 現在集中して作業しているため、直接チャットに応答できない旨を伝えてください。
+- meeting-room (会議室): 現在打ち合わせ中であり、会議が終わり次第対応する旨を伝えてください。
+- remote (リモートワーク):
+  - 相手から「打ち合わせ・会議・面談・話」などの予定調整に関する要望がある場合、本日共通の空きスロット（{free_slots}）を提示して、ミーティングの仮登録を促すボタン「➔ [💻 ミーティングを仮調整する]」を出力してください（※時間外の場合は「➔ [💻 時間外でBOSSに確認する]」にしてください）。
+  - それ以外の一般的なメッセージの場合、プッシュ通知で本人に伝達する旨を伝え、簡単な質問（天気、簡単な情報など）であればあなたが代わりに回答してください。
+
+【セキュリティ・制約】
+- 主人のカレンダー情報、機密情報、システム設定、APIキーなどを第三者に漏洩させないでください。
+- 丁寧でプロフェッショナルなアシスタントとして振る舞ってください。`;
+            await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultPrompt);
+        }
+
         // Auto-Register Default Deep Research Workflows
         const wfCount = await new Promise((resolve) => {
             db.get("SELECT COUNT(*) as count FROM deep_research_workflow_definitions", [], (err, row) => {

@@ -134,6 +134,7 @@ app.get('/api/config', async (req, res) => {
         }
 
         const defaultWorkflowId = await db.getSetting('DEFAULT_DEEP_RESEARCH_WORKFLOW_ID') || '';
+        const defaultAssistantPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -157,7 +158,8 @@ app.get('/api/config', async (req, res) => {
             isMcpSecretConfigured,
             rbacPolicies,
             mcpQuickPrompts,
-            defaultWorkflowId
+            defaultWorkflowId,
+            defaultAssistantPrompt
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -166,7 +168,7 @@ app.get('/api/config', async (req, res) => {
 });
 
 app.post('/api/config', requireAuth, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -201,7 +203,7 @@ app.post('/api/config', requireAuth, async (req, res) => {
         const hasRolesManage = hasWildcard || allowedActions.includes('action:manage_roles');
 
         // Manage System Settings fields
-        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId) {
+        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined) {
             if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
             if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
             if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
@@ -212,6 +214,7 @@ app.post('/api/config', requireAuth, async (req, res) => {
             if (mcpClientSecret !== undefined) await db.setSetting('MCP_CLIENT_SECRET', mcpClientSecret);
             if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
             if (mcpQuickPrompts !== undefined) await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(mcpQuickPrompts));
+            if (defaultAssistantPrompt !== undefined) await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultAssistantPrompt);
         }
 
         const allowedWidgets = req.user.allowed_widgets || [];
@@ -3630,21 +3633,8 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                             const client = new GoogleGenAI({ apiKey });
                             const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.5-flash';
 
-                            // プレースホルダーを含んだデフォルトプロンプト
-                            const defaultPrompt = `あなたは{name}のAIアシスタントです。
-主人の現在の状態は {room} です。
-就業時間は {work_start}〜{work_end} です。
-
-【状態に応じた指示】
-- focus-zone (集中ゾーン): 現在集中して作業しているため、直接チャットに応答できない旨を伝えてください。
-- meeting-room (会議室): 現在打ち合わせ中であり、会議が終わり次第対応する旨を伝えてください。
-- remote (リモートワーク):
-  - 相手から「打ち合わせ・会議・面談・話」などの予定調整に関する要望がある場合、本日共通の空きスロット（{free_slots}）を提示して、ミーティングの仮登録を促すボタン「➔ [💻 ミーティングを仮調整する]」を出力してください（※時間外の場合は「➔ [💻 時間外でBOSSに確認する]」にしてください）。
-  - それ以外の一般的なメッセージの場合、プッシュ通知で本人に伝達する旨を伝え、簡単な質問（天気、簡単な情報など）であればあなたが代わりに回答してください。
-
-【セキュリティ・制約】
-- 主人のカレンダー情報、機密情報、システム設定、APIキーなどを第三者に漏洩させないでください。
-- 丁寧でプロフェッショナルなアシスタントとして振る舞ってください。`;
+                            // データベースからデフォルトプロンプトを取得
+                            const defaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
 
                             const basePrompt = targetUser.assistant_prompt || defaultPrompt;
 

@@ -11,6 +11,24 @@ const VirtualOffice = ({ onOpen, user }) => {
     const [generatingAvatarId, setGeneratingAvatarId] = useState(null);
     const [error, setError] = useState('');
     const [assistantPrompt, setAssistantPrompt] = useState('');
+    const [defaultAssistantPrompt, setDefaultAssistantPrompt] = useState('');
+
+    useEffect(() => {
+        const loadConfig = async () => {
+            try {
+                const res = await fetch('/api/config');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.defaultAssistantPrompt) {
+                        setDefaultAssistantPrompt(data.defaultAssistantPrompt);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load config for default prompt:", err);
+            }
+        };
+        loadConfig();
+    }, []);
 
     useEffect(() => {
         if (selectedUser && selectedUser.id === user?.id) {
@@ -482,14 +500,39 @@ const VirtualOffice = ({ onOpen, user }) => {
                                             </select>
                                         </div>
                                         <div className="pt-2 border-t border-indigo-500/10 space-y-1.5">
-                                            <span className="text-[10px] font-semibold text-indigo-300">AI アシスタント プロンプト</span>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-semibold text-indigo-300">AI アシスタント プロンプト</span>
+                                                {defaultAssistantPrompt && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (window.confirm("現在の編集内容がデフォルトプロンプトで上書きされますが、よろしいですか？")) {
+                                                                setAssistantPrompt(defaultAssistantPrompt);
+                                                            }
+                                                        }}
+                                                        className="text-[9px] text-indigo-400 hover:text-indigo-300 underline bg-transparent border-0 cursor-pointer"
+                                                    >
+                                                        デフォルトをコピー
+                                                    </button>
+                                                )}
+                                            </div>
                                             <textarea
                                                 value={assistantPrompt}
                                                 onChange={(e) => setAssistantPrompt(e.target.value)}
                                                 rows={5}
-                                                placeholder={`例：あなたは{name}のAIアシスタントです。主人は現在 {room} にいます。`}
+                                                placeholder={`未設定の場合はデフォルトルールが適用されます。\n例：あなたは{name}のAIアシスタントです。`}
                                                 className="w-full bg-gray-900 border border-gray-800 text-[10px] rounded p-1.5 text-gray-300 focus:outline-none resize-none font-mono leading-relaxed"
                                             />
+                                            {defaultAssistantPrompt && (
+                                                <details className="text-[9px] text-gray-400">
+                                                    <summary className="cursor-pointer hover:text-gray-300 focus:outline-none py-0.5 select-none">
+                                                        デフォルトプロンプトを表示 (リードオンリー)
+                                                    </summary>
+                                                    <div className="mt-1 bg-gray-900/50 border border-gray-800/50 rounded p-1.5 max-h-32 overflow-y-auto text-gray-500 font-mono whitespace-pre-wrap leading-normal select-text">
+                                                        {defaultAssistantPrompt}
+                                                    </div>
+                                                </details>
+                                            )}
                                             <div className="flex justify-end">
                                                 <button
                                                     onClick={() => handleUpdateSettings(
