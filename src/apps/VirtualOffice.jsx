@@ -12,6 +12,7 @@ const VirtualOffice = ({ onOpen, user }) => {
     const [error, setError] = useState('');
     const [assistantPrompt, setAssistantPrompt] = useState('');
     const [defaultAssistantPrompt, setDefaultAssistantPrompt] = useState('');
+    const [activeSettingsTab, setActiveSettingsTab] = useState('basic');
 
     useEffect(() => {
         const loadConfig = async () => {
@@ -451,103 +452,130 @@ const VirtualOffice = ({ onOpen, user }) => {
                             {/* Assistant Rules Panel (Only for Me / Boss settings) */}
                             {selectedUser.id === user?.id && (
                                 <div className="bg-indigo-950/20 border border-indigo-500/20 p-4 rounded-xl space-y-3">
-                                    <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-                                         <span>🤖</span> アシスタント調整ルール
-                                    </h4>
-                                    <p className="text-[10px] text-gray-400 leading-relaxed">
-                                        BOSS（あなた）の予定をアシスタントが代理調整する際の就業ルールを決めます。
-                                    </p>
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] font-semibold text-gray-400">就業開始時間</span>
-                                            <select
-                                                value={selectedUser.assistant_work_start || '09:00'}
-                                                onChange={(e) => handleUpdateSettings(e.target.value, selectedUser.assistant_work_end, selectedUser.assistant_meeting_buffer)}
-                                                className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                                             <span>🤖</span> アシスタント調整
+                                        </h4>
+                                        <div className="flex bg-gray-900 border border-gray-800 rounded p-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => setActiveSettingsTab('basic')}
+                                                className={`text-[9px] px-1.5 py-0.5 rounded transition duration-150 ${activeSettingsTab === 'basic' ? 'bg-indigo-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'}`}
                                             >
-                                                <option value="08:00">08:00</option>
-                                                <option value="08:30">08:30</option>
-                                                <option value="09:00">09:00</option>
-                                                <option value="09:30">09:30</option>
-                                                <option value="10:00">10:00</option>
-                                            </select>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] font-semibold text-gray-400">就業終了時間</span>
-                                            <select
-                                                value={selectedUser.assistant_work_end || '17:30'}
-                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, e.target.value, selectedUser.assistant_meeting_buffer)}
-                                                className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                                基本設定
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setActiveSettingsTab('prompt')}
+                                                className={`text-[9px] px-1.5 py-0.5 rounded transition duration-150 ${activeSettingsTab === 'prompt' ? 'bg-indigo-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'}`}
                                             >
-                                                <option value="17:00">17:00</option>
-                                                <option value="17:30">17:30</option>
-                                                <option value="18:00">18:00</option>
-                                                <option value="18:30">18:30</option>
-                                                <option value="19:00">19:00</option>
-                                            </select>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] font-semibold text-gray-400">終了前バッファ</span>
-                                            <select
-                                                value={selectedUser.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30}
-                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, parseInt(e.target.value))}
-                                                className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
-                                            >
-                                                <option value="15">15分前まで</option>
-                                                <option value="30">30分前まで</option>
-                                                <option value="45">45分前まで</option>
-                                                <option value="60">60分前まで</option>
-                                            </select>
-                                        </div>
-                                        <div className="pt-2 border-t border-indigo-500/10 space-y-1.5">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-semibold text-indigo-300">AI アシスタント プロンプト</span>
-                                                {defaultAssistantPrompt && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if (window.confirm("現在の編集内容がデフォルトプロンプトで上書きされますが、よろしいですか？")) {
-                                                                setAssistantPrompt(defaultAssistantPrompt);
-                                                            }
-                                                        }}
-                                                        className="text-[9px] text-indigo-400 hover:text-indigo-300 underline bg-transparent border-0 cursor-pointer"
-                                                    >
-                                                        デフォルトをコピー
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <textarea
-                                                value={assistantPrompt}
-                                                onChange={(e) => setAssistantPrompt(e.target.value)}
-                                                rows={5}
-                                                placeholder={`未設定の場合はデフォルトルールが適用されます。\n例：あなたは{name}のAIアシスタントです。`}
-                                                className="w-full bg-gray-900 border border-gray-800 text-[10px] rounded p-1.5 text-gray-300 focus:outline-none resize-none font-mono leading-relaxed"
-                                            />
-                                            {defaultAssistantPrompt && (
-                                                <details className="text-[9px] text-gray-400">
-                                                    <summary className="cursor-pointer hover:text-gray-300 focus:outline-none py-0.5 select-none">
-                                                        デフォルトプロンプトを表示 (リードオンリー)
-                                                    </summary>
-                                                    <div className="mt-1 bg-gray-900/50 border border-gray-800/50 rounded p-1.5 max-h-32 overflow-y-auto text-gray-500 font-mono whitespace-pre-wrap leading-normal select-text">
-                                                        {defaultAssistantPrompt}
-                                                    </div>
-                                                </details>
-                                            )}
-                                            <div className="flex justify-end">
-                                                <button
-                                                    onClick={() => handleUpdateSettings(
-                                                        selectedUser.assistant_work_start,
-                                                        selectedUser.assistant_work_end,
-                                                        selectedUser.assistant_meeting_buffer,
-                                                        assistantPrompt
-                                                    )}
-                                                    className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[9px] font-bold px-2 py-0.5 rounded transition duration-150"
-                                                >
-                                                    プロンプト保存
-                                                </button>
-                                            </div>
+                                                AIプロンプト
+                                            </button>
                                         </div>
                                     </div>
+
+                                    {activeSettingsTab === 'basic' ? (
+                                        <div className="space-y-2">
+                                            <p className="text-[10px] text-gray-400 leading-relaxed">
+                                                BOSS（あなた）の予定をアシスタントが代理調整する際の就業ルールを決めます。
+                                            </p>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-semibold text-gray-400">就業開始時間</span>
+                                                <select
+                                                    value={selectedUser.assistant_work_start || '09:00'}
+                                                    onChange={(e) => handleUpdateSettings(e.target.value, selectedUser.assistant_work_end, selectedUser.assistant_meeting_buffer)}
+                                                    className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                                >
+                                                    <option value="08:00">08:00</option>
+                                                    <option value="08:30">08:30</option>
+                                                    <option value="09:00">09:00</option>
+                                                    <option value="09:30">09:30</option>
+                                                    <option value="10:00">10:00</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-semibold text-gray-400">就業終了時間</span>
+                                                <select
+                                                    value={selectedUser.assistant_work_end || '17:30'}
+                                                    onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, e.target.value, selectedUser.assistant_meeting_buffer)}
+                                                    className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                                >
+                                                    <option value="17:00">17:00</option>
+                                                    <option value="17:30">17:30</option>
+                                                    <option value="18:00">18:00</option>
+                                                    <option value="18:30">18:30</option>
+                                                    <option value="19:00">19:00</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-semibold text-gray-400">終了前バッファ</span>
+                                                <select
+                                                    value={selectedUser.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30}
+                                                    onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, parseInt(e.target.value))}
+                                                    className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
+                                                >
+                                                    <option value="15">15分前まで</option>
+                                                    <option value="30">30分前まで</option>
+                                                    <option value="45">45分前まで</option>
+                                                    <option value="60">60分前まで</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <p className="text-[10px] text-gray-400 leading-relaxed">
+                                                AIが代理返答する際のプロンプトをカスタマイズできます。
+                                            </p>
+                                            <div className="pt-2 border-t border-indigo-500/10 space-y-1.5">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[10px] font-semibold text-indigo-300">AI アシスタント プロンプト</span>
+                                                    {defaultAssistantPrompt && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (window.confirm("現在の編集内容がデフォルトプロンプトで上書きされますが、よろしいですか？")) {
+                                                                    setAssistantPrompt(defaultAssistantPrompt);
+                                                                }
+                                                            }}
+                                                            className="text-[9px] text-indigo-400 hover:text-indigo-300 underline bg-transparent border-0 cursor-pointer"
+                                                        >
+                                                            デフォルトをコピー
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <textarea
+                                                    value={assistantPrompt}
+                                                    onChange={(e) => setAssistantPrompt(e.target.value)}
+                                                    rows={8}
+                                                    placeholder={`未設定の場合はデフォルトルールが適用されます。\n例：あなたは{name}のAIアシスタントです。`}
+                                                    className="w-full bg-gray-900 border border-gray-800 text-[10px] rounded p-1.5 text-gray-300 focus:outline-none resize-none font-mono leading-relaxed"
+                                                />
+                                                {defaultAssistantPrompt && (
+                                                    <details className="text-[9px] text-gray-400">
+                                                        <summary className="cursor-pointer hover:text-gray-300 focus:outline-none py-0.5 select-none">
+                                                            デフォルトプロンプトを表示 (リードオンリー)
+                                                        </summary>
+                                                        <div className="mt-1 bg-gray-900/50 border border-gray-800/50 rounded p-1.5 max-h-32 overflow-y-auto text-gray-500 font-mono whitespace-pre-wrap leading-normal select-text">
+                                                            {defaultAssistantPrompt}
+                                                        </div>
+                                                    </details>
+                                                )}
+                                                <div className="flex justify-end">
+                                                    <button
+                                                        onClick={() => handleUpdateSettings(
+                                                            selectedUser.assistant_work_start,
+                                                            selectedUser.assistant_work_end,
+                                                            selectedUser.assistant_meeting_buffer,
+                                                            assistantPrompt
+                                                        )}
+                                                        className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[9px] font-bold px-2 py-0.5 rounded transition duration-150"
+                                                    >
+                                                        プロンプト保存
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
