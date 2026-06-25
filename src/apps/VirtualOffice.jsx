@@ -14,6 +14,9 @@ const VirtualOffice = ({ onOpen, user }) => {
     const [defaultAssistantPrompt, setDefaultAssistantPrompt] = useState('');
     const [activeSettingsTab, setActiveSettingsTab] = useState('basic');
 
+    const allowedActions = user?.allowed_actions || [];
+    const canManageRules = allowedActions.includes('*') || allowedActions.includes('action:manage_assistant_rules');
+
     useEffect(() => {
         const loadConfig = async () => {
             try {
@@ -190,31 +193,8 @@ const VirtualOffice = ({ onOpen, user }) => {
         }
     };
 
-    const handleUpdateSettings = async (workStart, workEnd, meetingBuffer, promptValue) => {
+    const handleUpdateSettings = async (workStart, workEnd, meetingBuffer, promptValue, override = false) => {
         const targetPrompt = promptValue !== undefined ? promptValue : (selectedUser?.assistant_prompt || '');
-
-        setUsers(users.map(u => {
-            if (u.id === user?.id) {
-                return {
-                    ...u,
-                    assistant_work_start: workStart,
-                    assistant_work_end: workEnd,
-                    assistant_meeting_buffer: meetingBuffer,
-                    assistant_prompt: targetPrompt
-                };
-            }
-            return u;
-        }));
-
-        if (selectedUser && selectedUser.id === user?.id) {
-            setSelectedUser(prev => ({
-                ...prev,
-                assistant_work_start: workStart,
-                assistant_work_end: workEnd,
-                assistant_meeting_buffer: meetingBuffer,
-                assistant_prompt: targetPrompt
-            }));
-        }
 
         try {
             const res = await fetch('/api/virtual-office/settings', {
@@ -224,16 +204,60 @@ const VirtualOffice = ({ onOpen, user }) => {
                     assistant_work_start: workStart,
                     assistant_work_end: workEnd,
                     assistant_meeting_buffer: meetingBuffer,
-                    assistant_prompt: targetPrompt
+                    assistant_prompt: targetPrompt,
+                    override: override
                 })
             });
+
             if (!res.ok) {
                 const data = await res.json();
                 throw new Error(data.error || 'Failed to update assistant settings');
             }
+
+            const data = await res.json();
+            if (data.status === 'warning') {
+                const confirmSave = window.confirm(
+                    `⚠️ 就業規則違反の疑いがあります：\n\n${data.reason}\n\nこのまま強制保存しますか？\n（この操作は監査ログに記録されます）`
+                );
+                if (confirmSave) {
+                    await handleUpdateSettings(workStart, workEnd, meetingBuffer, promptValue, true);
+                } else {
+                    loadUsers(false);
+                }
+                return;
+            }
+
+            // Update local state on success
+            setUsers(prevUsers => prevUsers.map(u => {
+                if (u.id === user?.id) {
+                    return {
+                        ...u,
+                        assistant_work_start: workStart,
+                        assistant_work_end: workEnd,
+                        assistant_meeting_buffer: meetingBuffer,
+                        assistant_prompt: targetPrompt
+                    };
+                }
+                return u;
+            }));
+
+            if (selectedUser && selectedUser.id === user?.id) {
+                setSelectedUser(prev => ({
+                    ...prev,
+                    assistant_work_start: workStart,
+                    assistant_work_end: workEnd,
+                    assistant_meeting_buffer: meetingBuffer,
+                    assistant_prompt: targetPrompt
+                }));
+            }
+
+            if (override) {
+                alert("就業規則警告を承認し、設定を強制保存しました。");
+            }
         } catch (err) {
             console.error('Settings update failed:', err);
             setError(err.message);
+            loadUsers(false);
         }
     };
 
@@ -450,7 +474,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                             </div>
 
                             {/* Assistant Rules Panel (Only for Me / Boss settings) */}
-                            {selectedUser.id === user?.id && (
+                            {selectedUser.id === user?.id && canManageRules && (
                                 <div className="bg-indigo-950/20 border border-indigo-500/20 p-4 rounded-xl space-y-3">
                                     <div className="flex items-center justify-between">
                                         <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">

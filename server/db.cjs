@@ -353,6 +353,12 @@ async function autoActivate() {
                     "allowed_models": ["*"],
                     "allowed_actions": ["action:generate_infographic", "action:use_mcp_tools"]
                 },
+                "manager": {
+                    "name": "Manager",
+                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_models": ["*"],
+                    "allowed_actions": ["action:manage_assistant_rules"]
+                },
                 "user": {
                     "name": "General User",
                     "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
@@ -365,8 +371,19 @@ async function autoActivate() {
             try {
                 const policies = JSON.parse(existingPolicies);
                 let updated = false;
+
+                // Migrate and add manager role if missing
+                if (!policies.manager) {
+                    policies.manager = {
+                        "name": "Manager",
+                        "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_models": ["*"],
+                        "allowed_actions": ["action:manage_assistant_rules"]
+                    };
+                    updated = true;
+                }
                 
-                ['researcher', 'user'].forEach(roleKey => {
+                ['researcher', 'user', 'manager'].forEach(roleKey => {
                     if (policies[roleKey] && policies[roleKey].allowed_widgets) {
                         const widgets = policies[roleKey].allowed_widgets;
                         if (!widgets.includes('app:virtual-office')) {
@@ -381,7 +398,7 @@ async function autoActivate() {
                 });
                 
                 if (updated) {
-                    console.log('DEBUG: Updating existing RBAC policies with virtual-office and dm-chat widgets...');
+                    console.log('DEBUG: Updating existing RBAC policies with manager role, virtual-office and dm-chat widgets...');
                     await db.setSetting('RBAC_POLICIES', JSON.stringify(policies));
                 }
             } catch (err) {
@@ -498,6 +515,27 @@ async function autoActivate() {
 - 主人のカレンダー情報、機密情報、システム設定、APIキーなどを第三者に漏洩させないでください。
 - 丁寧でプロフェッショナルなアシスタントとして振る舞ってください。`;
             await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultPrompt);
+        }
+
+        // Auto-register Company Work Policy (RAG source)
+        const existingWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY');
+        if (!existingWorkPolicy) {
+            console.log('DEBUG: Initializing COMPANY_WORK_POLICY...');
+            const defaultPolicy = `# 共通就業規則およびカレンダー調整ガイドライン
+
+本ガイドラインは、当社の全社員およびAIエージェントの日程調整ルールを規定するものです。
+
+## 1. 労働時間および連絡対応時間
+- **標準労働時間**: 平日 09:00 〜 17:30。
+- **時間外・深夜対応の原則禁止**: 
+  - 本ガイドラインに基づき、午後22:00（22:00）から翌午前05:00（05:00）までの時間帯における新規の会議・打ち合わせ日程の調整、およびそれを推奨・受託するAIアシスタントのルール設定は原則として禁止します。
+  - 深夜時間帯における残業アポ調整は、特別な緊急対応や事前申請がない限り、システム的・運用的に自動登録およびAIによる勧誘を認めてはなりません。
+- **BOSSの健康管理優先**:
+  - 過重労働を防止するため、就業時間外（特に17:30以降）の打ち合わせを自動で仮登録するプロンプト指示、あるいは「いかなる時間でもアポを入れて構わない」といった指示は不適切（コンプライアンス違反）とみなします。
+
+## 2. AIアシスタントへの指示（プロンプト）の制限
+- AIアシスタントに対するカスタマイズプロンプトにおいて、「深夜労働」「違法行為の隠蔽」「ハラスメント」などを肯定、または推奨する内容を記述してはなりません。`;
+            await db.setSetting('COMPANY_WORK_POLICY', defaultPolicy);
         }
 
         // Auto-Register Default Deep Research Workflows

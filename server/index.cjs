@@ -135,6 +135,7 @@ app.get('/api/config', async (req, res) => {
 
         const defaultWorkflowId = await db.getSetting('DEFAULT_DEEP_RESEARCH_WORKFLOW_ID') || '';
         const defaultAssistantPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
+        const companyWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY') || '';
 
         res.json({
             clientId, // Expose full client ID for frontend auth
@@ -159,7 +160,8 @@ app.get('/api/config', async (req, res) => {
             rbacPolicies,
             mcpQuickPrompts,
             defaultWorkflowId,
-            defaultAssistantPrompt
+            defaultAssistantPrompt,
+            companyWorkPolicy
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -168,7 +170,7 @@ app.get('/api/config', async (req, res) => {
 });
 
 app.post('/api/config', requireAuth, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy } = req.body;
 
     try {
         // Dynamic Key Generation on Activation
@@ -203,7 +205,7 @@ app.post('/api/config', requireAuth, async (req, res) => {
         const hasRolesManage = hasWildcard || allowedActions.includes('action:manage_roles');
 
         // Manage System Settings fields
-        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined) {
+        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined || companyWorkPolicy !== undefined) {
             if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
             if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
             if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
@@ -215,6 +217,7 @@ app.post('/api/config', requireAuth, async (req, res) => {
             if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
             if (mcpQuickPrompts !== undefined) await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(mcpQuickPrompts));
             if (defaultAssistantPrompt !== undefined) await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultAssistantPrompt);
+            if (companyWorkPolicy !== undefined) await db.setSetting('COMPANY_WORK_POLICY', companyWorkPolicy);
         }
 
         const allowedWidgets = req.user.allowed_widgets || [];
@@ -1221,26 +1224,152 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
     });
 });
 
-app.post('/api/virtual-office/settings', requireAuth, (req, res) => {
-    const { assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt } = req.body;
+app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
+    const { assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt, override } = req.body;
     const userId = req.user.id;
 
-    db.run(
-        `UPDATE users SET 
-            assistant_work_start = COALESCE(?, assistant_work_start), 
-            assistant_work_end = COALESCE(?, assistant_work_end), 
-            assistant_meeting_buffer = COALESCE(?, assistant_meeting_buffer),
-            assistant_prompt = COALESCE(?, assistant_prompt)
-         WHERE id = ?`,
-        [assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt, userId],
-        (err) => {
-            if (err) {
-                console.error("Failed to update assistant settings:", err);
-                return res.status(500).json({ error: 'Failed to update assistant settings' });
-            }
-            res.json({ status: 'ok' });
+    // 1. ロール・アクション権限のチェック
+    const allowedActions = req.user.allowed_actions || [];
+    const hasPermission = allowedActions.includes('*') || allowedActions.includes('action:manage_assistant_rules');
+    if (!hasPermission) {
+        return res.status(403).json({ error: 'Permission denied. Requires action:manage_assistant_rules' });
+    }
+
+    // 2. 変更前プロンプトの取得
+    db.get("SELECT assistant_prompt FROM users WHERE id = ?", [userId], async (err, row) => {
+        if (err) {
+            console.error("Failed to fetch previous assistant settings:", err);
+            return res.status(500).json({ error: 'Database error' });
         }
-    );
+        
+        const previousPrompt = row ? row.assistant_prompt : '';
+        const newPrompt = assistant_prompt !== undefined ? assistant_prompt : previousPrompt;
+
+        let isCompliant = true;
+        let warningReason = '';
+
+        // 3. プロンプト変更時かつ強制保存フラグがない場合の就業規則審査
+        if (assistant_prompt !== undefined && override !== true) {
+            const companyWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY') || '';
+            const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+
+            if (apiKey && companyWorkPolicy) {
+                try {
+                    const client = new GoogleGenAI({ apiKey });
+                    const model = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
+
+                    const systemInstruction = `あなたは会社のコンプライアンスおよび労働管理（36協定）の監査用AIです。
+提供された「就業規則」と、ユーザーが設定しようとしている「AIアシスタント用プロンプト」を比較し、AIアシスタントの指示が就業規則に違反している（または違反を助長している）疑いがないかを判定してください。
+
+特に以下の点に注意してください。
+1. 午後22:00から翌午前05:00までの深夜時間帯でのアポイントを自動調整・受託するような記述、または深夜労働を推奨・助長する記述。
+2. 就業時間外（特に17:30以降）の打ち合わせを自動で仮登録するプロンプト指示、あるいは「いかなる時間でもアポを入れて構わない」といった過重労働を容認する指示。
+3. ハラスメントや情報の漏洩など、その他就業規則に反する指示。
+
+出力は、以下のJSON形式で返答してください。JSON以外の余計な記述やマークダウンタグ（\`\`\`json等）を含めないでください。
+{
+  "compliant": trueまたはfalse（違反の疑いがない場合はtrue、違反またはその疑いがある場合はfalse）,
+  "reason": "違反の疑いがある場合の具体的な懸念・違反箇所についての理由説明（日本語）"
+}`;
+
+                    const userContent = `【就業規則】
+${companyWorkPolicy}
+
+【AIアシスタント用プロンプト】
+${newPrompt}`;
+
+                    const response = await client.models.generateContent({
+                        model: model,
+                        contents: userContent,
+                        config: {
+                            systemInstruction: systemInstruction,
+                            responseMimeType: "application/json",
+                            responseSchema: {
+                                type: "OBJECT",
+                                properties: {
+                                    compliant: { type: "BOOLEAN", description: "Whether the prompt is compliant with the work policy" },
+                                    reason: { type: "STRING", description: "The detailed reason if there is a suspected violation" }
+                                },
+                                required: ["compliant", "reason"]
+                            }
+                        }
+                    });
+
+                    if (response.text) {
+                        try {
+                            const evaluation = JSON.parse(response.text.trim());
+                            isCompliant = evaluation.compliant !== false;
+                            warningReason = evaluation.reason || '';
+                        } catch (parseErr) {
+                            console.error("Failed to parse Gemini compliance response JSON:", parseErr, response.text);
+                        }
+                    }
+                } catch (geminiErr) {
+                    console.error("Failed to evaluate prompt compliance via Gemini:", geminiErr);
+                    // Gemini APIで何らかのエラーが起きた場合は、システム全体がブロックされないように適合扱いとする
+                }
+            }
+        }
+
+        // 4. 違反が疑われ、かつ強制保存フラグがない場合は一時ブロックして警告を返す
+        if (!isCompliant) {
+            // 監査ログにブロック（blocked）として記録
+            await auditDb.logEvent({
+                userId: req.user.id,
+                userEmail: req.user.email,
+                eventType: 'policy_compliance',
+                action: 'update_assistant_settings',
+                status: 'blocked',
+                req: req,
+                details: {
+                    policy_compliance: 'SUSPECTED_VIOLATION',
+                    warning_reason: warningReason,
+                    previous_prompt: previousPrompt,
+                    new_prompt: newPrompt,
+                    override: false
+                }
+            });
+
+            return res.json({ status: 'warning', reason: warningReason });
+        }
+
+        // 5. 保存実行
+        db.run(
+            `UPDATE users SET 
+                assistant_work_start = COALESCE(?, assistant_work_start), 
+                assistant_work_end = COALESCE(?, assistant_work_end), 
+                assistant_meeting_buffer = COALESCE(?, assistant_meeting_buffer),
+                assistant_prompt = COALESCE(?, assistant_prompt)
+             WHERE id = ?`,
+            [assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt, userId],
+            async (updateErr) => {
+                if (updateErr) {
+                    console.error("Failed to update assistant settings:", updateErr);
+                    return res.status(500).json({ error: 'Failed to update assistant settings' });
+                }
+
+                // 6. 成功（または強制保存）を監査ログに記録
+                const complianceStatus = warningReason ? 'SUSPECTED_VIOLATION' : 'COMPLIANT';
+                await auditDb.logEvent({
+                    userId: req.user.id,
+                    userEmail: req.user.email,
+                    eventType: 'policy_compliance',
+                    action: 'update_assistant_settings',
+                    status: override ? 'override' : 'success',
+                    req: req,
+                    details: {
+                        policy_compliance: complianceStatus,
+                        warning_reason: warningReason || null,
+                        previous_prompt: previousPrompt,
+                        new_prompt: newPrompt,
+                        override: !!override
+                    }
+                });
+
+                res.json({ status: 'ok' });
+            }
+        );
+    });
 });
 
 app.post('/api/virtual-office/status', requireAuth, (req, res) => {
