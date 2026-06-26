@@ -13,6 +13,7 @@ const VirtualOffice = ({ onOpen, user }) => {
     const [assistantPrompt, setAssistantPrompt] = useState('');
     const [defaultAssistantPrompt, setDefaultAssistantPrompt] = useState('');
     const [activeSettingsTab, setActiveSettingsTab] = useState('basic');
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
     const allowedActions = user?.allowed_actions || [];
     const canManageRules = allowedActions.includes('*') || allowedActions.includes('action:manage_assistant_rules');
@@ -220,11 +221,11 @@ const VirtualOffice = ({ onOpen, user }) => {
                     `⚠️ 就業規則違反の疑いがあります：\n\n${data.reason}\n\nこのまま強制保存しますか？\n（この操作は監査ログに記録されます）`
                 );
                 if (confirmSave) {
-                    await handleUpdateSettings(workStart, workEnd, meetingBuffer, promptValue, true);
+                    return await handleUpdateSettings(workStart, workEnd, meetingBuffer, promptValue, true);
                 } else {
                     loadUsers(false);
+                    return false;
                 }
-                return;
             }
 
             // Update local state on success
@@ -254,10 +255,12 @@ const VirtualOffice = ({ onOpen, user }) => {
             if (override) {
                 alert("就業規則警告を承認し、設定を強制保存しました。");
             }
+            return true;
         } catch (err) {
             console.error('Settings update failed:', err);
             setError(err.message);
             loadUsers(false);
+            throw err;
         }
     };
 
@@ -476,130 +479,18 @@ const VirtualOffice = ({ onOpen, user }) => {
                             {/* Assistant Rules Panel (Only for Me / Boss settings) */}
                             {selectedUser.id === user?.id && canManageRules && (
                                 <div className="bg-indigo-950/20 border border-indigo-500/20 p-4 rounded-xl space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-                                             <span>🤖</span> アシスタント調整
-                                        </h4>
-                                        <div className="flex bg-gray-900 border border-gray-800 rounded p-0.5">
-                                            <button
-                                                type="button"
-                                                onClick={() => setActiveSettingsTab('basic')}
-                                                className={`text-[9px] px-1.5 py-0.5 rounded transition duration-150 ${activeSettingsTab === 'basic' ? 'bg-indigo-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'}`}
-                                            >
-                                                基本設定
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setActiveSettingsTab('prompt')}
-                                                className={`text-[9px] px-1.5 py-0.5 rounded transition duration-150 ${activeSettingsTab === 'prompt' ? 'bg-indigo-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'}`}
-                                            >
-                                                AIプロンプト
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {activeSettingsTab === 'basic' ? (
-                                        <div className="space-y-2">
-                                            <p className="text-[10px] text-gray-400 leading-relaxed">
-                                                BOSS（あなた）の予定をアシスタントが代理調整する際の就業ルールを決めます。
-                                            </p>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-semibold text-gray-400">就業開始時間</span>
-                                                <select
-                                                    value={selectedUser.assistant_work_start || '09:00'}
-                                                    onChange={(e) => handleUpdateSettings(e.target.value, selectedUser.assistant_work_end, selectedUser.assistant_meeting_buffer)}
-                                                    className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
-                                                >
-                                                    <option value="08:00">08:00</option>
-                                                    <option value="08:30">08:30</option>
-                                                    <option value="09:00">09:00</option>
-                                                    <option value="09:30">09:30</option>
-                                                    <option value="10:00">10:00</option>
-                                                </select>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-semibold text-gray-400">就業終了時間</span>
-                                                <select
-                                                    value={selectedUser.assistant_work_end || '17:30'}
-                                                    onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, e.target.value, selectedUser.assistant_meeting_buffer)}
-                                                    className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
-                                                >
-                                                    <option value="17:00">17:00</option>
-                                                    <option value="17:30">17:30</option>
-                                                    <option value="18:00">18:00</option>
-                                                    <option value="18:30">18:30</option>
-                                                    <option value="19:00">19:00</option>
-                                                </select>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-semibold text-gray-400">終了前バッファ</span>
-                                                <select
-                                                    value={selectedUser.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30}
-                                                    onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, parseInt(e.target.value))}
-                                                    className="bg-gray-900 border border-gray-800 text-[10px] rounded px-1.5 py-0.5 text-gray-300 focus:outline-none"
-                                                >
-                                                    <option value="15">15分前まで</option>
-                                                    <option value="30">30分前まで</option>
-                                                    <option value="45">45分前まで</option>
-                                                    <option value="60">60分前まで</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            <p className="text-[10px] text-gray-400 leading-relaxed">
-                                                AIが代理返答する際のプロンプトをカスタマイズできます。
-                                            </p>
-                                            <div className="pt-2 border-t border-indigo-500/10 space-y-1.5">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-[10px] font-semibold text-indigo-300">AI アシスタント プロンプト</span>
-                                                    {defaultAssistantPrompt && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                if (window.confirm("現在の編集内容がデフォルトプロンプトで上書きされますが、よろしいですか？")) {
-                                                                    setAssistantPrompt(defaultAssistantPrompt);
-                                                                }
-                                                            }}
-                                                            className="text-[9px] text-indigo-400 hover:text-indigo-300 underline bg-transparent border-0 cursor-pointer"
-                                                        >
-                                                            デフォルトをコピー
-                                                        </button>
-                                                    )}
-                                                </div>
-                                                <textarea
-                                                    value={assistantPrompt}
-                                                    onChange={(e) => setAssistantPrompt(e.target.value)}
-                                                    rows={8}
-                                                    placeholder={`未設定の場合はデフォルトルールが適用されます。\n例：あなたは{name}のAIアシスタントです。`}
-                                                    className="w-full bg-gray-900 border border-gray-800 text-[10px] rounded p-1.5 text-gray-300 focus:outline-none resize-none font-mono leading-relaxed"
-                                                />
-                                                {defaultAssistantPrompt && (
-                                                    <details className="text-[9px] text-gray-400">
-                                                        <summary className="cursor-pointer hover:text-gray-300 focus:outline-none py-0.5 select-none">
-                                                            デフォルトプロンプトを表示 (リードオンリー)
-                                                        </summary>
-                                                        <div className="mt-1 bg-gray-900/50 border border-gray-800/50 rounded p-1.5 max-h-32 overflow-y-auto text-gray-500 font-mono whitespace-pre-wrap leading-normal select-text">
-                                                            {defaultAssistantPrompt}
-                                                        </div>
-                                                    </details>
-                                                )}
-                                                <div className="flex justify-end">
-                                                    <button
-                                                        onClick={() => handleUpdateSettings(
-                                                            selectedUser.assistant_work_start,
-                                                            selectedUser.assistant_work_end,
-                                                            selectedUser.assistant_meeting_buffer,
-                                                            assistantPrompt
-                                                        )}
-                                                        className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[9px] font-bold px-2 py-0.5 rounded transition duration-150"
-                                                    >
-                                                        プロンプト保存
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+                                    <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                                         <span>🤖</span> AI アシスタント設定
+                                    </h4>
+                                    <p className="text-[10px] text-gray-400 leading-relaxed font-normal">
+                                        代理調整時の就業ルールや、自動応答のAIプロンプトをカスタマイズできます。
+                                    </p>
+                                    <button 
+                                        onClick={() => setIsSettingsModalOpen(true)}
+                                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition shadow-sm"
+                                    >
+                                        🛠️ アシスタント設定を開く
+                                    </button>
                                 </div>
                             )}
 
@@ -720,6 +611,182 @@ const VirtualOffice = ({ onOpen, user }) => {
                     )}
                 </div>
             </div>
+
+            {/* Settings Modal */}
+            {isSettingsModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="bg-[#111827] border border-gray-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        {/* Modal Header */}
+                        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-800 bg-gray-900/40">
+                            <h3 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
+                                <span>🤖</span> AI アシスタント設定のカスタマイズ
+                            </h3>
+                            <button
+                                onClick={() => setIsSettingsModalOpen(false)}
+                                className="text-gray-400 hover:text-gray-200 text-lg focus:outline-none"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                            {/* Tab Selection */}
+                            <div className="flex border-b border-gray-800">
+                                <button
+                                    onClick={() => setActiveSettingsTab('basic')}
+                                    className={`pb-2.5 px-4 text-xs font-bold transition-all border-b-2 ${
+                                        activeSettingsTab === 'basic' 
+                                            ? 'border-indigo-500 text-indigo-400' 
+                                            : 'border-transparent text-gray-400 hover:text-gray-200'
+                                    }`}
+                                >
+                                    基本就業ルール
+                                </button>
+                                <button
+                                    onClick={() => setActiveSettingsTab('prompt')}
+                                    className={`pb-2.5 px-4 text-xs font-bold transition-all border-b-2 ${
+                                        activeSettingsTab === 'prompt' 
+                                            ? 'border-indigo-500 text-indigo-400' 
+                                            : 'border-transparent text-gray-400 hover:text-gray-200'
+                                    }`}
+                                >
+                                    応答AIプロンプト
+                                </button>
+                            </div>
+
+                            {activeSettingsTab === 'basic' ? (
+                                <div className="space-y-5">
+                                    <div className="bg-indigo-950/10 border border-indigo-500/10 rounded-xl p-4">
+                                        <p className="text-xs text-gray-400 leading-relaxed font-normal">
+                                            他メンバーからの予定調整リクエストに対し、AIアシスタントがあなたのカレンダーの空きスロットを自動探索・調整する際の就業条件を定義します。
+                                        </p>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-gray-400">就業開始時間</label>
+                                            <select
+                                                value={selectedUser?.assistant_work_start || '09:00'}
+                                                onChange={(e) => handleUpdateSettings(e.target.value, selectedUser.assistant_work_end, selectedUser.assistant_meeting_buffer)}
+                                                className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                            >
+                                                <option value="08:00">08:00 (午前8時)</option>
+                                                <option value="08:30">08:30 (午前8時半)</option>
+                                                <option value="09:00">09:00 (午前9時)</option>
+                                                <option value="09:30">09:30 (午前9時半)</option>
+                                                <option value="10:00">10:00 (午前10時)</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-gray-400">就業終了時間</label>
+                                            <select
+                                                value={selectedUser?.assistant_work_end || '17:30'}
+                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, e.target.value, selectedUser.assistant_meeting_buffer)}
+                                                className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                            >
+                                                <option value="17:00">17:00 (午後5時)</option>
+                                                <option value="17:30">17:30 (午後5時半)</option>
+                                                <option value="18:00">18:00 (午後6時)</option>
+                                                <option value="18:30">18:30 (午後6時半)</option>
+                                                <option value="19:00">19:00 (午後7時)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-gray-400">就業終了前の予定ブロックバッファ</label>
+                                        <select
+                                            value={selectedUser?.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30}
+                                            onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, parseInt(e.target.value))}
+                                            className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                        >
+                                            <option value="15">15分前まで（最後の枠をギリギリまで許容）</option>
+                                            <option value="30">30分前まで（標準）</option>
+                                            <option value="45">45分前まで</option>
+                                            <option value="60">60分前まで（余裕を持たせる）</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="bg-indigo-950/10 border border-indigo-500/10 rounded-xl p-4">
+                                        <p className="text-xs text-gray-400 leading-relaxed font-normal">
+                                            AIアシスタントが他メンバーからのチャットや調整に対して、あなたに成り代わって返答する際の指示（プロンプト）を自由に記述できます。
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-bold text-gray-400">プロンプト編集エリア</label>
+                                            {defaultAssistantPrompt && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (window.confirm("現在の編集内容がデフォルトプロンプトで上書きされますが、よろしいですか？")) {
+                                                            setAssistantPrompt(defaultAssistantPrompt);
+                                                        }
+                                                    }}
+                                                    className="text-xs text-indigo-400 hover:text-indigo-300 underline bg-transparent border-0 cursor-pointer"
+                                                >
+                                                    デフォルトプロンプトをコピー
+                                                </button>
+                                            )}
+                                        </div>
+                                        <textarea
+                                            value={assistantPrompt}
+                                            onChange={(e) => setAssistantPrompt(e.target.value)}
+                                            rows={14}
+                                            placeholder={`未設定の場合はデフォルトルールが適用されます。\n例：あなたは{name}のAIアシスタントです。`}
+                                            className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-4 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono leading-relaxed"
+                                        />
+                                    </div>
+
+                                    {defaultAssistantPrompt && (
+                                        <details className="text-xs text-gray-400 bg-gray-950 rounded-xl border border-gray-800 p-2">
+                                            <summary className="cursor-pointer hover:text-gray-300 focus:outline-none py-1 select-none font-bold">
+                                                システム標準プロンプトを表示 (コピー元・閲覧専用)
+                                            </summary>
+                                            <div className="mt-2 bg-gray-900/60 border border-gray-800/40 rounded-lg p-3 max-h-48 overflow-y-auto text-gray-500 font-mono text-xs whitespace-pre-wrap leading-relaxed select-text">
+                                                {defaultAssistantPrompt}
+                                            </div>
+                                        </details>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-800 bg-gray-900/20">
+                            <button
+                                onClick={() => setIsSettingsModalOpen(false)}
+                                className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold transition duration-150"
+                            >
+                                キャンセル
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        const success = await handleUpdateSettings(
+                                            selectedUser.assistant_work_start || '09:00',
+                                            selectedUser.assistant_work_end || '17:30',
+                                            selectedUser.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30,
+                                            assistantPrompt
+                                        );
+                                        if (success) {
+                                            setIsSettingsModalOpen(false);
+                                            alert("アシスタント設定を保存しました。");
+                                        }
+                                    } catch (err) {
+                                        alert(`保存に失敗しました: ${err.message}`);
+                                    }
+                                }}
+                                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition duration-150 shadow-md shadow-indigo-600/10"
+                            >
+                                設定を保存する
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
