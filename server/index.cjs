@@ -1248,8 +1248,8 @@ app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
         let isCompliant = true;
         let warningReason = '';
 
-        // 3. プロンプト変更時かつ強制保存フラグがない場合の就業規則審査
-        if (assistant_prompt !== undefined && override !== true) {
+        // 3. プロンプト変更時の就業規則審査（強制保存の場合もログ記録のために走らせる）
+        if (assistant_prompt !== undefined) {
             const companyWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY') || '';
             const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
 
@@ -1312,7 +1312,7 @@ ${newPrompt}`;
         }
 
         // 4. 違反が疑われ、かつ強制保存フラグがない場合は一時ブロックして警告を返す
-        if (!isCompliant) {
+        if (!isCompliant && override !== true) {
             // 監査ログにブロック（blocked）として記録
             await auditDb.logEvent({
                 userId: req.user.id,
