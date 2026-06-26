@@ -359,6 +359,12 @@ async function autoActivate() {
                     "allowed_models": ["*"],
                     "allowed_actions": ["action:manage_assistant_rules"]
                 },
+                "hr": {
+                    "name": "HR (Human Resources)",
+                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_models": ["*"],
+                    "allowed_actions": ["action:manage_work_policy"]
+                },
                 "user": {
                     "name": "General User",
                     "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
@@ -382,8 +388,19 @@ async function autoActivate() {
                     };
                     updated = true;
                 }
+
+                // Migrate and add hr role if missing
+                if (!policies.hr) {
+                    policies.hr = {
+                        "name": "HR (Human Resources)",
+                        "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_models": ["*"],
+                        "allowed_actions": ["action:manage_work_policy"]
+                    };
+                    updated = true;
+                }
                 
-                ['researcher', 'user', 'manager'].forEach(roleKey => {
+                ['researcher', 'user', 'manager', 'hr'].forEach(roleKey => {
                     if (policies[roleKey] && policies[roleKey].allowed_widgets) {
                         const widgets = policies[roleKey].allowed_widgets;
                         if (!widgets.includes('app:virtual-office')) {
@@ -398,7 +415,7 @@ async function autoActivate() {
                 });
                 
                 if (updated) {
-                    console.log('DEBUG: Updating existing RBAC policies with manager role, virtual-office and dm-chat widgets...');
+                    console.log('DEBUG: Updating existing RBAC policies with manager and hr roles...');
                     await db.setSetting('RBAC_POLICIES', JSON.stringify(policies));
                 }
             } catch (err) {

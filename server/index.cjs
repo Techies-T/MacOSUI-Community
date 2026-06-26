@@ -200,12 +200,19 @@ app.post('/api/config', requireAuth, async (req, res) => {
         const allowedActions = req.user.allowed_actions || [];
         const hasWildcard = allowedActions.includes('*');
         const hasSysSettings = hasWildcard || allowedActions.includes('action:manage_system_settings');
+        const hasWorkPolicy = hasWildcard || allowedActions.includes('action:manage_work_policy');
         const hasWorkflowEdit = hasWildcard || allowedActions.includes('action:edit_workflow_model') || hasSysSettings;
         const hasRagManage = hasWildcard || allowedActions.includes('action:manage_rag_folders') || hasSysSettings;
         const hasRolesManage = hasWildcard || allowedActions.includes('action:manage_roles');
 
+        // Manage Work Policy field
+        if (companyWorkPolicy !== undefined) {
+            if (!hasWorkPolicy) return res.status(403).json({ error: 'Permission denied. Requires action:manage_work_policy' });
+            await db.setSetting('COMPANY_WORK_POLICY', companyWorkPolicy);
+        }
+
         // Manage System Settings fields
-        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined || companyWorkPolicy !== undefined) {
+        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined) {
             if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
             if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
             if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
@@ -217,7 +224,6 @@ app.post('/api/config', requireAuth, async (req, res) => {
             if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
             if (mcpQuickPrompts !== undefined) await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(mcpQuickPrompts));
             if (defaultAssistantPrompt !== undefined) await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultAssistantPrompt);
-            if (companyWorkPolicy !== undefined) await db.setSetting('COMPANY_WORK_POLICY', companyWorkPolicy);
         }
 
         const allowedWidgets = req.user.allowed_widgets || [];

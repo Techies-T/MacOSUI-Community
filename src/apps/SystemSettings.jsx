@@ -9,6 +9,7 @@ import UsersTab from './SystemSettings/tabs/UsersTab';
 import RolesTab from './SystemSettings/tabs/RolesTab';
 import SecurityLogsTab from './SystemSettings/tabs/SecurityLogsTab';
 import PodsTab from './SystemSettings/tabs/PodsTab';
+import WorkPolicyTab from './SystemSettings/tabs/WorkPolicyTab';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
@@ -17,6 +18,7 @@ const SystemSettings = ({ user }) => {
     const [currentNanoBananaModel, setCurrentNanoBananaModel] = useState('');
     const [currentResearchModel, setCurrentResearchModel] = useState('');
     const [currentHtmlSvgModel, setCurrentHtmlSvgModel] = useState('');
+    const [companyWorkPolicy, setCompanyWorkPolicy] = useState('');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolders, setRagFolders] = useState([]);
     const [newRagFolderId, setNewRagFolderId] = useState('');
@@ -149,6 +151,9 @@ const SystemSettings = ({ user }) => {
                 if (data.rbacPolicies) {
                     setRbacPolicies(data.rbacPolicies);
                 }
+                if (data.companyWorkPolicy) {
+                    setCompanyWorkPolicy(data.companyWorkPolicy);
+                }
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
@@ -163,6 +168,25 @@ const SystemSettings = ({ user }) => {
             });
         } catch (err) {
             console.error("Failed to save RBAC config", err);
+        }
+    };
+
+    const handleSaveWorkPolicy = async (newPolicy) => {
+        setCompanyWorkPolicy(newPolicy);
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ companyWorkPolicy: newPolicy })
+            });
+            if (res.ok) {
+                alert('Work Policy saved successfully!');
+            } else {
+                alert('Failed to save Work Policy.');
+            }
+        } catch (err) {
+            console.error("Failed to save Work Policy", err);
+            alert('Failed to save.');
         }
     };
 
@@ -517,6 +541,21 @@ const SystemSettings = ({ user }) => {
                 label: 'Security Logs' 
             }
         ] : []),
+        ...(hasAction('action:manage_work_policy') ? [
+            { 
+                id: 'Work Policy', 
+                icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Work Policy' ? 'text-white' : 'text-emerald-600'}`}>
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                        <polyline points="10 9 9 9 8 9" />
+                    </svg>
+                ), 
+                label: 'Work Policy' 
+            }
+        ] : []),
         ...(hasWidget('workflow:deepresearch_html') || hasWidget('workflow:deepresearch_infographic') || hasWidget('workflow:deepresearch_full') || hasAction('action:edit_workflow_model') || hasAction('action:manage_system_settings') ? [
             {
                 id: 'Deep Research', 
@@ -803,6 +842,13 @@ const SystemSettings = ({ user }) => {
 
                 {activeTab === 'Security Logs' && (
                     <SecurityLogsTab />
+                )}
+
+                {activeTab === 'Work Policy' && (
+                    <WorkPolicyTab
+                        initialPolicy={companyWorkPolicy}
+                        onSave={handleSaveWorkPolicy}
+                    />
                 )}
             </div>
         </div>
