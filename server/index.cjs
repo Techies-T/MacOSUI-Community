@@ -1254,8 +1254,9 @@ app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
         let isCompliant = true;
         let warningReason = '';
 
-        // 3. プロンプト変更時の就業規則審査（強制保存の場合もログ記録のために走らせる）
-        if (assistant_prompt !== undefined) {
+        // 3. プロンプト変更時のみ就業規則審査（変更がない場合はスキップして誤検知を防ぐ）
+        const isPromptChanged = assistant_prompt !== undefined && assistant_prompt !== previousPrompt;
+        if (isPromptChanged) {
             const companyWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY') || '';
             const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
 
@@ -1269,7 +1270,8 @@ app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
 
 特に以下の点に注意してください。
 1. 午後22:00から翌午前05:00までの深夜時間帯でのアポイントを自動調整・受託するような記述、または深夜労働を推奨・助長する記述。
-2. 就業時間外（特に17:30以降）の打ち合わせを自動で仮登録するプロンプト指示、あるいは「いかなる時間でもアポを入れて構わない」といった過重労働を容認する指示。
+2. 就業時間外（例: 17:30以降など）の打ち合わせを、ユーザーの確認や承認なしに【自動で仮登録】するプロンプト指示、または「いかなる時間でも無制限にアポを入れて構わない」といった過重労働を容認する指示。
+   ※ただし、時間外アポイントに対して自動調整せず、「BOSSに確認する」ボタンを表示してユーザーに確認を求めるプロセスや、時間外アポをBOSS自身が手動承認するプロセスについての指示は、過重労働の容認とはみなさず、許容（COMPLIANT）してください。
 3. ハラスメントや情報の漏洩など、その他就業規則に反する指示。
 
 出力は、以下のJSON形式で返答してください。JSON以外の余計な記述やマークダウンタグ（\`\`\`json等）を含めないでください。
