@@ -10,6 +10,7 @@ import RolesTab from './SystemSettings/tabs/RolesTab';
 import SecurityLogsTab from './SystemSettings/tabs/SecurityLogsTab';
 import PodsTab from './SystemSettings/tabs/PodsTab';
 import WorkPolicyTab from './SystemSettings/tabs/WorkPolicyTab';
+import AntigravityAgentTab from './SystemSettings/tabs/AntigravityAgentTab';
 
 const SystemSettings = ({ user }) => {
     const [activeTab, setActiveTab] = useState('General');
@@ -19,6 +20,13 @@ const SystemSettings = ({ user }) => {
     const [currentResearchModel, setCurrentResearchModel] = useState('');
     const [currentHtmlSvgModel, setCurrentHtmlSvgModel] = useState('');
     const [companyWorkPolicy, setCompanyWorkPolicy] = useState('');
+    
+    // Antigravity Agent Settings States
+    const [antigravityAgentModel, setAntigravityAgentModel] = useState('gemini-3.5-flash');
+    const [antigravityAgentInstructions, setAntigravityAgentInstructions] = useState('');
+    const [antigravityAgentSafetyPolicy, setAntigravityAgentSafetyPolicy] = useState('confirm_run_command');
+    const [antigravityAgentExternalPolicyEnabled, setAntigravityAgentExternalPolicyEnabled] = useState(true);
+    const [antigravityAgentMcpServers, setAntigravityAgentMcpServers] = useState('[]');
     const [driveRootId, setDriveRootId] = useState('');
     const [ragFolders, setRagFolders] = useState([]);
     const [newRagFolderId, setNewRagFolderId] = useState('');
@@ -154,6 +162,21 @@ const SystemSettings = ({ user }) => {
                 if (data.companyWorkPolicy) {
                     setCompanyWorkPolicy(data.companyWorkPolicy);
                 }
+                if (data.antigravityAgentModel) {
+                    setAntigravityAgentModel(data.antigravityAgentModel);
+                }
+                if (data.antigravityAgentInstructions !== undefined) {
+                    setAntigravityAgentInstructions(data.antigravityAgentInstructions);
+                }
+                if (data.antigravityAgentSafetyPolicy) {
+                    setAntigravityAgentSafetyPolicy(data.antigravityAgentSafetyPolicy);
+                }
+                if (data.antigravityAgentExternalPolicyEnabled !== undefined) {
+                    setAntigravityAgentExternalPolicyEnabled(data.antigravityAgentExternalPolicyEnabled);
+                }
+                if (data.antigravityAgentMcpServers) {
+                    setAntigravityAgentMcpServers(data.antigravityAgentMcpServers);
+                }
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
@@ -186,6 +209,30 @@ const SystemSettings = ({ user }) => {
             }
         } catch (err) {
             console.error("Failed to save Work Policy", err);
+            alert('Failed to save.');
+        }
+    };
+
+    const handleSaveAntigravityAgentSettings = async (updatedConfig) => {
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedConfig)
+            });
+            if (res.ok) {
+                alert('Antigravity Agent settings saved successfully!');
+                setAntigravityAgentModel(updatedConfig.antigravityAgentModel);
+                setAntigravityAgentInstructions(updatedConfig.antigravityAgentInstructions);
+                setAntigravityAgentSafetyPolicy(updatedConfig.antigravityAgentSafetyPolicy);
+                setAntigravityAgentExternalPolicyEnabled(updatedConfig.antigravityAgentExternalPolicyEnabled);
+                setAntigravityAgentMcpServers(updatedConfig.antigravityAgentMcpServers);
+            } else {
+                const data = await res.json();
+                alert('Failed to save: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error("Failed to save Antigravity Agent settings", err);
             alert('Failed to save.');
         }
     };
@@ -667,7 +714,18 @@ const SystemSettings = ({ user }) => {
                 ), 
                 label: 'Roles & Permissions' 
             }
-        ] : [])
+        ] : []),
+        { 
+            id: 'Antigravity Agent', 
+            icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${activeTab === 'Antigravity Agent' ? 'text-white' : 'text-cyan-500'}`}>
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                    <path d="M2 17l10 5 10-5" />
+                    <path d="M2 12l10 5 10-5" />
+                </svg>
+            ), 
+            label: 'Antigravity Agent' 
+        }
     ];
 
     useEffect(() => {
@@ -848,6 +906,20 @@ const SystemSettings = ({ user }) => {
                     <WorkPolicyTab
                         initialPolicy={companyWorkPolicy}
                         onSave={handleSaveWorkPolicy}
+                    />
+                )}
+
+                {activeTab === 'Antigravity Agent' && (
+                    <AntigravityAgentTab
+                        initialConfig={{
+                            antigravityAgentModel,
+                            antigravityAgentInstructions,
+                            antigravityAgentSafetyPolicy,
+                            antigravityAgentExternalPolicyEnabled,
+                            antigravityAgentMcpServers
+                        }}
+                        onSave={handleSaveAntigravityAgentSettings}
+                        isReadOnly={!hasAction('action:manage_system_settings') || (user?.email?.split('@')[1]?.toLowerCase() !== 'techiespod.jp')}
                     />
                 )}
             </div>

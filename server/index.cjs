@@ -137,6 +137,13 @@ app.get('/api/config', async (req, res) => {
         const defaultAssistantPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
         const companyWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY') || '';
 
+        // Antigravity Agent Configuration Settings
+        const antigravityAgentModel = await db.getSetting('ANTIGRAVITY_AGENT_MODEL') || 'gemini-3.5-flash';
+        const antigravityAgentInstructions = await db.getSetting('ANTIGRAVITY_AGENT_SYSTEM_INSTRUCTIONS') || '';
+        const antigravityAgentSafetyPolicy = await db.getSetting('ANTIGRAVITY_AGENT_SAFETY_POLICY') || 'confirm_run_command';
+        const antigravityAgentExternalPolicyEnabled = (await db.getSetting('ANTIGRAVITY_AGENT_EXTERNAL_POLICY_ENABLED') || 'true') === 'true';
+        const antigravityAgentMcpServers = await db.getSetting('ANTIGRAVITY_AGENT_MCP_SERVERS') || '[]';
+
         res.json({
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
@@ -161,7 +168,12 @@ app.get('/api/config', async (req, res) => {
             mcpQuickPrompts,
             defaultWorkflowId,
             defaultAssistantPrompt,
-            companyWorkPolicy
+            companyWorkPolicy,
+            antigravityAgentModel,
+            antigravityAgentInstructions,
+            antigravityAgentSafetyPolicy,
+            antigravityAgentExternalPolicyEnabled,
+            antigravityAgentMcpServers
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -170,9 +182,14 @@ app.get('/api/config', async (req, res) => {
 });
 
 app.post('/api/config', requireAuth, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers } = req.body;
 
     try {
+        // ZTA Security Boundary Check: Block external domain users
+        if (await isExternalUser(req.user)) {
+            return res.status(403).json({ error: 'Permission denied. External domain users cannot change system configurations.' });
+        }
+
         // Dynamic Key Generation on Activation
         if (!process.env.DB_ENCRYPTION_KEY) {
             const crypto = require('crypto');
@@ -211,8 +228,8 @@ app.post('/api/config', requireAuth, async (req, res) => {
             await db.setSetting('COMPANY_WORK_POLICY', companyWorkPolicy);
         }
 
-        // Manage System Settings fields
-        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined) {
+        // Manage System Settings fields (including Antigravity Agent Settings)
+        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined || antigravityAgentModel !== undefined || antigravityAgentInstructions !== undefined || antigravityAgentSafetyPolicy !== undefined || antigravityAgentExternalPolicyEnabled !== undefined || antigravityAgentMcpServers !== undefined) {
             if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
             if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
             if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
@@ -224,6 +241,13 @@ app.post('/api/config', requireAuth, async (req, res) => {
             if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
             if (mcpQuickPrompts !== undefined) await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(mcpQuickPrompts));
             if (defaultAssistantPrompt !== undefined) await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultAssistantPrompt);
+            
+            // Antigravity Agent Parameter Persistence
+            if (antigravityAgentModel !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_MODEL', antigravityAgentModel);
+            if (antigravityAgentInstructions !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_SYSTEM_INSTRUCTIONS', antigravityAgentInstructions);
+            if (antigravityAgentSafetyPolicy !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_SAFETY_POLICY', antigravityAgentSafetyPolicy);
+            if (antigravityAgentExternalPolicyEnabled !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_EXTERNAL_POLICY_ENABLED', antigravityAgentExternalPolicyEnabled.toString());
+            if (antigravityAgentMcpServers !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_MCP_SERVERS', antigravityAgentMcpServers);
         }
 
         const allowedWidgets = req.user.allowed_widgets || [];
@@ -904,6 +928,52 @@ function requireAuth(req, res, next) {
     });
 }
 
+// Helper to determine if a user is from an external domain (ZTA boundary constraint)
+async function isExternalUser(user) {
+    if (!user || !user.email) return true;
+    
+    // 1. Get host domain
+    let hostDomain = await db.getSetting('HOST_DOMAIN') || process.env.HOST_DOMAIN;
+    if (!hostDomain) {
+        // Fallback: get the domain of the first admin in the database
+        try {
+            const firstAdmin = await new Promise((resolve, reject) => {
+                db.get("SELECT email FROM users WHERE role LIKE '%admin%' ORDER BY id ASC LIMIT 1", [], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+            if (firstAdmin && firstAdmin.email) {
+                hostDomain = firstAdmin.email.split('@')[1];
+            }
+        } catch (err) {
+            console.error("Failed to find fallback host domain from admin email:", err);
+        }
+    }
+    
+    // If still no host domain resolved, default to "techiespod.jp" (default domain of current user) or first user's domain
+    if (!hostDomain) {
+        try {
+            const firstUser = await new Promise((resolve, reject) => {
+                db.get("SELECT email FROM users ORDER BY id ASC LIMIT 1", [], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+            if (firstUser && firstUser.email) {
+                hostDomain = firstUser.email.split('@')[1];
+            }
+        } catch (e) {
+            hostDomain = 'techiespod.jp';
+        }
+    }
+    
+    hostDomain = hostDomain.toLowerCase().trim();
+    const userDomain = user.email.split('@')[1].toLowerCase().trim();
+    
+    return hostDomain !== userDomain;
+}
+
 // Middleware for web pages (HTML) to gracefully redirect to login error
 function requireAuthPage(req, res, next) {
     const token = req.cookies.token;
@@ -1206,7 +1276,7 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
     const loginUserId = req.user.id;
     const sql = `
         SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote,
-               u.assistant_work_start, u.assistant_work_end, u.assistant_meeting_buffer, u.assistant_prompt,
+               u.assistant_work_start, u.assistant_work_end, u.assistant_break_start, u.assistant_break_end, u.assistant_meeting_buffer, u.assistant_prompt,
                (SELECT COUNT(*) FROM dm_messages m WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0) as unread_count
         FROM users u
     `;
@@ -1222,6 +1292,8 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
                 unread_count: user.unread_count || 0,
                 assistant_work_start: user.assistant_work_start || '09:00',
                 assistant_work_end: user.assistant_work_end || '17:30',
+                assistant_break_start: user.assistant_break_start || '12:00',
+                assistant_break_end: user.assistant_break_end || '13:00',
                 assistant_meeting_buffer: user.assistant_meeting_buffer !== undefined ? user.assistant_meeting_buffer : 30,
                 assistant_prompt: user.assistant_prompt || ''
             };
@@ -1231,8 +1303,13 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
 });
 
 app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
-    const { assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt, override } = req.body;
+    const { assistant_work_start, assistant_work_end, assistant_break_start, assistant_break_end, assistant_meeting_buffer, assistant_prompt, override } = req.body;
     const userId = req.user.id;
+
+    // ZTA Security Boundary Check: Block external domain users
+    if (await isExternalUser(req.user)) {
+        return res.status(403).json({ error: 'Permission denied. External domain users cannot change AI assistant settings.' });
+    }
 
     // 1. ロール・アクション権限のチェック
     const allowedActions = req.user.allowed_actions || [];
@@ -1272,7 +1349,8 @@ app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
 1. 午後22:00から翌午前05:00までの深夜時間帯でのアポイントを自動調整・受託するような記述、または深夜労働を推奨・助長する記述。
 2. 就業時間外（例: 17:30以降など）の打ち合わせを、ユーザーの確認や承認なしに【自動で仮登録】するプロンプト指示、または「いかなる時間でも無制限にアポを入れて構わない」といった過重労働を容認する指示。
    ※ただし、時間外アポイントに対して自動調整せず、「BOSSに確認する」ボタンを表示してユーザーに確認を求めるプロセスや、時間外アポをBOSS自身が手動承認するプロセスについての指示は、過重労働の容認とはみなさず、許容（COMPLIANT）してください。
-3. ハラスメントや情報の漏洩など、その他就業規則に反する指示。
+3. 休憩時間（例: 12:00-13:00）におけるアポイントを自動調整・受託するような記述。休憩時間は労働者の健康管理のために必須であり、この時間帯の自動調整は原則禁止（NON-COMPLIANT）と判定してください。
+4. ハラスメントや情報の漏洩など、その他就業規則に反する指示。
 
 出力は、以下のJSON形式で返答してください。JSON以外の余計な記述やマークダウンタグ（\`\`\`json等）を含めないでください。
 {
@@ -1346,10 +1424,12 @@ ${newPrompt}`;
             `UPDATE users SET 
                 assistant_work_start = COALESCE(?, assistant_work_start), 
                 assistant_work_end = COALESCE(?, assistant_work_end), 
+                assistant_break_start = COALESCE(?, assistant_break_start),
+                assistant_break_end = COALESCE(?, assistant_break_end),
                 assistant_meeting_buffer = COALESCE(?, assistant_meeting_buffer),
                 assistant_prompt = COALESCE(?, assistant_prompt)
              WHERE id = ?`,
-            [assistant_work_start, assistant_work_end, assistant_meeting_buffer, assistant_prompt, userId],
+            [assistant_work_start, assistant_work_end, assistant_break_start, assistant_break_end, assistant_meeting_buffer, assistant_prompt, userId],
             async (updateErr) => {
                 if (updateErr) {
                     console.error("Failed to update assistant settings:", updateErr);

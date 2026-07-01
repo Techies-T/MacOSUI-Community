@@ -27,6 +27,8 @@ function initDb() {
     is_remote INTEGER DEFAULT 0,
     assistant_work_start TEXT DEFAULT '09:00',
     assistant_work_end TEXT DEFAULT '17:30',
+    assistant_break_start TEXT DEFAULT '12:00',
+    assistant_break_end TEXT DEFAULT '13:00',
     assistant_meeting_buffer INTEGER DEFAULT 30,
     assistant_prompt TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -73,6 +75,12 @@ function initDb() {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE users ADD COLUMN assistant_meeting_buffer INTEGER DEFAULT 30", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_break_start TEXT DEFAULT '12:00'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_break_end TEXT DEFAULT '13:00'", (err) => {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE users ADD COLUMN assistant_prompt TEXT", (err) => {
@@ -370,6 +378,12 @@ async function autoActivate() {
                     "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["model:gemini-flash"],
                     "allowed_actions": []
+                },
+                "guest": {
+                    "name": "External Guest",
+                    "allowed_widgets": ["app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_models": [],
+                    "allowed_actions": []
                 }
             });
             await db.setSetting('RBAC_POLICIES', defaultPolicies);
@@ -399,8 +413,19 @@ async function autoActivate() {
                     };
                     updated = true;
                 }
+
+                // Migrate and add guest role if missing
+                if (!policies.guest) {
+                    policies.guest = {
+                        "name": "External Guest",
+                        "allowed_widgets": ["app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_models": [],
+                        "allowed_actions": []
+                    };
+                    updated = true;
+                }
                 
-                ['researcher', 'user', 'manager', 'hr'].forEach(roleKey => {
+                ['researcher', 'user', 'manager', 'hr', 'guest'].forEach(roleKey => {
                     if (policies[roleKey] && policies[roleKey].allowed_widgets) {
                         const widgets = policies[roleKey].allowed_widgets;
                         if (!widgets.includes('app:virtual-office')) {
@@ -519,7 +544,7 @@ async function autoActivate() {
             console.log('DEBUG: Initializing DEFAULT_ASSISTANT_PROMPT...');
             const defaultPrompt = `あなたは{name}のAIアシスタントです。
 主人の現在の状態は {room} です。
-就業時間は {work_start}〜{work_end} です。
+就業時間は {work_start}〜{work_end}（休憩: {break_start}〜{break_end}）です。
 
 【状態に応じた指示】
 - focus-zone (集中ゾーン): 現在集中して作業しているため、直接チャットに応答できない旨を伝えてください。
@@ -544,6 +569,7 @@ async function autoActivate() {
 
 ## 1. 労働時間および連絡対応時間
 - **標準労働時間**: 平日 09:00 〜 17:30。
+- **休憩時間**: 12:00 〜 13:00（1時間）。原則として、この時間帯の会議設定は禁止します。
 - **時間外・深夜対応の原則禁止**: 
   - 本ガイドラインに基づき、午後22:00（22:00）から翌午前05:00（05:00）までの時間帯における新規の会議・打ち合わせ日程の調整、およびそれを推奨・受託するAIアシスタントのルール設定は原則として禁止します。
   - 深夜時間帯における残業アポ調整は、特別な緊急対応や事前申請がない限り、システム的・運用的に自動登録およびAIによる勧誘を認めてはなりません。

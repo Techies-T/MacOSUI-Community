@@ -194,7 +194,7 @@ const VirtualOffice = ({ onOpen, user }) => {
         }
     };
 
-    const handleUpdateSettings = async (workStart, workEnd, meetingBuffer, promptValue, override = false) => {
+    const handleUpdateSettings = async (workStart, workEnd, breakStart, breakEnd, meetingBuffer, promptValue, override = false) => {
         const targetPrompt = promptValue !== undefined ? promptValue : (selectedUser?.assistant_prompt || '');
 
         try {
@@ -204,6 +204,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                 body: JSON.stringify({
                     assistant_work_start: workStart,
                     assistant_work_end: workEnd,
+                    assistant_break_start: breakStart,
+                    assistant_break_end: breakEnd,
                     assistant_meeting_buffer: meetingBuffer,
                     assistant_prompt: targetPrompt,
                     override: override
@@ -221,7 +223,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                     `⚠️ 就業規則違反の疑いがあります：\n\n${data.reason}\n\nこのまま強制保存しますか？\n（この操作は監査ログに記録されます）`
                 );
                 if (confirmSave) {
-                    return await handleUpdateSettings(workStart, workEnd, meetingBuffer, promptValue, true);
+                    return await handleUpdateSettings(workStart, workEnd, breakStart, breakEnd, meetingBuffer, promptValue, true);
                 } else {
                     loadUsers(false);
                     return false;
@@ -235,6 +237,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                         ...u,
                         assistant_work_start: workStart,
                         assistant_work_end: workEnd,
+                        assistant_break_start: breakStart,
+                        assistant_break_end: breakEnd,
                         assistant_meeting_buffer: meetingBuffer,
                         assistant_prompt: targetPrompt
                     };
@@ -247,6 +251,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                     ...prev,
                     assistant_work_start: workStart,
                     assistant_work_end: workEnd,
+                    assistant_break_start: breakStart,
+                    assistant_break_end: breakEnd,
                     assistant_meeting_buffer: meetingBuffer,
                     assistant_prompt: targetPrompt
                 }));
@@ -667,7 +673,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                                             <label className="text-xs font-bold text-gray-400">就業開始時間</label>
                                             <select
                                                 value={selectedUser?.assistant_work_start || '09:00'}
-                                                onChange={(e) => handleUpdateSettings(e.target.value, selectedUser.assistant_work_end, selectedUser.assistant_meeting_buffer)}
+                                                onChange={(e) => handleUpdateSettings(e.target.value, selectedUser.assistant_work_end, selectedUser.assistant_break_start, selectedUser.assistant_break_end, selectedUser.assistant_meeting_buffer)}
                                                 className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                                             >
                                                 <option value="08:00">08:00 (午前8時)</option>
@@ -681,7 +687,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                                             <label className="text-xs font-bold text-gray-400">就業終了時間</label>
                                             <select
                                                 value={selectedUser?.assistant_work_end || '17:30'}
-                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, e.target.value, selectedUser.assistant_meeting_buffer)}
+                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, e.target.value, selectedUser.assistant_break_start, selectedUser.assistant_break_end, selectedUser.assistant_meeting_buffer)}
                                                 className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                                             >
                                                 <option value="17:00">17:00 (午後5時)</option>
@@ -692,11 +698,49 @@ const VirtualOffice = ({ onOpen, user }) => {
                                             </select>
                                         </div>
                                     </div>
+
+                                    <div className="bg-indigo-950/10 border border-indigo-500/10 rounded-xl p-4">
+                                        <p className="text-xs text-gray-400 leading-relaxed font-normal">
+                                            日本の就業規則に基づき、1時間の休憩時間を設定してください（デフォルト 12:00〜13:00）。
+                                        </p>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-gray-400">休憩開始時間</label>
+                                            <select
+                                                value={selectedUser?.assistant_break_start || '12:00'}
+                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, e.target.value, selectedUser.assistant_break_end, selectedUser.assistant_meeting_buffer)}
+                                                className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                            >
+                                                <option value="11:00">11:00</option>
+                                                <option value="11:30">11:30</option>
+                                                <option value="12:00">12:00</option>
+                                                <option value="12:30">12:30</option>
+                                                <option value="13:00">13:00</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-gray-400">休憩終了時間</label>
+                                            <select
+                                                value={selectedUser?.assistant_break_end || '13:00'}
+                                                onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, selectedUser.assistant_break_start, e.target.value, selectedUser.assistant_meeting_buffer)}
+                                                className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                            >
+                                                <option value="12:00">12:00</option>
+                                                <option value="12:30">12:30</option>
+                                                <option value="13:00">13:00</option>
+                                                <option value="13:30">13:30</option>
+                                                <option value="14:00">14:00</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-gray-400">就業終了前の予定ブロックバッファ</label>
                                         <select
                                             value={selectedUser?.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30}
-                                            onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, parseInt(e.target.value))}
+                                            onChange={(e) => handleUpdateSettings(selectedUser.assistant_work_start, selectedUser.assistant_work_end, selectedUser.assistant_break_start, selectedUser.assistant_break_end, parseInt(e.target.value))}
                                             className="w-full bg-gray-900 border border-gray-800 text-sm rounded-xl p-3 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                                         >
                                             <option value="15">15分前まで（最後の枠をギリギリまで許容）</option>
@@ -768,6 +812,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                                         const success = await handleUpdateSettings(
                                             selectedUser.assistant_work_start || '09:00',
                                             selectedUser.assistant_work_end || '17:30',
+                                            selectedUser.assistant_break_start || '12:00',
+                                            selectedUser.assistant_break_end || '13:00',
                                             selectedUser.assistant_meeting_buffer !== undefined ? selectedUser.assistant_meeting_buffer : 30,
                                             assistantPrompt
                                         );
