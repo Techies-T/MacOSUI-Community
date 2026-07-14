@@ -438,7 +438,17 @@ async function autoActivate() {
                         }
                     }
                 });
-                
+
+                // Migrate: researcher ロールに app:deep-research が欠落している場合は追加
+                if (policies.researcher && policies.researcher.allowed_widgets) {
+                    const researcherWidgets = policies.researcher.allowed_widgets;
+                    if (!researcherWidgets.includes('*') && !researcherWidgets.includes('app:deep-research')) {
+                        researcherWidgets.unshift('app:deep-research');
+                        updated = true;
+                        console.log('DEBUG: Migrated researcher role - added app:deep-research to allowed_widgets');
+                    }
+                }
+
                 if (updated) {
                     console.log('DEBUG: Updating existing RBAC policies with manager and hr roles...');
                     await db.setSetting('RBAC_POLICIES', JSON.stringify(policies));

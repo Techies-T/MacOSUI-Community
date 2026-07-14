@@ -206,6 +206,7 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
                                     <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">🖥️ Workflows & Widgets</td>
                                 </tr>
                                 {[
+                                    { id: 'app:deep-research', label: 'Deep Research App (Main)' },
                                     { id: 'workflow:deepresearch_html', label: 'Deep Research (with HTML)' },
                                     { id: 'workflow:deepresearch_infographic', label: 'Deep Research (with Infographic)' },
                                     { id: 'workflow:deepresearch_full', label: 'Deep Research (Full Features)' },
