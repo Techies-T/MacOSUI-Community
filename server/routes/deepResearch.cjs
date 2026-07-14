@@ -86,10 +86,16 @@ router.post('/start', async (req, res) => {
             console.error("Failed to parse RBAC policies", e);
         }
         
-        const userRole = user.role || 'user';
-        const rolePolicy = rbacPolicies[userRole] || {};
-        const allowedWidgets = rolePolicy.allowed_widgets || [];
-        const hasPermission = allowedWidgets.includes('*') || allowedWidgets.includes('app:deep-research');
+        const roles = (user.role || 'user').split(',').map(r => r.trim());
+        let hasPermission = false;
+        for (const r of roles) {
+            const rolePolicy = rbacPolicies[r] || {};
+            const allowedWidgets = rolePolicy.allowed_widgets || [];
+            if (allowedWidgets.includes('*') || allowedWidgets.includes('app:deep-research')) {
+                hasPermission = true;
+                break;
+            }
+        }
 
         if (!hasPermission) {
             return res.status(403).json({ error: 'Deep Research実行権限がありません。管理者に連絡してください。' });
