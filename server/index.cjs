@@ -297,7 +297,21 @@ app.post('/api/config', requireAuth, async (req, res) => {
 
         if (req.body.rbacPolicies) {
             if (!hasRolesManage) return res.status(403).json({ error: 'Permission denied. Requires action:manage_roles' });
-            await db.setSetting('RBAC_POLICIES', JSON.stringify(req.body.rbacPolicies));
+            
+            // Safety Validation: Safeguard 1 - Policy check for lockout prevention
+            const newPolicies = req.body.rbacPolicies;
+            const adminPolicy = newPolicies.admin;
+            if (!adminPolicy) {
+                return res.status(400).json({ error: 'Cannot save policy: admin role definition is missing.' });
+            }
+            const allowedActions = adminPolicy.allowed_actions || [];
+            const hasRequiredActions = allowedActions.includes('*') || 
+                (allowedActions.includes('action:manage_roles') && allowedActions.includes('action:manage_system_settings'));
+            if (!hasRequiredActions) {
+                return res.status(400).json({ error: 'Cannot save policy: admin role must retain manage_roles and manage_system_settings permissions.' });
+            }
+
+            await db.setSetting('RBAC_POLICIES', JSON.stringify(newPolicies));
         }
 
         // Manage Default Workflow
@@ -1232,33 +1246,69 @@ app.get('/api/users/:id/permissions', requireAuth, (req, res) => {
 app.put('/api/users/:id/role', requirePermission('action:manage_roles'), (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
-    db.run("UPDATE users SET role = ? WHERE id = ?", [role, id], function(err) {
-        if (err) {
-            auditDb.logEvent({
-                userId: req.user.id,
-                userEmail: req.user.email,
-                eventType: 'role_changed',
-                action: `PUT /api/users/${id}/role`,
-                status: 'failure',
-                req: req,
-                details: { error: 'Database error', targetUserId: id }
+    
+    // First fetch the target user to see if they currently have the admin role
+    db.get("SELECT role FROM users WHERE id = ?", [id], (err, targetUser) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        if (!targetUser) return res.status(404).json({ error: 'User not found' });
+        
+        const currentRoles = (targetUser.role || '').split(',').map(r => r.trim());
+        const isCurrentlyAdmin = currentRoles.includes('admin');
+        
+        const newRoles = (role || '').split(',').map(r => r.trim());
+        const isNewAdmin = newRoles.includes('admin');
+        
+        const proceedWithUpdate = () => {
+            db.run("UPDATE users SET role = ? WHERE id = ?", [role, id], function(err) {
+                if (err) {
+                    auditDb.logEvent({
+                        userId: req.user.id,
+                        userEmail: req.user.email,
+                        eventType: 'role_changed',
+                        action: `PUT /api/users/${id}/role`,
+                        status: 'failure',
+                        req: req,
+                        details: { error: 'Database error', targetUserId: id }
+                    });
+                    return res.status(500).json({ error: 'Database error' });
+                }
+                if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
+                
+                // 成功を監査ログに記録
+                auditDb.logEvent({
+                    userId: req.user.id,
+                    userEmail: req.user.email,
+                    eventType: 'role_changed',
+                    action: `PUT /api/users/${id}/role`,
+                    status: 'success',
+                    req: req,
+                    details: { targetUserId: id, newRole: role }
+                });
+                
+                res.json({ success: true, role });
             });
-            return res.status(500).json({ error: 'Database error' });
+        };
+
+        if (isCurrentlyAdmin && !isNewAdmin) {
+            // Safety Validation: Safeguard 2 - Admin demotion check
+            db.all("SELECT id, role FROM users", [], (err, allUsers) => {
+                if (err) return res.status(500).json({ error: 'Database error' });
+                
+                // Count how many users currently have the admin role
+                const adminCount = allUsers.filter(u => {
+                    const uRoles = (u.role || '').split(',').map(r => r.trim());
+                    return uRoles.includes('admin');
+                }).length;
+                
+                if (adminCount <= 1) {
+                    return res.status(400).json({ error: 'Cannot demote the only administrator in the system.' });
+                }
+                
+                proceedWithUpdate();
+            });
+        } else {
+            proceedWithUpdate();
         }
-        if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
-        
-        // 成功を監査ログに記録
-        auditDb.logEvent({
-            userId: req.user.id,
-            userEmail: req.user.email,
-            eventType: 'role_changed',
-            action: `PUT /api/users/${id}/role`,
-            status: 'success',
-            req: req,
-            details: { targetUserId: id, newRole: role }
-        });
-        
-        res.json({ success: true, role });
     });
 });
 
@@ -1628,37 +1678,63 @@ app.delete('/api/users/:id', requirePermission('action:manage_users'), (req, res
         return res.status(400).json({ error: 'Cannot delete yourself' });
     }
     
-    // メールアドレスを事前に取得して監査ログに記録（削除後も証跡を残すため）
-    db.get("SELECT email FROM users WHERE id = ?", [targetId], (err, user) => {
-        const targetEmail = user ? user.email : 'unknown';
+    db.get("SELECT email, role FROM users WHERE id = ?", [targetId], (err, targetUser) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        if (!targetUser) return res.status(404).json({ error: 'User not found' });
         
-        db.run("DELETE FROM users WHERE id = ?", [targetId], function(err) {
-            if (err) {
+        const targetEmail = targetUser.email || 'unknown';
+        const targetRoles = (targetUser.role || '').split(',').map(r => r.trim());
+        const isTargetAdmin = targetRoles.includes('admin');
+        
+        const proceedToDelete = () => {
+            db.run("DELETE FROM users WHERE id = ?", [targetId], function(err) {
+                if (err) {
+                    auditDb.logEvent({
+                        userId: req.user.id,
+                        userEmail: req.user.email,
+                        eventType: 'user_deleted',
+                        action: `DELETE /api/users/${targetId}`,
+                        status: 'failure',
+                        req: req,
+                        details: { error: 'Database error', targetUserId: targetId, targetUserEmail: targetEmail }
+                    });
+                    return res.status(500).json({ error: 'Database error' });
+                }
+                
+                // 成功を監査ログに記録
                 auditDb.logEvent({
                     userId: req.user.id,
                     userEmail: req.user.email,
                     eventType: 'user_deleted',
                     action: `DELETE /api/users/${targetId}`,
-                    status: 'failure',
+                    status: 'success',
                     req: req,
-                    details: { error: 'Database error', targetUserId: targetId, targetUserEmail: targetEmail }
+                    details: { targetUserId: targetId, targetUserEmail: targetEmail }
                 });
-                return res.status(500).json({ error: 'Database error' });
-            }
-            
-            // 成功を監査ログに記録
-            auditDb.logEvent({
-                userId: req.user.id,
-                userEmail: req.user.email,
-                eventType: 'user_deleted',
-                action: `DELETE /api/users/${targetId}`,
-                status: 'success',
-                req: req,
-                details: { targetUserId: targetId, targetUserEmail: targetEmail }
+                
+                res.json({ success: true });
             });
-            
-            res.json({ success: true });
-        });
+        };
+
+        if (isTargetAdmin) {
+            // Safety Validation: Safeguard 2 - Admin deletion check
+            db.all("SELECT id, role FROM users", [], (err, allUsers) => {
+                if (err) return res.status(500).json({ error: 'Database error' });
+                
+                const adminCount = allUsers.filter(u => {
+                    const uRoles = (u.role || '').split(',').map(r => r.trim());
+                    return uRoles.includes('admin');
+                }).length;
+                
+                if (adminCount <= 1) {
+                    return res.status(400).json({ error: 'Cannot delete the only administrator in the system.' });
+                }
+                
+                proceedToDelete();
+            });
+        } else {
+            proceedToDelete();
+        }
     });
 });
 
