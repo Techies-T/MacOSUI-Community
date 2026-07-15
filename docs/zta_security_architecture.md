@@ -73,7 +73,40 @@ app.put('/api/users/:id/role', requirePermission('action:manage_roles'), (req, r
 
 ---
 
-## 4. 設計変更履歴 (仕様統一)
+## 4. 中長期設計ロードマップ (ZTA アーキテクチャの強化)
+
+### 4.1 【PEP】インライン認可ロジックの完全廃止と移行手順
+ビジネスロジック（`routes/` 配下のファイル）内に個別に埋め込まれている `if (!hasPermission) { return res.status(403) }` のような判定コードを完全に撤去し、グローバルのミドルウェアへ移行します。
+
+*   **移行対象エンドポイントの棚卸し**:
+    `routes/knowledge.cjs`、`routes/pods.cjs` などに存在する「書き込み/編集/削除」アクションについて、インライン認可から `requirePermission` または `requireWidgetAccess` への移行を実施します。
+*   **移行方針**:
+    1. ルート定義（`index.cjs`）側でミドルウェアをチェーンする。
+    2. ルートハンドラ側では `req.user` がすでに認可済みであることを前提とし、ビジネスロジックに集中する。
+
+### 4.2 【PDP】管理者セルフロックアウト防止機能 (セーフティバリデータ)
+ポリシー管理権限（`action:manage_roles` など）を持つ管理者が、設定誤りによって「自分自身から管理者ロールを剥奪する」、または「管理者ロールの権限リストから管理権限自体を消去してしまう」というシステム運用不全（セルフロックアウト）を防ぐ防衛機構を PDP 保存処理に組み込みます。
+
+*   **バリデーションゲートの配置場所**:
+    `server/index.cjs` 内の `/api/config`（設定保存API）および `/api/users/:id/role`（ロール変更API）の処理直前。
+*   **ガードレールルール**:
+    1. **管理者最小人数の保護**: システム内に `admin` ロールを持つアクティブユーザーが最低1人以上維持されることを強制する。
+    2. **管理者権限の最低保障**: `admin` ロールの `allowed_actions` から `*` または `action:manage_roles`、`action:manage_system_settings` を削除するポリシー変更リクエストが送られた場合、API レベルで `400 Bad Request` を返し、保存を拒否する。
+
+### 4.3 【監査】ZTA 監査ログ（Security Logs）の活用とアラート可視化
+PEP によってブロック（Status: `blocked`）されたすべてのアクセス要求は、データベース物理隔離された `audit_database.sqlite`（`security_logs` テーブル）にリアルタイムで記録されます。
+
+*   **ログ構造**:
+    *   `event_type`: `permission_denied`（権限不足によるブロック）
+    *   `action`: 実行しようとした HTTP メソッドと URL
+    *   `ip_address`, `user_agent`: クライアントコンテキスト情報（なりすまし検知用）
+    *   `details`: 要求されたに必要な権限（`requiredAction` / `requiredWidget`）
+*   **モニタリング画面**:
+    システム設定の「セキュリティログ（Security Logs）」タブで、管理者はこれらを時系列で確認できます。同一IPや同一ユーザーから短時間に複数回の `permission_denied` が記録された場合、異常検知アラートをデスクトップ上に通知するトリガーを実装予定です。
+
+---
+
+## 5. 設計変更履歴 (仕様統一)
 
 *   **変更前 (インラインPEPとの二重基準)**:
     `/api/research` ルート全体が `requireWidgetAccess('app:deep-research')` で一元保護されていたにもかかわらず、中の `/api/research/start` エンドポイント内部で個別にロール判定を再実装していました。このインライン判定がマルチロール（カンマ区切り）のパースに対応していなかったため、認可判定の不整合が生じる原因となっていました。
