@@ -9,6 +9,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
         console.error('Error opening audit database:', err.message);
     } else {
         console.log('Connected to the SQLite Audit database.');
+        db.run("PRAGMA journal_mode = WAL;");
         initDb();
     }
 });
