@@ -78,28 +78,6 @@ router.post('/start', async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // --- Permission check ---
-        let rbacPolicies = {};
-        try {
-            rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
-        } catch (e) {
-            console.error("Failed to parse RBAC policies", e);
-        }
-        
-        const roles = (user.role || 'user').split(',').map(r => r.trim());
-        let hasPermission = false;
-        for (const r of roles) {
-            const rolePolicy = rbacPolicies[r] || {};
-            const allowedWidgets = rolePolicy.allowed_widgets || [];
-            if (allowedWidgets.includes('*') || allowedWidgets.includes('app:deep-research')) {
-                hasPermission = true;
-                break;
-            }
-        }
-
-        if (!hasPermission) {
-            return res.status(403).json({ error: 'Deep Research実行権限がありません。管理者に連絡してください。' });
-        }
 
         // --- ZTA: 選択された過去ナレッジ記事へのアクセス制限チェック ---
         if (selected_article_ids && Array.isArray(selected_article_ids) && selected_article_ids.length > 0) {
