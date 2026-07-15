@@ -378,10 +378,12 @@ app.use('/api/mcp/knowledge', requireAgentOrUserAuth, knowledgeMcpModule.router)
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
 
-// MCP Servers requires either manage_system_settings or manage_roles (for the RBAC UI)
+// MCP Servers requires either manage_system_settings, manage_roles, or app-monitor widget access (for connection management)
 app.use('/api/mcp/servers', requireAuth, (req, res, next) => {
     const allowed = req.user.allowed_actions || [];
-    if (allowed.includes('*') || allowed.includes('action:manage_system_settings') || allowed.includes('action:manage_roles')) {
+    const allowedWidgets = req.user.allowed_widgets || [];
+    const hasWidgetAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:app-monitor');
+    if (allowed.includes('*') || allowed.includes('action:manage_system_settings') || allowed.includes('action:manage_roles') || hasWidgetAccess) {
         next();
     } else {
         res.status(403).json({ error: 'Permission denied' });
