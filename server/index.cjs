@@ -715,11 +715,51 @@ app.post('/api/auth/logout', (req, res) => {
     res.json({ message: 'Logged out' });
 });
 
-// Auth: Token Exchange (RFC 8693) for Agent-to-Agent (A2A) authentication
-app.post('/api/auth/token-exchange', requireAuth, (req, res) => {
-    const { grant_type, audience, requested_token_type } = req.body;
+// Auth: Token Exchange (RFC 8693) & Client Credentials for Agent-to-Agent (A2A) authentication
+app.post('/api/auth/token-exchange', (req, res) => {
+    const { grant_type, audience, client_id, client_secret } = req.body;
     
-    // According to RFC 8693, grant_type must be urn:ietf:params:oauth:grant-type:token-exchange
+    if (!grant_type) {
+        return res.status(400).json({ error: 'invalid_request', error_description: 'grant_type is required' });
+    }
+
+    // 1. Client Credentials (A2A) Flow
+    if (grant_type === 'client_credentials') {
+        if (!audience) {
+            return res.status(400).json({ error: 'invalid_request', error_description: 'audience is required' });
+        }
+        
+        // Internal Client Validation
+        const internalClientId = 'macos-ui-internal-client';
+        const expectedSecret = process.env.DB_ENCRYPTION_KEY || 'development-encryption-key-123456';
+        
+        if (client_id !== internalClientId || client_secret !== expectedSecret) {
+            return res.status(401).json({ error: 'invalid_client', error_description: 'Invalid client credentials' });
+        }
+        
+        // Issue a short-lived, downscoped Agent Token for internal service
+        const agentToken = jwt.sign(
+            { 
+                sub: 'system-internal',
+                email: 'system@macosui-internal.local',
+                name: 'MacOSUI Internal Service',
+                aud: audience,
+                role: 'system',
+                type: 'agent_token'
+            },
+            process.env.JWT_SECRET || 'secret',
+            { expiresIn: '1h' }
+        );
+        
+        return res.json({
+            access_token: agentToken,
+            issued_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+    }
+
+    // 2. Standard Token Exchange (RFC 8693) Flow - Requires active User Session
     if (grant_type !== 'urn:ietf:params:oauth:grant-type:token-exchange') {
         return res.status(400).json({ error: 'unsupported_grant_type' });
     }
@@ -727,34 +767,82 @@ app.post('/api/auth/token-exchange', requireAuth, (req, res) => {
         return res.status(400).json({ error: 'invalid_request', error_description: 'audience is required' });
     }
 
-    // Verify if the user is actually allowed to access the requested audience (widget/skill)
-    const allowedWidgets = req.user.allowed_widgets || [];
-    const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(audience);
-    
-    if (!hasAccess) {
-        return res.status(403).json({ error: 'access_denied', error_description: `User does not have access to audience: ${audience}` });
+    // Inline requireAuth session validation
+    let sessionToken = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        sessionToken = authHeader.substring(7);
+    }
+    if (!sessionToken) {
+        sessionToken = req.cookies.token;
     }
 
-    // Issue a short-lived, downscoped Agent Token
-    const agentToken = jwt.sign(
-        { 
-            sub: req.user.googleId,
-            email: req.user.email,
-            name: req.user.name,
-            aud: audience,
-            role: req.user.role,
-            // Downscope: remove allowed_widgets and allowed_actions to prevent the agent from acting laterally
-            type: 'agent_token'
-        },
-        process.env.JWT_SECRET || 'secret',
-        { expiresIn: '1h' } // Short-lived token for security
-    );
+    if (!sessionToken) {
+        return res.status(401).json({ error: 'unauthorized', error_description: 'Session authentication required for token exchange' });
+    }
 
-    res.json({
-        access_token: agentToken,
-        issued_token_type: 'urn:ietf:params:oauth:token-type:jwt',
-        token_type: 'Bearer',
-        expires_in: 3600
+    jwt.verify(sessionToken, process.env.JWT_SECRET || 'secret', async (err, decoded) => {
+        if (err) {
+            return res.status(401).json({ error: 'invalid_token', error_description: 'Invalid or expired session' });
+        }
+
+        // Check DB to make sure user still exists and get latest details
+        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (dbErr, row) => {
+            if (dbErr || !row) {
+                return res.status(401).json({ error: 'unauthorized', error_description: 'User not found' });
+            }
+
+            // Perform context validation if necessary (session hijacking check)
+            const hashes = getContextHashes(req);
+            const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+            if (!isContextValid) {
+                return res.status(403).json({ error: 'access_denied', error_description: 'Session context mismatch' });
+            }
+
+            // Get user permissions and allowed widgets
+            let rbacPolicies;
+            try {
+                rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+            } catch(e) {
+                rbacPolicies = {};
+            }
+            
+            const roles = (row.role || 'user').split(',').map(r => r.trim());
+            const allowed_widgets_set = new Set();
+            roles.forEach(roleName => {
+                const policy = rbacPolicies[roleName] || {};
+                const widgets = policy.allowed_widgets || [];
+                widgets.forEach(w => allowed_widgets_set.add(w));
+            });
+
+            const allowedWidgets = Array.from(allowed_widgets_set);
+            const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(audience);
+            
+            if (!hasAccess) {
+                return res.status(403).json({ error: 'access_denied', error_description: `User does not have access to audience: ${audience}` });
+            }
+
+            // Issue a short-lived, downscoped Agent Token
+            const agentToken = jwt.sign(
+                { 
+                    sub: decoded.googleId || decoded.id,
+                    email: decoded.email,
+                    name: decoded.name,
+                    aud: audience,
+                    role: row.role,
+                    type: 'agent_token'
+                },
+                process.env.JWT_SECRET || 'secret',
+                { expiresIn: '1h' }
+            );
+
+            return res.json({
+                access_token: agentToken,
+                issued_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+                token_type: 'Bearer',
+                expires_in: 3600
+            });
+        });
     });
 });
 

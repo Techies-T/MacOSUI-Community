@@ -521,13 +521,31 @@ async function autoActivate() {
         console.log("DEBUG: kbMcpCount fetched:", kbMcpCount);
 
         if (kbMcpCount === 0) {
-            console.log('DEBUG: Registering Knowledge Base MCP Server...');
-            const endpointUrl = 'http://localhost:8080/api/mcp/knowledge/sse';
-            db.run(`INSERT INTO mcp_servers (name, endpoint_url) VALUES (?, ?)`,
-                ['Knowledge Base MCP (Built-in)', endpointUrl],
+            console.log('DEBUG: Registering Knowledge Base MCP Server with ZTA credentials...');
+            
+            const domain = process.env.DOMAIN_NAME || 'localhost:8080';
+            const isDev = process.env.NODE_ENV === 'development';
+            
+            const endpointUrl = isDev && domain.includes('localhost')
+                ? 'http://localhost:8080/api/mcp/knowledge/sse'
+                : `https://${domain}/api/mcp/knowledge/sse`;
+                
+            const tokenUrl = isDev && domain.includes('localhost')
+                ? 'http://localhost:8080/api/auth/token-exchange'
+                : `https://${domain}/api/auth/token-exchange`;
+
+            const clientId = 'macos-ui-internal-client';
+            const rawSecret = process.env.DB_ENCRYPTION_KEY || 'development-encryption-key-123456';
+            
+            // Import encrypt function dynamically to prevent circular dependencies
+            const { encrypt } = require('./crypto.cjs');
+            const encryptedSecret = encrypt(rawSecret);
+
+            db.run(`INSERT INTO mcp_servers (name, endpoint_url, token_url, client_id, client_secret) VALUES (?, ?, ?, ?, ?)`,
+                ['Knowledge Base MCP (Built-in)', endpointUrl, tokenUrl, clientId, encryptedSecret],
                 (err) => {
                     if (err) console.error('Failed to register Knowledge Base MCP Server', err);
-                    else console.log('DEBUG: Knowledge Base MCP Server registered successfully.');
+                    else console.log('DEBUG: Knowledge Base MCP Server registered successfully with ZTA A2A Auth.');
                 }
             );
         }

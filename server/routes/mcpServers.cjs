@@ -4,6 +4,36 @@ const db = require('../db.cjs');
 const { encrypt, decrypt } = require('../crypto.cjs');
 const { refreshConnections, disconnectServer, testMcpConnection } = require('../mcpClient.cjs');
 
+// Helper function to enforce ZTA HTTPS compliance for MCP URLs
+function validateZtaUrls(endpointUrl, tokenUrl) {
+    const isDev = process.env.NODE_ENV === 'development';
+    
+    const checkUrl = (urlStr) => {
+        if (!urlStr) return true;
+        try {
+            const parsed = new URL(urlStr);
+            if (parsed.protocol === 'https:') {
+                return true;
+            }
+            // Only allow non-secure http on localhost/127.0.0.1 in development environment
+            if (isDev && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    };
+
+    if (!checkUrl(endpointUrl)) {
+        return 'ZTA Security Policy requires HTTPS for all MCP endpoints. Non-secure HTTP is only permitted on localhost in development mode.';
+    }
+    if (tokenUrl && !checkUrl(tokenUrl)) {
+        return 'ZTA Security Policy requires HTTPS for all OAuth token endpoints. Non-secure HTTP is only permitted on localhost in development mode.';
+    }
+    return null;
+}
+
 // POST to test an existing MCP server connection (by ID)
 router.post('/:id/test', async (req, res) => {
     const { id } = req.params;
@@ -43,6 +73,11 @@ router.post('/test', async (req, res) => {
     
     if (!endpoint_url) {
         return res.status(400).json({ error: 'Endpoint URL is required' });
+    }
+
+    const validationError = validateZtaUrls(endpoint_url, token_url);
+    if (validationError) {
+        return res.status(400).json({ error: validationError });
     }
 
     let finalSecret = client_secret;
@@ -89,6 +124,11 @@ router.post('/', (req, res) => {
         return res.status(400).json({ error: 'Name and Endpoint URL are required' });
     }
 
+    const validationError = validateZtaUrls(endpoint_url, token_url);
+    if (validationError) {
+        return res.status(400).json({ error: validationError });
+    }
+
     let encryptedSecret = null;
     if (client_secret) {
         encryptedSecret = encrypt(client_secret);
@@ -115,6 +155,11 @@ router.put('/:id', (req, res) => {
 
     if (!name || !endpoint_url) {
         return res.status(400).json({ error: 'Name and Endpoint URL are required' });
+    }
+
+    const validationError = validateZtaUrls(endpoint_url, token_url);
+    if (validationError) {
+        return res.status(400).json({ error: validationError });
     }
 
     // If client_secret is provided and not empty, encrypt and update it.
