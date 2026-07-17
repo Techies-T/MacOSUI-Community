@@ -11,21 +11,46 @@
 各エージェント、外部ウィジェット、および MCP サーバーへの接続・リクエストは、Agent-to-Agent (A2A) 認証フローに基づいて、厳格に暗号化および検証されなければなりません。
 
 ### ① A2A トークンの発行とトークン交換 (RFC 8693 & OAuth 2.0)
+各サービスやコンポーネントが自律的に認証を完了してセキュア通信を行うため、環境や導入組織のインフラ要件に合わせて選択可能な **マルチ・認証プロバイダー設計（プラグイン方式）** を採用します。これにより、OSS（オープンソース）配布時に単一のマスター鍵を共有するリスクを排除し、最高水準のセキュリティ分離を実現します。
+
+```
+[ Authentication Provider Options ]
+├── ① External IdP (OSS推奨)  ── GitHub / Google のパブリックOAuthシークレットを利用
+└── ② Internal JWT (クローズド) ── 内蔵 Client ID ＆ ローカル暗号マスターキー（DB_ENCRYPTION_KEY）を利用
+```
+
+#### 1. 外部認証プロバイダー (External OAuth Providers) - OSS配布時の推奨
+インターネットに公開するパブリックデプロイや、OSSとしてのインストール環境において、暗号化シークレットの漏洩を100%防止するための最高推奨方式です。Google や GitHub が払い出す安全な OAuth 情報を信頼の起点（Identity Provider）とします。
+
+* **GitHub OAuth プロバイダー**:
+  * 接続環境変数:
+    ```bash
+    export FASTMCP_SERVER_AUTH=fastmcp.server.auth.providers.github.GitHubProvider
+    export FASTMCP_SERVER_AUTH_GITHUB_CLIENT_ID="Ov23li..."
+    export FASTMCP_SERVER_AUTH_GITHUB_CLIENT_SECRET="github_pat_..."
+    ```
+* **Google OAuth プロバイダー**:
+  * 接続環境変数:
+    ```bash
+    export FASTMCP_SERVER_AUTH=fastmcp.server.auth.providers.google.GoogleProvider
+    export FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_ID="123456.apps.googleusercontent.com"
+    export FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET="GOCSPX-..."
+    ```
+* **メリット**: クライアントシークレットの管理責任がユーザー自身（GitHub/Googleコンソール）へ移譲されるため、MacOSUIの配布ソースコードや標準DB内に、共通の鍵やデフォルトシークレットを一切ハードコーディングする必要がなくなります。
+
+#### 2. 内蔵（ローカル）JWT プロバイダー (Internal JWT Provider) - 社内クローズド環境推奨
+外部インターネットへの接続が制限された完全なクローズドネットワーク（オンプレミス、VPN環境など）で動作させる場合に有効な、自己完結型のトークン交換フローです。
+
 * **MacOSUI 本体が提供する認証エンドポイント**: `POST /api/auth/token-exchange`
-* **動作仕様**:
-  1. **標準のトークン交換 (Token Exchange)**:
-     * ログイン中のユーザー認証トークン（Cookie）を元に、特定のウィジェットやエージェント専用に、一時的かつ最小権限（ダウンスコープ）された JWT (Agent Token) を発行・請求します。
-     * リクエストパラメータ: `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `audience=<target>`
-  2. **システム間直接 A2A 認証 (Client Credentials)**:
-     * ログインユーザーを介さない内部システムや内蔵 MCP（Knowledge Base等）が、自律的に認証を完了してセキュア通信を行うためのフローです。
-     * リクエストパラメータ: `grant_type=client_credentials`, `client_id=macos-ui-internal-client`, `client_secret=<DB_ENCRYPTION_KEY>`, `audience=<target>`
-     * **認証仕様**: `client_secret` としてコンテナ内の安全な環境変数 `DB_ENCRYPTION_KEY`（暗号マスターキー）を検証することで、外部からのなりすましを防止します。
+* **動作パラメータ**: `grant_type=client_credentials`, `client_id=macos-ui-internal-client`, `client_secret=<DB_ENCRYPTION_KEY>`
+* **メリット**: 外部IDプロバイダー（GitHub/Google）に依存することなく、コンテナ内の安全な環境変数 `DB_ENCRYPTION_KEY`（暗号マスターキー）を検証することで、クローズド環境内でも完璧な ZTA 認証連携を自律的に完結させます。
+
 * **トークンの有効期限**:
-  * 発行される JWT トークンの有効期限は **1 時間 (3600秒)** とし、発行完了のレスポンスに `expires_in: 3600` を明記します。
+  * いずれのプロバイダーから発行される JWT トークンも、有効期限は一律 **1 時間 (3600秒)** とし、レスポンスに `expires_in: 3600` を明記して短寿命運用を行います。
 
 ### ② JWT 署名と有効期限の厳格検証 (ZTA PEP)
 * **ミドルウェアでの検証**:
-  * 本体または内蔵 MCP サーバーがリクエストを受ける際、トークンが正しく `JWT_SECRET` で署名されていること、および有効期限内であることを確認します。
+  * 本体または内蔵 MCP サーバーがリクエストを受ける際、トークンが正しく `JWT_SECRET`（外部プロバイダーの場合は対象プラットフォームの公開鍵、または検証用の共有秘密）で署名されていること、および有効期限内であることを確認します。
   * 対象オーディエンス (`aud`) やトークンタイプ (`type === 'agent_token'`) などの検証を行い、適合しないリクエストはすべて `401 Unauthorized` または `403 Forbidden` で即座に遮断します。
   * システム内蔵 MCP サーバー（`/api/mcp/knowledge`）は、JWT 署名検証を行う `requireAgentOrUserAuth` ミドルウェアで保護し、認証なしの接続（No Auth）を一切拒否します。
 
