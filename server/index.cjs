@@ -755,9 +755,28 @@ app.post('/api/auth/token-exchange', express.json(), express.urlencoded({ extend
                     } catch (e) {
                         console.error("[Token Exchange] Decryption error for client_secret:", e);
                     }
-                    if (decryptedSecret && client_secret === decryptedSecret) {
+                    
+                    // 暗号・復号結果、または保存されている値そのもの(生の値)ともダブルチェックして一致を確認
+                    const matchDecrypted = decryptedSecret && (client_secret === decryptedSecret);
+                    const matchRaw = client_secret === dbMatch.client_secret;
+                    
+                    if (matchDecrypted || matchRaw) {
                         isValidClient = true;
+                    } else {
+                        // セキュリティを担保しつつ、トラブルシュートのためのログ出力 (生の値は伏字)
+                        const obscure = (str) => {
+                            if (!str) return "null";
+                            return str.substring(0, 3) + "...(length:" + str.length + ")";
+                        };
+                        console.warn(`[Token Exchange] Credentials mismatch:
+                          - Input Client ID: ${client_id}
+                          - Input Client Secret (obscured): ${obscure(client_secret)}
+                          - Decrypted Database Secret (obscured): ${obscure(decryptedSecret)}
+                          - Raw Database Secret (obscured): ${obscure(dbMatch.client_secret)}
+                        `);
                     }
+                } else {
+                    console.warn(`[Token Exchange] No matching client_id found in database for ID: ${client_id}`);
                 }
             } catch (dbErr) {
                 console.error("[Token Exchange] Database verification error:", dbErr);
