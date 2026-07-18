@@ -730,11 +730,41 @@ app.post('/api/auth/token-exchange', express.json(), express.urlencoded({ extend
             return res.status(400).json({ error: 'invalid_request', error_description: 'audience is required' });
         }
         
-        // Internal Client Validation
+        // --- 🔒 マルチ・プロバイダー ZTA 認証チェック ---
+        
+        // A) ローカル専用の合言葉（フォールバック用）の確認
         const internalClientId = 'macos-ui-internal-client';
         const expectedSecret = process.env.DB_ENCRYPTION_KEY || 'development-encryption-key-123456';
         
-        if (client_id !== internalClientId || client_secret !== expectedSecret) {
+        let isValidClient = (client_id === internalClientId && client_secret === expectedSecret);
+        
+        // B) 動的データベース（シークレット）照合
+        if (!isValidClient) {
+            try {
+                const dbMatch = await new Promise((resolve, reject) => {
+                    db.get("SELECT client_secret FROM mcp_servers WHERE client_id = ?", [client_id], (err, row) => {
+                        if (err) return reject(err);
+                        resolve(row);
+                    });
+                });
+
+                if (dbMatch && dbMatch.client_secret) {
+                    let decryptedSecret = null;
+                    try {
+                        decryptedSecret = decrypt(dbMatch.client_secret);
+                    } catch (e) {
+                        console.error("[Token Exchange] Decryption error for client_secret:", e);
+                    }
+                    if (decryptedSecret && client_secret === decryptedSecret) {
+                        isValidClient = true;
+                    }
+                }
+            } catch (dbErr) {
+                console.error("[Token Exchange] Database verification error:", dbErr);
+            }
+        }
+
+        if (!isValidClient) {
             return res.status(401).json({ error: 'invalid_client', error_description: 'Invalid client credentials' });
         }
         
