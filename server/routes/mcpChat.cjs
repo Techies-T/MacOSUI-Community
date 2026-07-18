@@ -107,7 +107,7 @@ ${toolDescriptions}`;
                         console.log(`[MCP Chat] Executing tool: ${funcName}`, funcArgs);
                         
                         try {
-                            const result = await callMcpTool(funcName, funcArgs, req.user.allowed_widgets || [], req.user, req);
+                            const result = await callMcpTool(funcName, funcArgs, req.user.allowed_widgets || [], req.user, req, message);
                             
                             artifacts.push({
                                 tool: funcName,

@@ -213,7 +213,7 @@ async function ensureConnection(connState, user = null, req = null) {
  * @param {object} user - The authenticated user object
  * @param {object} req - Express request object for client IP/UA extraction
  */
-async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req = null) {
+async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req = null, prompt = null) {
     if (serverConnections.size === 0) {
         await refreshConnections();
     }
@@ -243,6 +243,7 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
             details: {
                 toolName: name,
                 arguments: args,
+                aiPrompt: prompt,
                 error: `Access denied or Tool '${name}' is not registered by any accessible MCP Server.`
             }
         });
@@ -268,7 +269,8 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
                 serverId: targetConnState.id,
                 serverName: targetConnState.name,
                 toolName: name,
-                arguments: args
+                arguments: args,
+                aiPrompt: prompt
             }
         });
 
@@ -289,6 +291,7 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
                 serverName: targetConnState.name,
                 toolName: name,
                 arguments: args,
+                aiPrompt: prompt,
                 error: error.message || String(error)
             }
         });
