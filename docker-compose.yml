@@ -5,6 +5,8 @@ services:
     image: ${WEB_IMAGE:-macosui-local}
     build: .
     container_name: macosui-web
+    extra_hosts:
+      - "macosui-staging.techiespod.co.jp:host-gateway"
     # 本番・ステージング運用時はコンテナ内のdbファイルと、環境に合わせたenvファイルをマウントする
     volumes:
       - ./server/database.sqlite:/app/server/database.sqlite
