@@ -76,7 +76,8 @@ async function getOAuthToken(connState, user = null, req = null, isRefresh = fal
             body: new URLSearchParams({
                 'grant_type': 'client_credentials',
                 'client_id': connState.client_id,
-                'client_secret': connState.client_secret
+                'client_secret': connState.client_secret,
+                'audience': connState.endpoint_url || '' // ◀ ここに audience を追加！
             })
         });
 
