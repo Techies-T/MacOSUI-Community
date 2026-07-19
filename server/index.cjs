@@ -716,7 +716,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Auth: Token Exchange (RFC 8693) & Client Credentials for Agent-to-Agent (A2A) authentication
-app.post('/api/auth/token-exchange', express.json(), express.urlencoded({ extended: true }), (req, res) => {
+app.post('/api/auth/token-exchange', express.json(), express.urlencoded({ extended: true }), async (req, res) => {
     const body = req.body || {};
     const { grant_type, audience, client_id, client_secret } = body;
     
