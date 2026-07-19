@@ -27,5 +27,5 @@ dist-ssr
 .env
 .env.local
 .env.*.local
-*.sqlite
+*.sqlite*
 certbot/
