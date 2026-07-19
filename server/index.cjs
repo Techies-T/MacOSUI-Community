@@ -373,7 +373,7 @@ app.use('/api/pods', requireAuth, podsModule.router);
 
 // Knowledge Base MCP Server route
 const knowledgeMcpModule = require('./routes/knowledgeMcp.cjs');
-app.use('/api/mcp/knowledge', requireAgentOrUserAuth, knowledgeMcpModule.router);
+app.use('/api/mcp/knowledge', knowledgeMcpModule.router);
 
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
