@@ -35,7 +35,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/minoru61/macosui-web:latest
+          tags: ghcr.io/techies-t/macosui-web:latest
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
@@ -66,7 +66,7 @@ jobs:
           key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
           script: |
             # GHCR Login using Personal Access Token
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u minoru61 --password-stdin
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u techies-t --password-stdin
             
             cd ~/MacOSUI
             
@@ -81,7 +81,7 @@ jobs:
             fi
             
             # Start/Restart Docker Compose using GHCR image and staging config
-            export WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest
+            export WEB_IMAGE=ghcr.io/techies-t/macosui-web:latest
             # Fetch latest image
             ENV_FILE=staging.env docker compose pull web
             # Start gracefully (this will rebuild other local containers like nginx if needed, but pull remote web)

@@ -42,7 +42,7 @@ description: ステージングへのデプロイ準備から脆弱性チェッ�
    > この `push` をトリガーとして、GitHub Actionsのサーバー上で自動デプロイ処理（Rsync + Dockerビルド・再起動）が開始されます。
 
 ### 3. GitHub Actions による自動デプロイ監視
-3. ブラウザでGitHubのActionsページ（`https://github.com/minoru61/MacOSUI/actions`）を開き、最新のワークフローがエラーなく完了するかを確認してください。
+3. ブラウザでGitHubのActionsページ（`https://github.com/Techies-T/MacOSUI/actions`）を開き、最新のワークフローがエラーなく完了するかを確認してください。
    目安として、完了までに1分〜2分程度かかります。
 
 ### 4. ステージング環境の稼働確認（ヘルスチェック）
