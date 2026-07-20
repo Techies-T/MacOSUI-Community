@@ -312,7 +312,26 @@ const DeepResearch = ({ onOpen }) => {
         }
     };
 
-        // Phase 2: Actual Execution
+    const cancelPipeline = () => {
+        setStage('idle');
+        setIsLoading(false);
+        
+        // Remove confirmation buttons from previous message by stripping the component
+        setMessages(prev => {
+            const newArray = [...prev];
+            const lastMessage = newArray[newArray.length - 1];
+            if (lastMessage && lastMessage.component) {
+                lastMessage.component = undefined; 
+            }
+            return newArray;
+        });
+
+        setInput(pendingQuery);
+        setPendingQuery('');
+        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '調査をキャンセルしました。テーマを修正して再実行できます。' }]);
+    };
+
+    // Phase 2: Actual Execution
     const executePipeline = async (userQuery, targetWorkflow, resumeData = null, attachedFile = null) => {
         let activeWorkflow = targetWorkflow;
         
