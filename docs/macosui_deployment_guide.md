@@ -15,7 +15,7 @@ MacOSUIは、コンテナ技術（Docker / Docker Compose）を用いて構築�
 
 ### ② GitHub Actions CI/CD フロー
 1. 開発者がコードを特定のブランチに `git push` します。
-   - `staging` ブランチへのプッシュ ➔ ステージング環境（`macosui-staging.techiespod.co.jp`）へデプロイ。
+   - `staging` ブランチへのプッシュ ➔ ステージング環境（`macosui.example.com`）へデプロイ。
    - `main` ブランチへのプッシュ ➔ 本番環境へデプロイ。
 2. GitHub Actions が起動し、以下の処理を実行します。
    - **ビルド**: Dockerイメージの構築。
@@ -48,7 +48,7 @@ Expressアプリケーション内の `server/db.cjs` にて、以下のデー�
 # docker-compose.yml の設定例
 services:
   web:
-    image: ghcr.io/techies-t/macosui-web:latest
+    image: ghcr.io/minoru61/macosui-web:latest
     volumes:
       - /home/debian/MacOSUI/server/database.sqlite:/app/server/database.sqlite
       - /home/debian/MacOSUI/server/audit_database.sqlite:/app/server/audit_database.sqlite
