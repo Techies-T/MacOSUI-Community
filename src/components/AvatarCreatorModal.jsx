@@ -33,7 +33,7 @@ const AvatarCreatorModal = ({ onClose, onAvatarUpdate }) => {
         }
     };
 
-    const stopCamera = () => {
+    function stopCamera() {
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
             setStream(null);

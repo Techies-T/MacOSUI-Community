@@ -312,7 +312,7 @@ const DeepResearch = ({ onOpen }) => {
         }
     };
 
-    const cancelPipeline = () => {
+    function cancelPipeline() {
         setStage('idle');
         setIsLoading(false);
         
