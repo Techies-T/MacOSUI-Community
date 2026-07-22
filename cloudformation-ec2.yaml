@@ -6,10 +6,10 @@ Parameters:
     Type: String
     Default: t3.micro
     Description: 'EC2 instance type'
-  LatestAl2023MinimalAmi:
+  LatestAl2023Ami:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64'
-    Description: 'SSM parameter path for the latest Amazon Linux 2023 Minimal AMI'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+    Description: 'SSM parameter path for the latest Amazon Linux 2023 AMI'
 
 Resources:
   # VPC & Networking
@@ -100,10 +100,11 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
-      ImageId: !Ref LatestAl2023MinimalAmi
+      ImageId: !Ref LatestAl2023Ami
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds:
         - !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
       Tags:
         - Key: Name
           Value: MacOSUI-Test-EC2
@@ -113,15 +114,47 @@ Resources:
           # System updates
           dnf update -y
           
-          # Install Docker, Git, and Docker Compose Plugin
-          dnf install -y docker git docker-compose-plugin
+          # Install Docker and Git
+          dnf install -y docker git
           
           # Start and enable Docker
           systemctl start docker
           systemctl enable docker
           
+          # Add ec2-user to docker group
+          usermod -aG docker ec2-user
+          
+          # Install Docker Compose manually
+          mkdir -p /usr/libexec/docker/cli-plugins
+          curl -SL https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/libexec/docker/cli-plugins/docker-compose
+          chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+          
           # Create symlink for docker-compose compatibility (optional)
           ln -s /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Tags:
+        - Key: Name
+          Value: MacOSUI-Test-EC2Role
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
 
 Outputs:
   EC2PublicIP:
