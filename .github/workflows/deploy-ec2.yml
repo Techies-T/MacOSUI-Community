@@ -33,7 +33,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: 843109109185.dkr.ecr.ap-northeast-1.amazonaws.com/macosui:latest
+          tags: 843109109185.dkr.ecr.ap-northeast-1.amazonaws.com/macosui-oss:latest
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -57,7 +57,7 @@ jobs:
             git reset --hard origin/main
             
             # Deploy using updated ECR image
-            export WEB_IMAGE=843109109185.dkr.ecr.ap-northeast-1.amazonaws.com/macosui:latest
+            export WEB_IMAGE=843109109185.dkr.ecr.ap-northeast-1.amazonaws.com/macosui-oss:latest
             
             # Pull latest image from ECR
             docker compose pull web
