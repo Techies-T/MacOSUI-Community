@@ -74,5 +74,5 @@ jobs:
             # Pull latest image from ECR
             docker compose pull web
             
-            # Start container (we only launch web for HTTP test, ignoring missing SSL certs for Nginx)
-            docker compose up -d web
+            # Start containers
+            docker compose up -d web nginx
