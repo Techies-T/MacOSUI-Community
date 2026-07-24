@@ -167,6 +167,25 @@ const DeepResearch = ({ onOpen }) => {
         setInput(e.target.value);
     };
 
+    const cancelPipeline = () => {
+        setStage('idle');
+        setIsLoading(false);
+        
+        // Remove confirmation buttons from previous message by stripping the component
+        setMessages(prev => {
+            const newArray = [...prev];
+            const lastMessage = newArray[newArray.length - 1];
+            if (lastMessage && lastMessage.component) {
+                lastMessage.component = undefined; 
+            }
+            return newArray;
+        });
+
+        setInput(pendingQuery);
+        setPendingQuery('');
+        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '調査をキャンセルしました。テーマを修正して再実行できます。' }]);
+    };
+
     // Phase 1: Planning and Confirmation
     const requestPipeline = async (wf, bypassHistory = false, explicitQuery = null) => {
         if (!hasAccess) return;
@@ -232,7 +251,7 @@ const DeepResearch = ({ onOpen }) => {
                                 <button onClick={() => requestPipeline(targetWf, true, userQuery)} className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                                     ▶ 無視して新規作成
                                 </button>
-                                <button onClick={cancelPipeline} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                                <button onClick={() => cancelPipeline()} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                                     ❌ キャンセル
                                 </button>
                             </div>
@@ -296,7 +315,7 @@ const DeepResearch = ({ onOpen }) => {
                             <button onClick={() => executePipeline(userQuery, targetWf)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                                 ✅ この計画で調査を開始
                             </button>
-                            <button onClick={cancelPipeline} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                            <button onClick={() => cancelPipeline()} className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 px-4 py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                                 ❌ キャンセル
                             </button>
                         </div>
@@ -310,25 +329,6 @@ const DeepResearch = ({ onOpen }) => {
             setIsLoading(false);
             setStage('idle');
         }
-    };
-
-    function cancelPipeline() {
-        setStage('idle');
-        setIsLoading(false);
-        
-        // Remove confirmation buttons from previous message by stripping the component
-        setMessages(prev => {
-            const newArray = [...prev];
-            const lastMessage = newArray[newArray.length - 1];
-            if (lastMessage && lastMessage.component) {
-                lastMessage.component = undefined; 
-            }
-            return newArray;
-        });
-
-        setInput(pendingQuery);
-        setPendingQuery('');
-        setMessages(prev => [...prev, { role: 'model', type: 'system', text: '調査をキャンセルしました。テーマを修正して再実行できます。' }]);
     };
 
     // Phase 2: Actual Execution
