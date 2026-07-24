@@ -84,8 +84,8 @@ jobs:
             export WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest
             # Fetch latest image
             ENV_FILE=staging.env docker compose pull web
-            # Start gracefully (this will rebuild other local containers like nginx if needed, but pull remote web)
-            ENV_FILE=staging.env docker compose up -d
+            # Start gracefully and force recreate web container to apply new image
+            ENV_FILE=staging.env docker compose up -d --force-recreate
             
             # Ensure Nginx reloads its configuration in case only the mounted volume changed
             docker compose restart nginx
