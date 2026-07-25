@@ -49,13 +49,15 @@ jobs:
 
       - name: Sync config files using rsync
         run: |
-          rsync -avz --exclude 'node_modules' \
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3" \
+                     --exclude 'node_modules' \
                      --exclude '.git' \
                      --exclude 'dist' \
                      --exclude 'certbot' \
                      --exclude 'src' \
                      --exclude 'scripts' \
                      --exclude 'server/*.sqlite*' \
+                     --exclude 'server/database_backup_*.sqlite' \
                      ./ ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST_IP }}:~/MacOSUI/
 
       - name: Pull and Restart Docker Compose on VPS
