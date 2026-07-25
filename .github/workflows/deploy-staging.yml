@@ -81,11 +81,8 @@ jobs:
             fi
             
             # Start/Restart Docker Compose using GHCR image and staging config
-            export WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest
-            # Fetch latest image
-            ENV_FILE=staging.env docker compose pull web
-            # Start gracefully and force recreate web container to apply new image
-            ENV_FILE=staging.env docker compose up -d --force-recreate
+            WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest ENV_FILE=staging.env docker compose pull web
+            WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest ENV_FILE=staging.env docker compose up -d --force-recreate web
             
             # Ensure Nginx reloads its configuration in case only the mounted volume changed
             docker compose restart nginx
