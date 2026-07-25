@@ -459,22 +459,37 @@ async function autoActivate() {
             }
         }
 
-        console.log("DEBUG: Fetching GOOGLE_CLIENT_ID...");
+        console.log("DEBUG: Checking environment variables for auto-configuration...");
         const existingClientId = await db.getSetting('GOOGLE_CLIENT_ID');
-        console.log("DEBUG: GOOGLE_CLIENT_ID fetched:", existingClientId);
         const envClientId = process.env.VITE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
         const envClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-        // Automatically configure DB if credentials are provided in env but not in DB
-        if (!existingClientId && envClientId && envClientSecret) {
+        // Automatically configure DB if credentials are provided in env but missing in DB
+        if ((!existingClientId || existingClientId === '') && envClientId && envClientSecret) {
             console.log('DEBUG: Auto-activating system based on Environment Variables...');
             await db.setSetting('GOOGLE_CLIENT_ID', envClientId);
             await db.setSetting('GOOGLE_CLIENT_SECRET', envClientSecret);
+            console.log('DEBUG: Auto-activation of Google OAuth complete.');
+        }
 
-            if (process.env.GEMINI_API_KEY) {
+        // Additional environment variable auto-settings for YAML/Container deployments
+        if (process.env.GEMINI_API_KEY) {
+            const existingGemini = await db.getSetting('GEMINI_API_KEY');
+            if (!existingGemini) {
                 await db.setSetting('GEMINI_API_KEY', process.env.GEMINI_API_KEY);
+                console.log('DEBUG: Auto-configured GEMINI_API_KEY from environment.');
             }
-            console.log('DEBUG: Auto-activation complete.');
+        }
+        if (process.env.MCP_CLIENT_ID && process.env.MCP_CLIENT_SECRET) {
+            const existingMcpId = await db.getSetting('MCP_CLIENT_ID');
+            if (!existingMcpId) {
+                await db.setSetting('MCP_CLIENT_ID', process.env.MCP_CLIENT_ID);
+                await db.setSetting('MCP_CLIENT_SECRET', process.env.MCP_CLIENT_SECRET);
+                if (process.env.MCP_SERVER_ENDPOINT) {
+                    await db.setSetting('MCP_SERVER_ENDPOINT', process.env.MCP_SERVER_ENDPOINT);
+                }
+                console.log('DEBUG: Auto-configured MCP Credentials from environment.');
+            }
         }
 
         // Migrate existing MCP settings to mcp_servers table

@@ -181,7 +181,23 @@ app.get('/api/config', async (req, res) => {
     }
 });
 
-app.post('/api/config', requireAuth, async (req, res) => {
+async function requireAuthIfConfigured(req, res, next) {
+    try {
+        const clientId = await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID;
+        const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET') || process.env.GOOGLE_CLIENT_SECRET;
+        const isConfigured = !!(clientId && clientSecret);
+
+        if (!isConfigured) {
+            req.user = { id: 0, email: 'system@init', role: 'admin', allowed_actions: ['*'] };
+            return next();
+        }
+    } catch (e) {
+        console.error("Config check in auth middleware error:", e);
+    }
+    return requireAuth(req, res, next);
+}
+
+app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
     const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers } = req.body;
 
     try {

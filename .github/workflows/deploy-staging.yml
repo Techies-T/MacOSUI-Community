@@ -47,6 +47,17 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.STAGING_HOST_IP }} >> ~/.ssh/known_hosts
 
+      - name: Cleanup disk space on VPS before rsync
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST_IP }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          script: |
+            # Clean up unused Docker images, containers, and volumes to ensure sufficient disk space
+            docker system prune -af --volumes 2>/dev/null || true
+            sudo journalctl --vacuum-time=1d 2>/dev/null || true
+
       - name: Sync config files using rsync
         run: |
           rsync -avz --exclude 'node_modules' \
@@ -89,3 +100,6 @@ jobs:
             
             # Ensure Nginx reloads its configuration in case only the mounted volume changed
             docker compose restart nginx
+            
+            # Post-deploy cleanup of unused dangling images
+            docker image prune -af 2>/dev/null || true
