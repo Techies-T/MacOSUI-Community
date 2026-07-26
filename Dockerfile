@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies first for better caching
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci && npm install tar@7.5.20 --save-exact
 
 # Copy the rest of the source code
 COPY . .
