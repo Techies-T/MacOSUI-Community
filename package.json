@@ -38,12 +38,6 @@
   },
   "overrides": {
     "tar": "7.5.20",
-    "node-gyp": {
-      "tar": "7.5.20"
-    },
-    "cacache": {
-      "tar": "7.5.20"
-    },
     "minimatch": "^10.2.3",
     "shell-quote": "^1.8.6"
   },
