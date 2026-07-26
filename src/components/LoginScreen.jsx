@@ -41,6 +41,28 @@ const LoginScreen = ({ onLogin }) => {
         prompt: 'consent' // ALWAYS request consent to ensure we get a refresh_token even on the staging DB
     });
 
+    const handleBypassLogin = async () => {
+        setIsLoading(true);
+        try {
+            const response = await fetch('/api/auth/bypass', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'minoru.inui@techiespod.jp' })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                onLogin(data.user);
+            } else {
+                console.error('Bypass login failed');
+            }
+        } catch (error) {
+            console.error('Bypass login error:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return (
         <div className="w-full h-screen bg-cover bg-center flex flex-col items-center justify-center text-white relative overflow-hidden"
             style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1477346611705-65d1883cee1e?q=80&w=2070&auto=format&fit=crop")' }}>
@@ -68,12 +90,12 @@ const LoginScreen = ({ onLogin }) => {
                 {/* User Name */}
                 <div className="text-2xl font-semibold mb-8 text-shadow-sm">User</div>
 
-                {/* Google Login Button */}
-                <div className="transform hover:scale-105 transition-transform duration-200">
+                {/* Google Login Button & Bypass Button */}
+                <div className="flex flex-col items-center gap-3 transform hover:scale-105 transition-transform duration-200">
                     <button
                         onClick={() => login()}
                         disabled={isLoading}
-                        className="bg-white text-black px-6 py-2 rounded-full font-medium flex items-center gap-2 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                        className="bg-white text-black px-6 py-2 rounded-full font-medium flex items-center gap-2 hover:bg-gray-100 transition-colors disabled:opacity-50 shadow-md"
                     >
                         {isLoading ? (
                             <span>Signing in...</span>
@@ -83,6 +105,14 @@ const LoginScreen = ({ onLogin }) => {
                                 Sign in with Google
                             </>
                         )}
+                    </button>
+
+                    <button
+                        onClick={handleBypassLogin}
+                        disabled={isLoading}
+                        className="bg-blue-600/80 hover:bg-blue-600 text-white text-xs px-5 py-1.5 rounded-full font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 backdrop-blur-sm border border-blue-400/30"
+                    >
+                        ⚡ バイパスログイン (管理者権限)
                     </button>
                 </div>
 
