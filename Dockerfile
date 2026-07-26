@@ -29,9 +29,8 @@ COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/package-lock.json ./package-lock.json
 COPY --from=build /app/node_modules ./node_modules
-# Upgrade global npm tar and ensure tar 7.5.20 across all node_modules
-RUN npm install -g tar@7.5.20
-RUN find /app/node_modules -type d -name "tar" -exec rm -rf {} + 2>/dev/null || true
+# Purge any npm bundled old tar 7.5.15 across system and node_modules
+RUN find / -name "tar" -type d 2>/dev/null | grep "node_modules/tar" | xargs rm -rf 2>/dev/null || true
 RUN npm install tar@7.5.20 --save-exact
 
 # Expose the API and UI port
