@@ -48,8 +48,9 @@ bash scripts/deploy-staging.sh
    git push origin staging
    ```
 
-#### 3. ステージング環境の稼働 & コンテナ再生成確認
-3. 約45秒待機した後、VPS 上の `docker ps` で `macosui-web` コンテナが自動再作成されていること、およびヘルスチェックを検証します。
+#### 3. GitHub Actions による自動デプロイ監視
+3. ブラウザでGitHubのActionsページ（`https://github.com/minoru61/MacOSUI/actions`）を開き、最新のワークフローがエラーなく完了するかを確認してください。
+   目安として、完了までに1分〜2分程度かかります。
    ```bash
    sleep 45 && ssh -i ~/.ssh/id_ed25519_vps -o StrictHostKeyChecking=no debian@133.167.105.49 "docker ps" && curl -s https://macosui-staging.techiespod.co.jp/api/health
    ```
