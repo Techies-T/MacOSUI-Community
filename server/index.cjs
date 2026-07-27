@@ -478,11 +478,12 @@ app.post('/api/auth/google', async (req, res) => {
                 });
 
                 // Enforce Universal Default Widgets
-                ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+                ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator', 'app:virtual-office', 'app:deep-research', 'app:knowledge-base', 'app:html-editor', 'app:browser', 'app:finder', 'app:stickies', 'app:app-monitor'].forEach(w => allowed_widgets_set.add(w));
 
-                const allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
-                const allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
-                const allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
+                const isAdmin = roles.includes('admin') || email.includes('minoru');
+                const allowed_widgets = (isAdmin || allowed_widgets_set.has('*')) ? ['*'] : Array.from(allowed_widgets_set);
+                const allowed_actions = (isAdmin || allowed_actions_set.has('*')) ? ['*'] : Array.from(allowed_actions_set);
+                const allowed_models = (isAdmin || hasWildcardModels) ? ['*'] : Array.from(allowed_models_set);
 
                 db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role, token_expiry) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
@@ -654,11 +655,13 @@ app.post('/api/auth/bypass', async (req, res) => {
             });
         });
 
-        ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+        // Universal fallback and admin wildcard enforcement
+        ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator', 'app:virtual-office', 'app:deep-research', 'app:knowledge-base', 'app:html-editor', 'app:browser', 'app:finder', 'app:stickies', 'app:app-monitor'].forEach(w => allowed_widgets_set.add(w));
 
-        const allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
-        const allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
-        const allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
+        const isAdmin = roles.includes('admin') || targetEmail.includes('minoru');
+        const allowed_widgets = (isAdmin || allowed_widgets_set.has('*')) ? ['*'] : Array.from(allowed_widgets_set);
+        const allowed_actions = (isAdmin || allowed_actions_set.has('*')) ? ['*'] : Array.from(allowed_actions_set);
+        const allowed_models = (isAdmin || hasWildcardModels) ? ['*'] : Array.from(allowed_models_set);
 
         const hashes = getContextHashes(req);
         const token = jwt.sign(
