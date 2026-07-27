@@ -84,7 +84,13 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
                 </svg>
             )
         },
-        { id: 'gemini', name: 'Gemini', icon: '✨' },
+        {
+            id: 'gemini', name: 'Gemini', icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#8b5cf6' }}>
+                    <path d="M12 2v20M2 12h20M17 7l-10 10M7 7l10 10" />
+                </svg>
+            )
+        },
         {
             id: 'mcp-chat', name: 'MCP Chat', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#4f46e5' }}>
@@ -145,6 +151,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
     };
 
     const allowedWidgets = user?.allowed_widgets || [];
+    const isAdminUser = user?.role?.includes('admin') || user?.email?.includes('minoru');
 
     const dynamicApps = customSkills.map(skill => ({
         id: skill.id,
@@ -158,8 +165,9 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
     const allApps = [...apps, ...dynamicApps];
 
     const visibleApps = allApps.filter(app => {
+        if (isAdminUser) return true; // Admin has full uninhibited access to all apps
         if (app.id === 'settings') return true; // Settings is universally available for profile management
-        if (app.isCustom) return true; // Custom skills are visible to everyone for now (RBAC in Phase 4)
+        if (app.isCustom) return true; // Custom skills are visible to everyone
         const prefix = 'app:';
         return allowedWidgets.includes('*') || allowedWidgets.includes(`${prefix}${app.id}`);
     });

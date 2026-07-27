@@ -176,7 +176,7 @@ Resources:
         Comment: 'Automated HTTPS Distribution for MacOSUI-oss Test'
         Origins:
           - Id: EC2Origin
-            DomainName: !GetAtt EC2Instance.PublicDnsName
+            DomainName: !Sub 'ec2-${ElasticIP}.ap-northeast-1.compute.amazonaws.com'
             CustomOriginConfig:
               HTTPPort: 80
               HTTPSPort: 443

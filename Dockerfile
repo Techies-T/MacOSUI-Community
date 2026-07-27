@@ -16,7 +16,7 @@ RUN npm run build
 FROM node:24-alpine
 
 # Patch OS-level vulnerabilities
-RUN apk update && apk upgrade --no-cache
+RUN apk update && apk upgrade --no-cache && rm -rf /usr/local/lib/node_modules/npm/node_modules/tar
 
 WORKDIR /app
 
