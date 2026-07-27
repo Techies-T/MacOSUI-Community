@@ -201,8 +201,10 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
     const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers } = req.body;
 
     try {
+        const isConfigured = !!(await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID);
+
         // ZTA Security Boundary Check: Block external domain users
-        if (await isExternalUser(req.user)) {
+        if (isConfigured && await isExternalUser(req.user)) {
             return res.status(403).json({ error: 'Permission denied. External domain users cannot change system configurations.' });
         }
 
@@ -230,8 +232,8 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             }
         }
 
-        const allowedActions = req.user.allowed_actions || [];
-        const hasWildcard = allowedActions.includes('*');
+        const allowedActions = req.user?.allowed_actions || [];
+        const hasWildcard = allowedActions.includes('*') || req.user?.id === 0 || !isConfigured;
         const hasSysSettings = hasWildcard || allowedActions.includes('action:manage_system_settings');
         const hasWorkPolicy = hasWildcard || allowedActions.includes('action:manage_work_policy');
         const hasWorkflowEdit = hasWildcard || allowedActions.includes('action:edit_workflow_model') || hasSysSettings;
@@ -1183,7 +1185,8 @@ function requireAuth(req, res, next) {
 
 // Helper to determine if a user is from an external domain (ZTA boundary constraint)
 async function isExternalUser(user) {
-    if (!user || !user.email) return true;
+    if (!user || !user.email || !user.email.includes('@')) return false;
+    if (user.id === 0 || user.role === 'admin' || user.email === 'system@init') return false;
     
     // 1. Get host domain
     let hostDomain = await db.getSetting('HOST_DOMAIN') || process.env.HOST_DOMAIN;
@@ -1196,7 +1199,7 @@ async function isExternalUser(user) {
                     else resolve(row);
                 });
             });
-            if (firstAdmin && firstAdmin.email) {
+            if (firstAdmin && firstAdmin.email && firstAdmin.email.includes('@')) {
                 hostDomain = firstAdmin.email.split('@')[1];
             }
         } catch (err) {
@@ -1213,16 +1216,18 @@ async function isExternalUser(user) {
                     else resolve(row);
                 });
             });
-            if (firstUser && firstUser.email) {
+            if (firstUser && firstUser.email && firstUser.email.includes('@')) {
                 hostDomain = firstUser.email.split('@')[1];
             }
         } catch (e) {
             hostDomain = 'techiespod.jp';
         }
     }
+
+    if (!hostDomain) hostDomain = 'techiespod.jp';
     
     hostDomain = hostDomain.toLowerCase().trim();
-    const userDomain = user.email.split('@')[1].toLowerCase().trim();
+    const userDomain = user.email.split('@')[1] ? user.email.split('@')[1].toLowerCase().trim() : '';
     
     return hostDomain !== userDomain;
 }
