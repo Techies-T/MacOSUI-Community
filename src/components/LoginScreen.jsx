@@ -41,56 +41,7 @@ const LoginScreen = ({ onLogin }) => {
         prompt: 'consent' // ALWAYS request consent to ensure we get a refresh_token even on the staging DB
     });
 
-    const handleBypassLogin = async () => {
-        setIsLoading(true);
-        try {
-            const response = await fetch('/api/auth/bypass', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: 'minoru.inui@techiespod.jp' })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                onLogin(data.user);
-            } else {
-                console.error('Bypass login failed');
-            }
-        } catch (error) {
-            console.error('Bypass login error:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <div className="w-full h-screen bg-cover bg-center flex flex-col items-center justify-center text-white relative overflow-hidden"
-            style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1477346611705-65d1883cee1e?q=80&w=2070&auto=format&fit=crop")' }}>
-
-            {/* Backdrop Blur */}
-            <div className="absolute inset-0 backdrop-blur-md bg-black/20"></div>
-
-            {/* Date and Time */}
-            <div className="absolute top-16 flex flex-col items-center z-10">
-                <div className="text-6xl font-thin tracking-wider">
-                    {currentTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: false })}
-                </div>
-                <div className="text-xl font-medium mt-2">
-                    {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                </div>
-            </div>
-
-            {/* Login Container */}
-            <div className="z-10 flex flex-col items-center mt-20">
-                {/* Avatar */}
-                <div className="w-24 h-24 rounded-full bg-gray-300 mb-6 overflow-hidden shadow-2xl border-2 border-white/20">
-                    <img src="https://github.com/shadcn.png" alt="User Avatar" className="w-full h-full object-cover" />
-                </div>
-
-                {/* User Name */}
-                <div className="text-2xl font-semibold mb-8 text-shadow-sm">User</div>
-
-                {/* Google Login Button & Bypass Button */}
+                {/* Google Login Button */}
                 <div className="flex flex-col items-center gap-3 transform hover:scale-105 transition-transform duration-200">
                     <button
                         onClick={() => login()}
@@ -105,14 +56,6 @@ const LoginScreen = ({ onLogin }) => {
                                 Sign in with Google
                             </>
                         )}
-                    </button>
-
-                    <button
-                        onClick={handleBypassLogin}
-                        disabled={isLoading}
-                        className="bg-blue-600/80 hover:bg-blue-600 text-white text-xs px-5 py-1.5 rounded-full font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50 backdrop-blur-sm border border-blue-400/30"
-                    >
-                        ⚡ バイパスログイン (管理者権限)
                     </button>
                 </div>
 
