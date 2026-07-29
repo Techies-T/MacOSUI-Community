@@ -125,3 +125,31 @@ jobs:
             
             # Start containers
             docker compose up -d web nginx
+
+      - name: Post-Deployment Verification & Health Check
+        run: |
+          echo "## 3. Post-Deployment Live Health Check Evidence" >> $GITHUB_STEP_SUMMARY
+          echo "Verifying application endpoint availability..."
+          
+          HEALTH_PASS=0
+          HTTP_STATUS="000"
+          for i in {1..5}; do
+            echo "Attempt $i: Checking HTTPS endpoint response..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --retry 2 --max-time 10 https://d142cwbt41wi7j.cloudfront.net/ || echo "000")
+            if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ] || [ "$HTTP_STATUS" = "301" ]; then
+              HEALTH_PASS=1
+              echo "HTTP Status Code: $HTTP_STATUS"
+              break
+            fi
+            echo "Endpoint status: $HTTP_STATUS. Waiting 5s for container warmup..."
+            sleep 5
+          done
+
+          if [ $HEALTH_PASS -eq 1 ]; then
+            echo "✅ **PASS**: Application is UP and healthy on CloudFront (HTTP Status: $HTTP_STATUS)." >> $GITHUB_STEP_SUMMARY
+            echo "Endpoint: https://d142cwbt41wi7j.cloudfront.net/" >> $GITHUB_STEP_SUMMARY
+            echo "Verified at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **FAIL**: Live application health check failed! (HTTP Status: $HTTP_STATUS)" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
