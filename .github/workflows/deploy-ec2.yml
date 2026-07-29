@@ -28,7 +28,18 @@ jobs:
           echo "# 🛡️ Security Audit & Vulnerability Report" >> $GITHUB_STEP_SUMMARY
           echo "## 1. Node.js Dependency Audit (npm audit)" >> $GITHUB_STEP_SUMMARY
           
-          if npm audit --audit-level=critical; then
+          SUCCESS=0
+          for i in {1..3}; do
+            echo "Attempt $i: Running npm audit..."
+            if npm audit --audit-level=critical; then
+              SUCCESS=1
+              break
+            fi
+            echo "Attempt $i failed. Retrying in 5 seconds..."
+            sleep 5
+          done
+
+          if [ $SUCCESS -eq 1 ]; then
             echo "✅ **PASS**: 0 CRITICAL vulnerabilities found in npm dependencies." >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **FAIL**: CRITICAL vulnerabilities detected in npm dependencies!" >> $GITHUB_STEP_SUMMARY
