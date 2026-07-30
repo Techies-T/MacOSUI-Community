@@ -110,7 +110,7 @@ Resources:
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: macosui
+      RepositoryName: macosui-oss
       ImageScanningConfiguration:
         ScanOnPush: true
 
@@ -124,7 +124,7 @@ Resources:
   LogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /ecs/macosui
+      LogGroupName: /ecs/macosui-oss
       RetentionInDays: 7
 
   # ECS Roles
@@ -140,6 +140,7 @@ Resources:
             Action: ['sts:AssumeRole']
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
 
   # Load Balancer
   LoadBalancer:
