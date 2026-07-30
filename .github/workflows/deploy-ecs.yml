@@ -63,13 +63,20 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Set AWS Fargate Task Execution Role ARN
+      - name: Inject AWS Fargate Task Execution Role ARN into JSON
         id: set-execution-role
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/ECSTaskExecutionRole"
-          sed -i "s|<EXECUTION_ROLE_ARN>|${ROLE_ARN}|g" ecs-task-definition.json
-          echo "✅ Configured executionRoleArn: ${ROLE_ARN}"
+          python3 -c "
+          import json
+          with open('ecs-task-definition.json', 'r') as f:
+              data = json.load(f)
+          data['executionRoleArn'] = 'arn:aws:iam::' + '$ACCOUNT_ID' + ':role/ECSTaskExecutionRole'
+          with open('ecs-task-definition.json', 'w') as f:
+              json.dump(data, f, indent=4)
+          "
+          echo "✅ Configured executionRoleArn dynamically for Account ID: $ACCOUNT_ID"
+          cat ecs-task-definition.json
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
