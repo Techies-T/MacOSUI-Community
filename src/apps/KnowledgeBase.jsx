@@ -169,6 +169,40 @@ const KnowledgeBase = () => {
         }
     };
 
+    const handleExportJson = () => {
+        window.open('/api/knowledge/export/download', '_blank');
+    };
+
+    const handleImportJson = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            const text = await file.text();
+            const json = JSON.parse(text);
+            const articlesList = json.articles || (Array.isArray(json) ? json : []);
+
+            const res = await fetch('/api/knowledge/import/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ articles: articlesList })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                alert(`インポートが完了しました (${data.imported_count} 件成功)`);
+                await fetchArticles(selectedTag, selectedPodId);
+            } else {
+                alert('インポートに失敗しました。フォーマットを確認してください。');
+            }
+        } catch (err) {
+            console.error("Import file parse error", err);
+            alert('JSONファイルの読み込みエラーが発生しました。');
+        } finally {
+            e.target.value = '';
+        }
+    };
+
     const handleDelete = async () => {
         if (!selectedArticleId) return;
         if (!window.confirm("このナレッジを削除してもよろしいですか？")) return;
@@ -337,13 +371,26 @@ const KnowledgeBase = () => {
             <div className="w-64 border-r border-[#333] bg-[#1e1e1e] flex flex-col">
                 <div className="p-3 border-b border-[#333] flex justify-between items-center bg-[#252526]">
                     <h2 className="font-semibold text-sm">Articles</h2>
-                    <button 
-                        onClick={handleCreateNew}
-                        className="w-6 h-6 rounded bg-blue-600 hover:bg-blue-500 text-white flex justify-center items-center font-bold"
-                        title="New Article"
-                    >
-                        +
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                        <label title="Import Knowledge Base (JSON)" className="cursor-pointer text-xs bg-[#333] hover:bg-[#444] text-gray-200 px-2 py-1 rounded flex items-center">
+                            📥
+                            <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
+                        </label>
+                        <button 
+                            onClick={handleExportJson}
+                            className="text-xs bg-[#333] hover:bg-[#444] text-gray-200 px-2 py-1 rounded"
+                            title="Export Knowledge Base (JSON)"
+                        >
+                            📤
+                        </button>
+                        <button 
+                            onClick={handleCreateNew}
+                            className="w-6 h-6 rounded bg-blue-600 hover:bg-blue-500 text-white flex justify-center items-center font-bold"
+                            title="New Article"
+                        >
+                            +
+                        </button>
+                    </div>
                 </div>
                 <div className="overflow-y-auto flex-1 p-2">
                     {isLoading ? (

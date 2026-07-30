@@ -223,4 +223,81 @@ router.delete('/:id', (req, res) => {
     });
 });
 
+// GET /export: 全ナレッジベース記事の JSON エクスポート
+router.get('/export/download', async (req, res) => {
+    db.all("SELECT * FROM knowledge_articles ORDER BY id ASC", [], (err, rows) => {
+        if (err) {
+            console.error("Export error:", err);
+            return res.status(500).json({ error: 'Database error during export' });
+        }
+        
+        const exportData = {
+            version: '2.2.2',
+            exported_at: new Date().toISOString(),
+            articles: rows.map(r => {
+                try { r.tags = JSON.parse(r.tags || '[]'); } catch (e) { r.tags = []; }
+                return r;
+            })
+        };
+
+        const fileName = `knowledge_export_${new Date().toISOString().split('T')[0]}.json`;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.send(JSON.stringify(exportData, null, 2));
+    });
+});
+
+// POST /import: ナレッジベース記事の JSON インポート
+router.post('/import/upload', async (req, res) => {
+    const { articles } = req.body;
+    if (!articles || !Array.isArray(articles)) {
+        return res.status(400).json({ error: 'Invalid import package format. Array of articles is required.' });
+    }
+
+    const authorId = req.user ? req.user.id : 1;
+    let importedCount = 0;
+    let errorsCount = 0;
+
+    const stmt = db.prepare("INSERT INTO knowledge_articles (title, content, tags, author_id, token_count, input_tokens, output_tokens, pod_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+
+        articles.forEach(art => {
+            if (!art.title) return;
+            const tagsJson = JSON.stringify(Array.isArray(art.tags) ? art.tags : []);
+            const tokenCount = art.token_count || 0;
+            const inputTokens = art.input_tokens || 0;
+            const outputTokens = art.output_tokens || 0;
+
+            stmt.run(
+                [art.title, art.content || '', tagsJson, authorId, tokenCount, inputTokens, outputTokens, art.pod_id || null],
+                (err) => {
+                    if (err) {
+                        console.error("Import single row error:", err);
+                        errorsCount++;
+                    } else {
+                        importedCount++;
+                    }
+                }
+            );
+        });
+
+        stmt.finalize();
+
+        db.run("COMMIT", (err) => {
+            if (err) {
+                console.error("Commit import error:", err);
+                return res.status(500).json({ error: 'Failed to commit import transaction' });
+            }
+            res.json({
+                success: true,
+                message: `Knowledge base imported successfully (${importedCount} imported, ${errorsCount} errors).`,
+                imported_count: importedCount,
+                errors_count: errorsCount
+            });
+        });
+    });
+});
+
 module.exports = { router };
