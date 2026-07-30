@@ -8,7 +8,7 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 - **AWS ECS (Fargate) サーバーレス設計**: ホスト OS の運用・管理を不要にし、コンテナメモリダンプ等の脅威を構造的に無力化する高度なセキュリティアーキテクチャ。
 - **ナレッジベース (Knowledge Base) 分離 & Import/Export**: ナレッジデータを外部インスタンスへ分離可能。JSON/Zip によるナレッジデータのポータブルなインポート・エクスポートを完全サポート。
-- **RAG (Gemini File Search)**: Google Drive やローカルファイルを Gemini 3.5 Flash 以上の File Search 機能で高速に検索・要約。
+- **RAG (Gemini File Search)**: Google Drive やローカルファイルを **Gemini 3.6 Flash** 以上の File Search 機能で高速に検索・要約（安価なトークンコストで非常に高速・高精度な **Gemini 3.6 Flash** の使用を強く推奨します）。
 - **Deep Research**: 自律型リサーチワークフローが詳細なレポート、インフォグラフィック、HTML を自動生成。
 - **ZTA セキュリティ & メモリ Zeroization**: Agent-to-Agent (A2A) 認証、RBAC、および使用直後のメモリ即時破棄 (`keyBuffer.fill(0)`) を搭載。
 
@@ -19,7 +19,7 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 | 項目 | 最低条件 | 推奨条件 (本番運用) |
 | :--- | :--- | :--- |
 | **デプロイ基盤** | **AWS ECS (Fargate) + ECR** | AWS ECS (Fargate) + ALB + CloudFront |
-| **AI モデル** | **Gemini 3.5 Flash 以上** | Gemini 3.5 Flash / Pro |
+| **AI モデル** | **Gemini 3.5 Flash 以上** | **Gemini 3.6 Flash (最推奨・低コスト)** / Pro |
 | **コンテナ構成** | 0.5 vCPU / 1 GB RAM | 1 vCPU / 2 GB RAM 以上 |
 | **ライセンス** | **Apache License 2.0** | オープンソース商用利用・改変・再配布可能 |
 
