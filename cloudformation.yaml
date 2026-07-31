@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'MacOSUI Infrastructure - ECS Fargate Service with ALB'
+Description: 'MacOSUI Infrastructure - ECS Fargate Service with ALB and DynamoDB'
 
 Parameters:
   VpcCIDR:
@@ -114,6 +114,28 @@ Resources:
       ImageScanningConfiguration:
         ScanOnPush: true
 
+  # DynamoDB Table for Knowledge Base
+  KnowledgeArticlesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: MacOSUI-KnowledgeArticles
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: pod_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: pod_id-index
+          KeySchema:
+            - AttributeName: pod_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
   # ECS Cluster
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -141,6 +163,7 @@ Resources:
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
         - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+        - 'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess'
 
   # Load Balancer
   LoadBalancer:
@@ -188,6 +211,7 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      TaskRoleArn: !Ref ECSTaskExecutionRole
       ContainerDefinitions:
         - Name: macosui-web
           Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:latest"

@@ -33,6 +33,8 @@
     "requiresCompatibilities": [
         "FARGATE"
     ],
+    "executionRoleArn": "<EXECUTION_ROLE_ARN>",
+    "taskRoleArn": "<EXECUTION_ROLE_ARN>",
     "cpu": "512",
     "memory": "1024"
 }
