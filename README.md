@@ -28,7 +28,7 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 ## 📊 インフラコンポーネント構成・ステータス一覧
 
-本システムがデプロイ・構築する全 AWS インフラの要素一覧です。
+本システムがデプロイ・全自動構築する AWS インフラの構成要素およびステータス一覧です。
 
 | インフラコンポーネント | ステータス | 役割と詳細説明 |
 | :--- | :--- | :--- |
@@ -39,13 +39,13 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 | **AWS VPC / サブネット / SG** | ✅ **自動構築** | 2AZ パブリックサブネット (10.0.1.0/24, 10.0.2.0/24) ＆ セキュリティグループ |
 | **AWS ALB (Load Balancer)** | ✅ **自動構築** | HTTP:80 トラフィックの受信・ターゲットグループへの安全な転送 |
 | **AWS ACM (SSL/TLS 証明書)** | ⏳ **独自設定** | 独自ドメイン決定後、ACM コンソールにて無料証明書を発行・ALB 443 に適用 |
-| **Route 53 (DNS 設定)** | ⏳ **独自設定** | 独自ドメイン決定後、A レコード (Alias) で ALB の DNS 名へマッピング |
+| **Route 53 / 外部 DNS** | ⏳ **独自設定** | 独自ドメイン決定後、A レコード (Alias) または CNAME で ALB の DNS 名へマッピング |
 
 ---
 
 ### 🔍 デプロイ完了時のインフラ正常性チェック（CLI 検証コマンド）
 
-顧客企業や他社エンジニアが `cloudformation.yaml` または GitHub Actions 経由でデプロイを終えた際、全インフラが正常にプロビジョニングされたかを以下のワンライナーコマンドで一括確認できます：
+顧客企業や他社エンジニアが `cloudformation.yaml` または GitHub Actions 経由でデプロイを終えた際、全インフラが正常にプロビジョニングされたかを以下のワンライナーコマンドで手元から確認できます：
 
 ```bash
 # AWS インフラ自動チェックコマンド (AWS CLI)
@@ -54,7 +54,7 @@ aws ecs describe-services --cluster MacOSUI-Cluster --services MacOSUI-Service -
 aws dynamodb describe-table --table-name MacOSUI-KnowledgeArticles --region ap-northeast-1 --query "Table.TableStatus" --output text
 ```
 
-> **期待される出力**: `ACTIVE`, `ACTIVE`, `ACTIVE` （すべて ACTIVE であれば全構築が 100% 成功しています）
+> **期待される出力**: `ACTIVE`, `ACTIVE`, `ACTIVE` （すべて ACTIVE と表示されれば全インフラ構築が 100% 成功しています）
 
 ---
 
