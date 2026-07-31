@@ -106,11 +106,10 @@ Resources:
           ToPort: !Ref ContainerPort
           SourceSecurityGroupId: !Ref ALBSecurityGroup
 
-  # ECR Repository
+  # ECR Repository (Auto-named by CloudFormation to avoid name conflict)
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: macosui-oss
       ImageScanningConfiguration:
         ScanOnPush: true
 
