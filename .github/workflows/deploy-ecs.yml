@@ -59,6 +59,29 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-1
 
+      - name: Auto-Provision ECS Fargate Infrastructure (CloudFormation)
+        id: auto-provision
+        run: |
+          echo "Checking if ECS Cluster 'MacOSUI-Cluster' exists..."
+          CLUSTER_EXISTS=$(aws ecs describe-clusters --clusters MacOSUI-Cluster --region ap-northeast-1 --query "clusters[?status=='ACTIVE'].clusterName" --output text || true)
+          
+          if [ -z "$CLUSTER_EXISTS" ] || [ "$CLUSTER_EXISTS" = "None" ]; then
+            echo "🚀 ECS Cluster 'MacOSUI-Cluster' not found. Auto-creating infrastructure via CloudFormation..."
+            aws cloudformation create-stack \
+              --stack-name macosui-fargate-stack \
+              --template-body file://cloudformation.yaml \
+              --capabilities CAPABILITY_IAM \
+              --region ap-northeast-1
+            
+            echo "⏳ Waiting for CloudFormation stack creation to complete (this takes ~3 minutes)..."
+            aws cloudformation wait stack-create-complete \
+              --stack-name macosui-fargate-stack \
+              --region ap-northeast-1
+            echo "✅ **PASS**: Infrastructure created successfully via CloudFormation." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ ECS Cluster 'MacOSUI-Cluster' already exists."
+          fi
+
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
@@ -72,11 +95,11 @@ jobs:
           with open('ecs-task-definition.json', 'r') as f:
               data = json.load(f)
           data['executionRoleArn'] = 'arn:aws:iam::' + '$ACCOUNT_ID' + ':role/ECSTaskExecutionRole'
+          data['taskRoleArn'] = 'arn:aws:iam::' + '$ACCOUNT_ID' + ':role/ECSTaskExecutionRole'
           with open('ecs-task-definition.json', 'w') as f:
               json.dump(data, f, indent=4)
           "
-          echo "✅ Configured executionRoleArn dynamically for Account ID: $ACCOUNT_ID"
-          cat ecs-task-definition.json
+          echo "✅ Configured executionRoleArn and taskRoleArn dynamically for Account ID: $ACCOUNT_ID"
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
