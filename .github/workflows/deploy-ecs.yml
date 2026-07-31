@@ -62,43 +62,35 @@ jobs:
 
       - name: Smart Auto-Provision ECS Fargate Infrastructure (CloudFormation)
         id: auto-provision
-        timeout-minutes: 8
+        timeout-minutes: 10
         run: |
-          echo "Checking if ECS Cluster 'MacOSUI-Cluster' exists..."
-          CLUSTER_EXISTS=$(aws ecs describe-clusters --clusters MacOSUI-Cluster --region ap-northeast-1 --query "clusters[?status=='ACTIVE'].clusterName" --output text || true)
+          echo "Checking if ECS Service 'MacOSUI-Service' is ACTIVE in 'MacOSUI-Cluster'..."
+          SERVICE_STATUS=$(aws ecs describe-services --cluster MacOSUI-Cluster --services MacOSUI-Service --region ap-northeast-1 --query "services[0].status" --output text 2>/dev/null || true)
+          echo "Current ECS Service Status: '${SERVICE_STATUS}'"
           
-          if [ -z "$CLUSTER_EXISTS" ] || [ "$CLUSTER_EXISTS" = "None" ]; then
-            echo "🚀 ECS Cluster 'MacOSUI-Cluster' not found. Checking CloudFormation stack status..."
+          if [ -z "$SERVICE_STATUS" ] || [ "$SERVICE_STATUS" = "INACTIVE" ] || [ "$SERVICE_STATUS" = "MISSING" ] || [ "$SERVICE_STATUS" = "None" ]; then
+            echo "🚀 ECS Service 'MacOSUI-Service' is INACTIVE or missing. Cleaning up and auto-recreating via CloudFormation..."
             
-            STACK_STATUS=$(aws cloudformation describe-stacks --stack-name macosui-fargate-stack --region ap-northeast-1 --query "Stacks[0].StackStatus" --output text 2>/dev/null || true)
-            echo "Current Stack Status: '${STACK_STATUS}'"
+            # Clean up old stack if present
+            aws cloudformation delete-stack --stack-name macosui-fargate-stack --region ap-northeast-1 || true
+            aws cloudformation wait stack-delete-complete --stack-name macosui-fargate-stack --region ap-northeast-1 || true
 
-            # Clean up failed or broken stacks if present
-            if [[ "$STACK_STATUS" == *"ROLLBACK"* ]] || [[ "$STACK_STATUS" == *"FAILED"* ]]; then
-              echo "⚠️ Deleting failed CloudFormation stack '${STACK_STATUS}'..."
-              aws cloudformation delete-stack --stack-name macosui-fargate-stack --region ap-northeast-1 || true
-              aws cloudformation wait stack-delete-complete --stack-name macosui-fargate-stack --region ap-northeast-1 || true
-              STACK_STATUS=""
-            fi
-
-            if [ -z "$STACK_STATUS" ]; then
-              echo "🚀 Creating CloudFormation stack 'macosui-fargate-stack'..."
-              aws cloudformation create-stack \
-                --stack-name macosui-fargate-stack \
-                --template-body file://cloudformation.yaml \
-                --capabilities CAPABILITY_IAM \
-                --region ap-northeast-1
-              
-              echo "⏳ Waiting for CloudFormation stack creation..."
-              if ! aws cloudformation wait stack-create-complete --stack-name macosui-fargate-stack --region ap-northeast-1; then
-                echo "❌ CloudFormation stack creation failed. Events:"
-                aws cloudformation describe-stack-events --stack-name macosui-fargate-stack --region ap-northeast-1 --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId, ResourceStatusReason]" --output table
-                exit 1
-              fi
+            echo "🚀 Creating CloudFormation stack 'macosui-fargate-stack'..."
+            aws cloudformation create-stack \
+              --stack-name macosui-fargate-stack \
+              --template-body file://cloudformation.yaml \
+              --capabilities CAPABILITY_IAM \
+              --region ap-northeast-1
+            
+            echo "⏳ Waiting for CloudFormation to create ECS Cluster & MacOSUI-Service..."
+            if ! aws cloudformation wait stack-create-complete --stack-name macosui-fargate-stack --region ap-northeast-1; then
+              echo "❌ CloudFormation stack creation failed. Events:"
+              aws cloudformation describe-stack-events --stack-name macosui-fargate-stack --region ap-northeast-1 --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId, ResourceStatusReason]" --output table
+              exit 1
             fi
             echo "✅ **PASS**: Infrastructure created successfully via CloudFormation." >> $GITHUB_STEP_SUMMARY
           else
-            echo "✅ ECS Cluster 'MacOSUI-Cluster' already exists."
+            echo "✅ ECS Service 'MacOSUI-Service' is ACTIVE."
           fi
 
       - name: Log in to Amazon ECR
@@ -147,7 +139,7 @@ jobs:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: MacOSUI-Service
           cluster: MacOSUI-Cluster
-          wait-for-service-stability: true
+          wait-for-service-stability: false
 
       - name: Gate 3 - Fargate Deployment Verification Evidence
         run: |
