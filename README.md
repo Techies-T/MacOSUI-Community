@@ -26,6 +26,35 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 ---
 
+## 🏗 本番インフラ・アーキテクチャ図
+
+本システムの標準構成（AWS ECS Fargate ＋ ALB ＋ DynamoDB ゼロコストデータ分離）の構造図です。
+
+```mermaid
+graph TD
+    User([🌐 ユーザー / ブラウザ]) -->|HTTPS: 443| Route53[Route 53 / 独自ドメイン]
+    Route53 -->|A レコード (Alias)| ALB[Application Load Balancer / ACM 無料SSL証明書]
+    
+    subgraph AWS VPC (10.0.0.0/16)
+        subgraph Public Subnets (2AZ)
+            ALB -->|HTTP: 8080 ヘルスチェック & 転送| Fargate[AWS ECS Fargate コンテナ (macosui-web)]
+        end
+    end
+    
+    Fargate -->|暗号化キー取得 / Zeroization| SecretsManager[AWS Secrets Manager / KMS]
+    Fargate -->|ナレッジ保存 (月額0円〜)| DynamoDB[(AWS DynamoDB: MacOSUI-KnowledgeArticles)]
+    Fargate -->|コンテナイメージ取得| ECR[(Amazon ECR: macosui-oss)]
+    
+    GitHubActions[🐙 GitHub Actions CI/CD] -->|100% 鍵不要 API デプロイ| ECR
+    GitHubActions -->|CloudFormation 自動構築 & Rollout| Fargate
+```
+
+> **💡 なぜ Fargate では SSH 鍵や Host IP の登録が不要なのか？**
+> EC2 時代のように `EC2_HOST_IP` や `SSH_PRIVATE_KEY` などの秘密鍵を GitHub Secrets に登録する必要は**一切ありません**。
+> GitHub Actions は AWS 公式の IAM クレデンシャル（`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`）を使用して AWS API を直接呼び出し、コンテナのビルド・ECR プッシュ・タスク定義の更新・ALB ターゲットグループへの自動バインドまでを安全に完結させます。
+
+---
+
 ## 🛠 デプロイメント構成ガイド
 
 ### 0. 【Step 0】 Fork 直後の事前準備 (AWS & Google Cloud 設定) 【必須】
