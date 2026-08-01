@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'MacOSUI Infrastructure - ECS Fargate Service with ALB and DynamoDB'
+Description: 'MacOSUI Infrastructure - ECS Fargate Service with ALB, DynamoDB, ACM HTTPS Certificate and Route 53 Automatic DNS'
 
 Parameters:
   VpcCIDR:
@@ -14,6 +14,12 @@ Parameters:
   ContainerPort:
     Type: Number
     Default: 8080
+  DomainName:
+    Type: String
+    Default: macosui-agent-test.techiespod.co.jp
+  HostedZoneName:
+    Type: String
+    Default: techiespod.co.jp.
 
 Resources:
   # VPC & Networking
@@ -94,6 +100,10 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
 
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -106,7 +116,7 @@ Resources:
           ToPort: !Ref ContainerPort
           SourceSecurityGroupId: !Ref ALBSecurityGroup
 
-  # ECR Repository (Auto-named by CloudFormation to avoid name conflict)
+  # ECR Repository
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
@@ -189,15 +199,50 @@ Resources:
       TargetType: ip
       VpcId: !Ref VPC
 
-  Listener:
+  # ACM Certificate (Automatic SSL/TLS)
+  SSLCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+
+  # Route 53 DNS Alias Record (Automatic Routing to ALB)
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+        DNSName: !GetAtt LoadBalancer.DNSName
+        EvaluateTargetHealth: false
+
+  # ALB Listeners (HTTP Redirect to HTTPS, & HTTPS 443)
+  HTTPListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref SSLCertificate
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref TargetGroup
       LoadBalancerArn: !Ref LoadBalancer
-      Port: 80
-      Protocol: HTTP
+      Port: 443
+      Protocol: HTTPS
 
   # ECS Task Definition & Service
   TaskDefinition:
@@ -225,12 +270,12 @@ Resources:
 
   ECSService:
     Type: AWS::ECS::Service
-    DependsOn: Listener
+    DependsOn: [HTTPSListener]
     Properties:
       Cluster: !Ref ECSCluster
       LaunchType: FARGATE
       ServiceName: MacOSUI-Service
-      DesiredCount: 1
+      DesiredCount: 0
       TaskDefinition: !Ref TaskDefinition
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -250,3 +295,5 @@ Outputs:
     Value: !GetAtt ECRRepository.RepositoryUri
   LoadBalancerDNS:
     Value: !GetAtt LoadBalancer.DNSName
+  DomainURL:
+    Value: !Sub "https://${DomainName}"
