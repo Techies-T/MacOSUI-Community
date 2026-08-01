@@ -230,7 +230,7 @@ Resources:
       Cluster: !Ref ECSCluster
       LaunchType: FARGATE
       ServiceName: MacOSUI-Service
-      DesiredCount: 1
+      DesiredCount: 0
       TaskDefinition: !Ref TaskDefinition
       NetworkConfiguration:
         AwsvpcConfiguration:
