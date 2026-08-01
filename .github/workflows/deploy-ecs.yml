@@ -64,18 +64,22 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-1
 
-      - name: Smart Auto-Provision ECS Fargate Infrastructure (CloudFormation)
+      - name: Smart Auto-Provision ECS Fargate & ALB Infrastructure (CloudFormation)
         id: auto-provision
         timeout-minutes: 20
         run: |
-          echo "Checking if ECS Service 'MacOSUI-Service' is ACTIVE in 'MacOSUI-Cluster'..."
+          echo "Checking if ALB Load Balancer and ECS Service 'MacOSUI-Service' exist in 'ap-northeast-1'..."
+          
+          ALB_EXISTS=$(aws elbv2 describe-load-balancers --region ap-northeast-1 --query "LoadBalancers[?contains(LoadBalancerName, 'LoadBal') || contains(LoadBalancerName, 'macosui')].LoadBalancerName" --output text 2>/dev/null || true)
           SERVICE_STATUS=$(aws ecs describe-services --cluster MacOSUI-Cluster --services MacOSUI-Service --region ap-northeast-1 --query "services[0].status" --output text 2>/dev/null || true)
+          
+          echo "Current ALB Status: '${ALB_EXISTS}'"
           echo "Current ECS Service Status: '${SERVICE_STATUS}'"
           
-          if [ -z "$SERVICE_STATUS" ] || [ "$SERVICE_STATUS" = "INACTIVE" ] || [ "$SERVICE_STATUS" = "MISSING" ] || [ "$SERVICE_STATUS" = "None" ]; then
-            echo "🚀 ECS Service 'MacOSUI-Service' is INACTIVE or missing. Cleaning up and auto-recreating via CloudFormation..."
+          if [ -z "$ALB_EXISTS" ] || [ "$ALB_EXISTS" = "None" ] || [ -z "$SERVICE_STATUS" ] || [ "$SERVICE_STATUS" = "INACTIVE" ] || [ "$SERVICE_STATUS" = "MISSING" ] || [ "$SERVICE_STATUS" = "None" ]; then
+            echo "🚀 ALB or ECS Service is missing. Auto-creating full infrastructure stack via CloudFormation..."
             
-            # Clean up old stack if present
+            # Clean up old stack if failed or partial
             aws cloudformation delete-stack --stack-name macosui-fargate-stack --region ap-northeast-1 || true
             aws cloudformation wait stack-delete-complete --stack-name macosui-fargate-stack --region ap-northeast-1 || true
 
@@ -86,15 +90,15 @@ jobs:
               --capabilities CAPABILITY_IAM \
               --region ap-northeast-1
             
-            echo "⏳ Waiting for CloudFormation to create ECS Cluster & MacOSUI-Service (allowing up to 20 mins)..."
+            echo "⏳ Waiting for CloudFormation to create ALB, VPC, ECS Cluster & MacOSUI-Service (allowing up to 20 mins)..."
             if ! aws cloudformation wait stack-create-complete --stack-name macosui-fargate-stack --region ap-northeast-1; then
               echo "❌ CloudFormation stack creation failed. Events:"
               aws cloudformation describe-stack-events --stack-name macosui-fargate-stack --region ap-northeast-1 --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId, ResourceStatusReason]" --output table
               exit 1
             fi
-            echo "✅ **PASS**: Infrastructure created successfully via CloudFormation." >> $GITHUB_STEP_SUMMARY
+            echo "✅ **PASS**: Full Infrastructure (ALB, VPC, Fargate, DynamoDB) created successfully via CloudFormation." >> $GITHUB_STEP_SUMMARY
           else
-            echo "✅ ECS Service 'MacOSUI-Service' is ACTIVE."
+            echo "✅ ALB Load Balancer and ECS Service 'MacOSUI-Service' are ACTIVE."
           fi
 
       - name: Log in to Amazon ECR
