@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'MacOSUI Infrastructure - ECS Fargate Service with ALB and DynamoDB'
+Description: 'MacOSUI Infrastructure - ECS Fargate Service with ALB and DynamoDB (OSS Universal Template)'
 
 Parameters:
   VpcCIDR:
@@ -106,7 +106,7 @@ Resources:
           ToPort: !Ref ContainerPort
           SourceSecurityGroupId: !Ref ALBSecurityGroup
 
-  # ECR Repository (Auto-named by CloudFormation to avoid name conflict)
+  # ECR Repository
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
@@ -230,7 +230,7 @@ Resources:
       Cluster: !Ref ECSCluster
       LaunchType: FARGATE
       ServiceName: MacOSUI-Service
-      DesiredCount: 1
+      DesiredCount: 0
       TaskDefinition: !Ref TaskDefinition
       NetworkConfiguration:
         AwsvpcConfiguration:
