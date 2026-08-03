@@ -80,6 +80,24 @@ jobs:
         working-directory: terraform
         run: terraform apply -auto-approve
 
+      - name: Export External DNS Instructions
+        working-directory: terraform
+        run: |
+          ACM_NAME=$(terraform output -raw acm_certificate_validation_cname_name)
+          ACM_VALUE=$(terraform output -raw acm_certificate_validation_cname_value)
+          ALB_DNS=$(terraform output -raw alb_dns_name)
+          
+          echo "### 🌐 External DNS Configuration (Required)" >> $GITHUB_STEP_SUMMARY
+          echo "Please log in to your external DNS provider (e.g., お名前.com) and add the following CNAME records to enable HTTPS:" >> $GITHUB_STEP_SUMMARY
+          echo "#### 1. ACM Certificate Validation" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type**: CNAME" >> $GITHUB_STEP_SUMMARY
+          echo "- **Name**: \`$ACM_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Value**: \`$ACM_VALUE\`" >> $GITHUB_STEP_SUMMARY
+          echo "#### 2. Application Load Balancer Routing" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type**: CNAME" >> $GITHUB_STEP_SUMMARY
+          echo "- **Name**: \`macosui-agent-test\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Value**: \`$ALB_DNS\`" >> $GITHUB_STEP_SUMMARY
+
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
