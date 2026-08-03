@@ -64,6 +64,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-northeast-1
 
+      - name: Auto-Provision Terraform Backend (S3 & DynamoDB)
+        run: bash ./scripts/setup-tf-backend.sh
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
