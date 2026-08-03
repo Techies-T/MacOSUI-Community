@@ -19,8 +19,9 @@ variable "public_subnet2_cidr" {
 }
 
 variable "container_port" {
-  type    = number
-  default = 8080
+  description = "Port the container is listening on"
+  type        = number
+  default     = 8080
 }
 
 variable "domain_name" {
