@@ -38,14 +38,14 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 | **AWS DynamoDB テーブル** | ✅ **自動構築** | `MacOSUI-KnowledgeArticles`: ナレッジベース用オンデマンド DB (月額 0円〜) |
 | **AWS VPC / サブネット / SG** | ✅ **自動構築** | 2AZ パブリックサブネット (10.0.1.0/24, 10.0.2.0/24) ＆ セキュリティグループ |
 | **AWS ALB (Load Balancer)** | ✅ **自動構築** | HTTP:80 トラフィックの受信・ターゲットグループへの安全な転送 |
-| **AWS ACM (SSL/TLS 証明書)** | ⏳ **独自設定** | 独自ドメイン決定後、ACM コンソールにて無料証明書を発行・ALB 443 に適用 |
-| **Route 53 / 外部 DNS** | ⏳ **独自設定** | 独自ドメイン決定後、A レコード (Alias) または CNAME で ALB の DNS 名へマッピング |
+| **AWS ACM (SSL/TLS 証明書)** | ✅ **自動構築** | `terraform` により無料証明書を自動発行・ALB 443 に自動バインド |
+| **Route 53 / 外部 DNS** | ✅ **自動構築** | ACM 検証用レコードおよび ALB への A レコード (Alias) を自動マッピング |
 
 ---
 
 ### 🔍 デプロイ完了時のインフラ正常性チェック（CLI 検証コマンド）
 
-顧客企業や他社エンジニアが `cloudformation.yaml` または GitHub Actions 経由でデプロイを終えた際、全インフラが正常にプロビジョニングされたかを以下のワンライナーコマンドで手元から確認できます：
+顧客企業や他社エンジニアが Terraform または GitHub Actions 経由でデプロイを終えた際、全インフラが正常にプロビジョニングされたかを以下のワンライナーコマンドで手元から確認できます：
 
 ```bash
 # AWS インフラ自動チェックコマンド (AWS CLI)
@@ -78,7 +78,7 @@ graph TD
     Fargate -->|コンテナイメージ取得| ECR[(Amazon ECR: macosui-oss)]
     
     GitHubActions[🐙 GitHub Actions CI/CD] -->|100% 鍵不要 API デプロイ| ECR
-    GitHubActions -->|CloudFormation 自動構築 & Rollout| Fargate
+    GitHubActions -->|Terraform 自動構築 & Rollout| Fargate
 ```
 
 > **💡 なぜ Fargate では SSH 鍵や Host IP の登録が不要なのか？**
@@ -127,8 +127,10 @@ graph TD
 
 1. **Amazon ECR リポジトリの作成**:
    - ECR コンソールにて `macosui-oss` リポジトリを作成します。
-2. **GitHub Actions 自動デプロイ**:
-   - `main` ブランチへ Push すると、`deploy-ecs.yml` が全自動でインフラ構築 (CloudFormation)、脆弱性チェック、ビルド、ECR Push、Fargate タスクのロールアウト、ヘルスチェックを実行します。
+2. **Terraform バックエンドの初期構築**:
+   - ローカルまたは AWS CloudShell で `./scripts/setup-tf-backend.sh` を実行し、Terraform State 保存用の S3 バケットと DynamoDB テーブルを作成します。
+3. **GitHub Actions 自動デプロイ**:
+   - `main` ブランチへ Push すると、`deploy-ecs.yml` が全自動でインフラ構築 (Terraform)、脆弱性チェック、ビルド、ECR Push、Fargate タスクのロールアウト、ヘルスチェックを実行します。
 
 ---
 
