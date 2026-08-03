@@ -40,28 +40,31 @@ resource "aws_lb_target_group" "main" {
   }
 }
 
-resource "aws_lb_listener" "http" {
+resource "aws_lb_listener" "http_forward" {
+  count             = var.enable_https_listener ? 0 : 1
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
-  dynamic "default_action" {
-    for_each = var.enable_https_listener ? [1] : []
-    content {
-      type = "redirect"
-      redirect {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
-      }
-    }
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.main.arn
   }
+}
 
-  dynamic "default_action" {
-    for_each = var.enable_https_listener ? [] : [1]
-    content {
-      type             = "forward"
-      target_group_arn = aws_lb_target_group.main.arn
+resource "aws_lb_listener" "http_redirect" {
+  count             = var.enable_https_listener ? 1 : 0
+  load_balancer_arn = aws_lb.main.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
     }
   }
 }
