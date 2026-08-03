@@ -45,13 +45,23 @@ resource "aws_lb_listener" "http" {
   port              = 80
   protocol          = "HTTP"
 
-  default_action {
-    type = "redirect"
+  dynamic "default_action" {
+    for_each = var.enable_https_listener ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
 
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+  dynamic "default_action" {
+    for_each = var.enable_https_listener ? [] : [1]
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.main.arn
     }
   }
 }
@@ -59,6 +69,7 @@ resource "aws_lb_listener" "http" {
 # The HTTPS listener binds directly to the unvalidated certificate ARN.
 # The ALB won't serve HTTPS correctly until the user manually adds the CNAME in their external DNS (e.g. Oname.com).
 resource "aws_lb_listener" "https" {
+  count             = var.enable_https_listener ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"

@@ -34,3 +34,9 @@ variable "hosted_zone_name" {
   type        = string
   default     = "techiespod.co.jp."
 }
+
+variable "enable_https_listener" {
+  description = "Set to true ONLY AFTER the ACM certificate has been successfully validated via Oname.com DNS."
+  type        = bool
+  default     = false
+}
