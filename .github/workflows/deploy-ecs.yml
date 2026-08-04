@@ -121,8 +121,8 @@ jobs:
           import json
           with open('ecs-task-definition.json', 'r') as f:
               data = json.load(f)
-          data['executionRoleArn'] = 'arn:aws:iam::' + '$ACCOUNT_ID' + ':role/ECSTaskExecutionRole'
-          data['taskRoleArn'] = 'arn:aws:iam::' + '$ACCOUNT_ID' + ':role/ECSTaskExecutionRole'
+          data['executionRoleArn'] = 'arn:aws:iam::' + '$ACCOUNT_ID' + ':role/macosui-ecs-task-execution-role'
+          data['taskRoleArn'] = 'arn:aws:iam::' + '$ACCOUNT_ID' + ':role/macosui-ecs-task-execution-role'
           with open('ecs-task-definition.json', 'w') as f:
               json.dump(data, f, indent=4)
           "
