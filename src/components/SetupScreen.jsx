@@ -8,6 +8,9 @@ const SetupScreen = ({ onActivate }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
+    // Check if the current connection is secure (HTTPS or localhost)
+    const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
@@ -57,47 +60,68 @@ const SetupScreen = ({ onActivate }) => {
                     </div>
 
                     <h1 className="text-2xl font-bold mb-2">Welcome to MacOS WebUI</h1>
-                    <p className="text-gray-500 mb-8 text-center text-sm">
+                    <p className="text-gray-500 mb-6 text-center text-sm">
                         To activate the system, please enter your API keys below.<br />
                         These will be securely stored in the database.
                     </p>
 
+                    {!isSecure && (
+                        <div className="w-full mb-6 p-4 border border-red-200 rounded-lg bg-white flex items-start gap-3 shadow-sm">
+                            <span className="text-red-500 text-lg">⚠️</span>
+                            <div>
+                                <h3 className="text-red-600 font-semibold text-sm mb-1">Security Warning (HTTP Detected)</h3>
+                                <p className="text-red-500 text-xs leading-relaxed">
+                                    現在の接続は暗号化されていません。情報漏洩を防ぐため、フォームの入力は無効化されています。
+                                    安全のため、必ず <strong>HTTPS</strong> を設定するか、ローカル環境（localhost）でアクセスしてください。
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     <form onSubmit={handleSubmit} className="w-full space-y-4">
                         <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Google Client ID</label>
+                            <label className={`block text-xs font-medium mb-1 ${!isSecure ? 'text-gray-400' : 'text-gray-500'}`}>Google Client ID</label>
                             <input
                                 type="text"
                                 name="googleClientId"
                                 value={formData.googleClientId}
                                 onChange={handleChange}
                                 placeholder="12345...apps.googleusercontent.com"
-                                className="w-full px-3 py-2 bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                className={`w-full px-3 py-2 bg-white text-gray-900 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${
+                                    !isSecure ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed placeholder-gray-300' : 'border-gray-300 placeholder-gray-400'
+                                }`}
                                 required
+                                disabled={!isSecure}
                             />
                         </div>
 
                         <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Google Client Secret</label>
+                            <label className={`block text-xs font-medium mb-1 ${!isSecure ? 'text-gray-400' : 'text-gray-500'}`}>Google Client Secret</label>
                             <input
                                 type="password"
                                 name="googleClientSecret"
                                 value={formData.googleClientSecret}
                                 onChange={handleChange}
                                 placeholder="GOCSPX-..."
-                                className="w-full px-3 py-2 bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                className={`w-full px-3 py-2 bg-white text-gray-900 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${
+                                    !isSecure ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed placeholder-gray-300' : 'border-gray-300 placeholder-gray-400'
+                                }`}
                                 required
+                                disabled={!isSecure}
                             />
                         </div>
-
-
 
                         {error && <p className="text-red-500 text-xs text-center">{error}</p>}
 
                         <div className="pt-4 flex justify-center">
                             <button
                                 type="submit"
-                                disabled={isLoading}
-                                className="bg-blue-500 text-white px-8 py-2 rounded-full font-medium hover:bg-blue-600 transition-colors disabled:opacity-50 shadow-sm active:scale-95 transform duration-100"
+                                disabled={isLoading || !isSecure}
+                                className={`px-8 py-2 rounded-full font-medium transition-colors shadow-sm transform duration-100 ${
+                                    !isSecure 
+                                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                                        : 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95 disabled:opacity-50'
+                                }`}
                             >
                                 {isLoading ? 'Activating...' : 'Activate System'}
                             </button>
