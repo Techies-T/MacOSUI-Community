@@ -87,59 +87,66 @@ graph TD
 
 ---
 
-## 🛠 デプロイメント構成ガイド
+## 🛠 デプロイメント＆構築ワークフロー
 
-### 0. 【Step 0】 Fork 直後の事前準備 (AWS & Google Cloud 設定) 【必須】
-顧客企業または他ユーザーが本リポジトリを Fork して独自の環境にデプロイする際、**最初に行う前提設定手順**です。
+MacOSUI OSS版では、安定した運用とトラブルシューティングの容易さを考慮し、**「①インフラの初期構築」**と**「②アプリケーションの継続的デプロイ (CI/CD)」**を完全に分離した設計を採用しています。
 
-#### 1. AWS インフラ, IAM ロール & Secrets Manager の準備
-- **AWS ECS タスク実行ロール (`ECSTaskExecutionRole`) の作成**:
-  - IAM コンソールで以下のポリシーを持つ IAM ロールを作成します。
-    - **信頼関係**: `ecs-tasks.amazonaws.com`
-    - **許可ポリシー**: `AmazonECSTaskExecutionRolePolicy`, `SecretsManagerReadWrite`, `AmazonDynamoDBFullAccess`
-    - **ロール名**: `ECSTaskExecutionRole`
-- **AWS Secrets Manager / KMS 暗号化キーの作成**:
-  - AWS Secrets Manager にて以下のシークレットを作成します：
-    - **シークレット名**: `macosui/production/db-encryption-key`
-    - **キー名**: `DB_ENCRYPTION_KEY`
-    - **値**: 32 バイト（64 桁 Hex）のランダム文字列（`server/crypto.cjs` がオンデマンド取得＆メモリ即時抹消 Zeroization で活用します）
-- **GitHub Secrets の登録**:
-  - リポジトリの **[Settings] ➔ [Secrets and variables] ➔ [Actions]** で以下を設定します：
-    - `AWS_ACCESS_KEY_ID`: IAM アクセスキー
-    - `AWS_SECRET_ACCESS_KEY`: IAM シークレットキー
-    - `AWS_REGION`: リージョン (`ap-northeast-1`)
+### Step 1: AWS インフラの初期構築 (1回のみ)
+Terraform を使用して、ECS (Fargate), ALB, ECR, DynamoDB などの AWS リソースを自動構築します。
 
-#### 2. Google Cloud (GCP) プロジェクト & API クレデンシャルの準備
-- **GCP プロジェクトの新規作成**: [Google Cloud Console](https://console.cloud.google.com/) にて新規プロジェクトを作成します。
-- **必須 API の有効化**:
-  - `Google Calendar API` (バーチャルオフィスの予定調整用)
-  - `Google Drive API` (RAG / File Search 機能用)
-- **OAuth 2.0 クライアント ID と Secret の発行**:
-  - [API とサービス] ➔ [認証情報] ➔ [OAuth クライアント ID の作成] を選択。
-  - アプリケーションの種類: `ウェブ アプリケーション`
-  - 承認済みのリダイレクト URI: `https://<あなたのドメイン>/api/auth/google/callback`
-  - 発行された **Client ID** と **Client Secret** をメモしておきます（アクティベーション時に使用）。
+1. **前提条件**:
+   - AWS CLI がローカル環境にインストールされ、管理者権限を持つプロファイルでログイン (`aws configure`) されていること。
+   - 実行環境（Mac/Linux）に Terraform (v1.5.0以上) がインストールされていること。
+2. **セットアップスクリプトの実行**:
+   ```bash
+   # Terraform バックエンド(S3/DynamoDB)の作成から、全AWSリソースのプロビジョニングまで一括実行
+   bash scripts/setup-infra.sh
+   ```
+   ※デフォルトでは、SSL証明書（HTTPS）や独自ドメインは無効化されており、即座に **HTTP (80番ポート)** で ALB の標準DNS名からアクセステストが可能です。
 
----
+### Step 2: GitHub Actions 連携とデプロイ (CI/CD)
+インフラ構築が完了したら、日々のアプリケーション更新は GitHub Actions に任せます。
 
-### 1. 【標準デフォルト】 AWS ECS (Fargate) + ECR 【推奨】
-エンタープライズ企業・本番運用のための**標準デフォルト構成**です。OS の管理が不要で、SSH 閉塞やメモリダンプリスクの排除など最も高いセキュリティ水準を満たします。
+1. **GitHub Secrets の設定**:
+   フォークしたリポジトリの **[Settings] ➔ [Secrets and variables] ➔ [Actions]** に以下を設定します。
+   - `AWS_ACCESS_KEY_ID` (IAM ユーザーのアクセスキー)
+   - `AWS_SECRET_ACCESS_KEY` (IAM ユーザーのシークレットキー)
+2. **自動デプロイ**:
+   `main` ブランチにコードを Push すると自動で GitHub Actions が走り、Docker イメージのビルド、監査、ECR へのプッシュ、ECS コンテナの無停止ローリングアップデートを行います。
 
-1. **Amazon ECR リポジトリの作成**:
-   - ECR コンソールにて `macosui-oss` リポジトリを作成します。
-2. **Terraform バックエンドの初期構築**:
-   - ローカルまたは AWS CloudShell で `./scripts/setup-tf-backend.sh` を実行し、Terraform State 保存用の S3 バケットと DynamoDB テーブルを作成します。
-3. **GitHub Actions 自動デプロイ**:
-   - `main` ブランチへ Push すると、`deploy-ecs.yml` が全自動でインフラ構築 (Terraform)、脆弱性チェック、ビルド、ECR Push、Fargate タスクのロールアウト、ヘルスチェックを実行します。
+### Step 3: (オプション) 本番向け HTTPS (SSL証明書) の有効化
+独自ドメインを取得し、HTTPS で通信を暗号化する場合の追加設定です。
+
+1. `terraform/variables.tf` を開き、以下の変数を `true` に変更します。
+   ```hcl
+   variable "enable_https_listener" {
+     default = true
+   }
+   variable "domain_name" {
+     default = "macosui.your-domain.com"
+   }
+   ```
+2. 再度 `bash scripts/setup-infra.sh` を実行します。
+3. 出力された CNAME レコード（ACM 検証用）を、ご利用のドメイン管理サービス（Route 53, お名前.com など）に登録します。
+4. 検証が完了すると、自動的に ALB の 443 番ポート（HTTPS）が開放されます。
 
 ---
 
-### 2. 【オプション】 個別カスタマイズ構成
+## 🚑 トラブルシューティングガイド
 
-- **オプション A: AWS EC2 (Docker Compose)**
-  - 低コストで単一インスタンス上にテスト環境を構築する場合の手動/自動デプロイ構成。
-- **オプション B: オンプレミス / 完全閉域網 (オフライン .tar 移行)**
-  - 外部アクセスが一切禁止された環境向けに、ローカルで `docker save` して `.tar` パッケージを納品・デプロイする構成。
+GitHub Actions のデプロイは「成功（グリーン）」になっているのに、サイトにアクセスすると **`503 Service Temporarily Unavailable`** エラーが出る場合、AWS (ECS) 側でコンテナの起動に失敗している可能性が高いです。
+
+以下の手順で原因（停止理由）を特定してください：
+
+1. AWS コンソールの検索窓で **`ECS`** と検索し、Elastic Container Service を開きます。
+2. **`MacOSUI-Cluster`** ➔ サービス **`MacOSUI-Service`** の順にクリックします。
+3. **[タスク] (Tasks)** タブを開きます。
+4. ステータスのフィルタを「RUNNING」から **`STOPPED` (停止済み)** に変更します。
+5. 一覧から一番新しいタスクの ID (青いリンク) をクリックして詳細画面を開きます。
+6. 画面中央の **「停止理由 (Stopped reason)」** を確認します。
+   - 例: `CannotPullContainerError` (ECR からイメージを取得できない)
+   - 例: `unable to assume the role` (IAM ロールの設定ミス)
+7. コンテナ内の Node.js アプリケーションがクラッシュしている場合は、**[ログ] (Logs)** タブに `Error: ...` などの詳細なクラッシュログが出力されます。
 
 ---
 
