@@ -89,6 +89,10 @@ resource "aws_ecs_service" "main" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.main.arn
   desired_count   = 0 # GitHub Actions pushes image first, then updates desired_count to 1
+
+  lifecycle {
+    ignore_changes = [desired_count, task_definition]
+  }
   launch_type     = "FARGATE"
 
   network_configuration {
