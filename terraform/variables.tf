@@ -39,5 +39,5 @@ variable "hosted_zone_name" {
 variable "enable_https_listener" {
   description = "Enable HTTPS listener and ACM certificate validation"
   type        = bool
-  default     = false
+  default     = true
 }
