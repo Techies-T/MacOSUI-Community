@@ -14,7 +14,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
 });
 
 function initDb() {
-    db.run(`CREATE TABLE IF NOT EXISTS users (
+    db.serialize(() => {
+        db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     google_id TEXT UNIQUE,
     email TEXT,
@@ -295,6 +296,7 @@ function initDb() {
     db.run("ALTER TABLE deep_research_history ADD COLUMN selected_article_ids TEXT", (err) => {
         // Ignore error if column exists
     });
+    }); // End db.serialize
 }
 
 const { encrypt, decrypt } = require('./crypto.cjs');
