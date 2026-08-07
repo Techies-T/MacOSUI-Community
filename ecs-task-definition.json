@@ -38,6 +38,10 @@
         {
           "name": "DB_PASSWORD",
           "value": "macosui_secure_password_123"
+        },
+        {
+          "name": "DB_ENCRYPTION_KEY",
+          "value": "7111e8d46f005670e9dda19ead7b11740283c1cd4cd92eb35e271b1b91384fc3"
         }
       ],
       "logConfiguration": {
