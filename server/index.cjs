@@ -578,7 +578,7 @@ app.post('/api/auth/google', async (req, res) => {
                 db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
                     if (err) return res.status(500).json({ error: 'Database error' });
                     
-                    if (result.count === 0) {
+                    if (Number(result.count) === 0) {
                         // First user gets admin privileges
                         proceedWithLogin('admin');
                     } else {
