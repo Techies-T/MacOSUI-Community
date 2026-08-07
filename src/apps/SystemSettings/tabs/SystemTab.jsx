@@ -5,6 +5,8 @@ const SystemTab = ({
     setGeminiApiKey,
     googleClientId,
     setGoogleClientId,
+    googleClientSecret,
+    setGoogleClientSecret,
     isConfigured,
     handleSaveSettings,
     searchTerm,
@@ -35,6 +37,16 @@ const SystemTab = ({
                             value={googleClientId}
                             onChange={(e) => setGoogleClientId(e.target.value)}
                             placeholder={googleClientId ? '••••••••••••••••' : 'Enter OAuth Client ID'}
+                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Google OAuth Client Secret</label>
+                        <input
+                            type="password"
+                            value={googleClientSecret}
+                            onChange={(e) => setGoogleClientSecret(e.target.value)}
+                            placeholder={isConfigured ? '••••••••••••••••' : 'Enter OAuth Client Secret'}
                             className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
                         />
                     </div>

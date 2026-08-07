@@ -34,6 +34,7 @@ const SystemSettings = ({ user }) => {
     const [researchFolderId, setResearchFolderId] = useState(''); // New state
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [googleClientId, setGoogleClientId] = useState('');
+    const [googleClientSecret, setGoogleClientSecret] = useState('');
     const [isConfigured, setIsConfigured] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -259,6 +260,7 @@ const SystemSettings = ({ user }) => {
                 payload.mcpClientId = mcpClientId;
                 payload.mcpQuickPrompts = mcpQuickPrompts;
                 if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
+                if (googleClientSecret) payload.googleClientSecret = googleClientSecret;
                 if (mcpClientSecret) payload.mcpClientSecret = mcpClientSecret;
             }
 
@@ -530,6 +532,7 @@ const SystemSettings = ({ user }) => {
             });
             alert('MCP Configuration saved!');
             setMcpClientSecret(''); // Clear the field after secure save
+            setGoogleClientSecret(''); // Clear client secret as well
             setIsMcpSecretConfigured(true);
         } catch (err) {
             console.error("Failed to save MCP config", err);
@@ -835,6 +838,8 @@ const SystemSettings = ({ user }) => {
                         setGeminiApiKey={setGeminiApiKey}
                         googleClientId={googleClientId}
                         setGoogleClientId={setGoogleClientId}
+                        googleClientSecret={googleClientSecret}
+                        setGoogleClientSecret={setGoogleClientSecret}
                         isConfigured={isConfigured}
                         handleSaveSettings={handleSaveSettings}
                         searchTerm={searchTerm}
