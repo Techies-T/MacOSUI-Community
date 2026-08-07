@@ -24,6 +24,11 @@ function initDb() {
     access_token TEXT,
     refresh_token TEXT,
     last_deep_research_at DATETIME,
+    deep_research_date TEXT,
+    deep_research_count INTEGER DEFAULT 0,
+    role TEXT DEFAULT 'user',
+    deep_research_enabled INTEGER DEFAULT 0,
+    token_expiry INTEGER,
     current_room TEXT DEFAULT 'open-space',
     status_text TEXT DEFAULT 'Active',
     is_remote INTEGER DEFAULT 0,
@@ -95,6 +100,8 @@ function initDb() {
         query_text TEXT,
         status TEXT,
         result_link TEXT,
+        pod_id TEXT,
+        selected_article_ids TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
@@ -109,6 +116,9 @@ function initDb() {
         generated_payload TEXT,
         total_input_tokens INTEGER DEFAULT 0,
         total_output_tokens INTEGER DEFAULT 0,
+        pod_id TEXT,
+        workflow_definition_id TEXT,
+        selected_article_ids TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
@@ -129,6 +139,9 @@ function initDb() {
         output_model TEXT,
         output_prompt TEXT,
         folder_id TEXT,
+        pod_id TEXT,
+        reference_knowledge INTEGER DEFAULT 0,
+        reference_pod_id TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
@@ -203,6 +216,7 @@ function initDb() {
         token_count INTEGER DEFAULT 0,
         input_tokens INTEGER DEFAULT 0,
         output_tokens INTEGER DEFAULT 0,
+        pod_id TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(author_id) REFERENCES users(id)
