@@ -1,40 +1,60 @@
 {
-    "family": "macosui-task",
-    "networkMode": "awsvpc",
-    "containerDefinitions": [
+  "family": "macosui-task",
+  "networkMode": "awsvpc",
+  "containerDefinitions": [
+    {
+      "name": "macosui-web",
+      "image": "<IMAGE_NAME>",
+      "cpu": 0,
+      "portMappings": [
         {
-            "name": "macosui-web",
-            "image": "<IMAGE_NAME>",
-            "cpu": 0,
-            "portMappings": [
-                {
-                    "containerPort": 8080,
-                    "hostPort": 8080,
-                    "protocol": "tcp"
-                }
-            ],
-            "essential": true,
-            "environment": [
-                {
-                    "name": "NODE_ENV",
-                    "value": "production"
-                }
-            ],
-            "logConfiguration": {
-                "logDriver": "awslogs",
-                "options": {
-                    "awslogs-group": "/ecs/macosui-oss",
-                    "awslogs-region": "ap-northeast-1",
-                    "awslogs-stream-prefix": "ecs"
-                }
-            }
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
         }
-    ],
-    "requiresCompatibilities": [
-        "FARGATE"
-    ],
-    "executionRoleArn": "<EXECUTION_ROLE_ARN>",
-    "taskRoleArn": "<EXECUTION_ROLE_ARN>",
-    "cpu": "512",
-    "memory": "1024"
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "DB_HOST",
+          "value": "macosui-postgres.cxi0i02qyh31.ap-northeast-1.rds.amazonaws.com"
+        },
+        {
+          "name": "DB_PORT",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME",
+          "value": "macosui"
+        },
+        {
+          "name": "DB_USER",
+          "value": "postgres"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "value": "macosui_secure_password_123"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/macosui-oss",
+          "awslogs-region": "ap-northeast-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "executionRoleArn": "<EXECUTION_ROLE_ARN>",
+  "taskRoleArn": "<EXECUTION_ROLE_ARN>",
+  "cpu": "512",
+  "memory": "1024"
 }
