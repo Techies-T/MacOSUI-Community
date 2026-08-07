@@ -31,3 +31,5 @@ dist-ssr
 certbot/
 scratch/
 
+bin/terraform
+terraform/.terraform*

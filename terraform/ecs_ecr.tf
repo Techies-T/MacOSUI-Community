@@ -72,6 +72,13 @@ resource "aws_ecs_task_definition" "main" {
           hostPort      = var.container_port
         }
       ]
+      environment = [
+        { name = "DB_HOST", value = aws_db_instance.main.address },
+        { name = "DB_PORT", value = "5432" },
+        { name = "DB_NAME", value = "macosui" },
+        { name = "DB_USER", value = "postgres" },
+        { name = "DB_PASSWORD", value = "macosui_secure_password_123" }
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {

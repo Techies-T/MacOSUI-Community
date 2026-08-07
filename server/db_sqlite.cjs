@@ -1,110 +1,29 @@
-const { Pool } = require('pg');
+const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const pool = new Pool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: 5432,
-    ssl: { rejectUnauthorized: false },
-});
+const dbPath = path.resolve(__dirname, 'database.sqlite');
 
-pool.on('error', (err) => {
-    console.error('Unexpected error on idle client', err);
-});
-
-const db = {
-    serialize: function (cb) {
-        if (cb) cb();
-    },
-    run: function (sql, params, callback) {
-        if (typeof params === 'function') {
-            callback = params;
-            params = [];
-        }
-        if (!params) params = [];
-
-        let i = 1;
-        const pgSql = sql.replace(/\?/g, () => '$' + (i++));
-
-        let queryToRun = pgSql;
-        const isInsert = /^\s*INSERT\s/i.test(pgSql);
-        if (isInsert && !/RETURNING/i.test(pgSql)) {
-            queryToRun = pgSql + " RETURNING *";
-        }
-        
-        if (/^\s*INSERT OR REPLACE INTO settings/i.test(pgSql)) {
-            queryToRun = pgSql.replace(/INSERT OR REPLACE INTO settings/i, 'INSERT INTO settings') + ' ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value';
-        }
-
-        pool.query(queryToRun, params, (err, result) => {
-            if (callback) {
-                const context = {
-                    lastID: result && result.rows && result.rows[0] && result.rows[0].id ? result.rows[0].id : 0,
-                    changes: result ? result.rowCount : 0
-                };
-                callback.call(context, err);
-            }
-        });
-        return this;
-    },
-    get: function (sql, params, callback) {
-        if (typeof params === 'function') {
-            callback = params;
-            params = [];
-        }
-        if (!params) params = [];
-
-        let i = 1;
-        const pgSql = sql.replace(/\?/g, () => '$' + (i++));
-
-        pool.query(pgSql, params, (err, result) => {
-            if (callback) {
-                callback(err, result && result.rows && result.rows.length > 0 ? result.rows[0] : null);
-            }
-        });
-        return this;
-    },
-    all: function (sql, params, callback) {
-        if (typeof params === 'function') {
-            callback = params;
-            params = [];
-        }
-        if (!params) params = [];
-
-        let i = 1;
-        const pgSql = sql.replace(/\?/g, () => '$' + (i++));
-
-        pool.query(pgSql, params, (err, result) => {
-            if (callback) {
-                callback(err, result ? result.rows : []);
-            }
-        });
-        return this;
-    }
-};
-
-pool.query("SELECT 1", (err) => {
+const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
         console.error('Error opening database', err.message);
     } else {
-        console.log('Connected to the PostgreSQL database.');
-        initDb().then(() => autoActivate());
+        console.log('Connected to the SQLite database.');
+        db.run("PRAGMA journal_mode = WAL;");
+        initDb();
     }
 });
 
-async function initDb() {
-    
-        await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
+function initDb() {
+    db.serialize(() => {
+        db.run(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     google_id TEXT UNIQUE,
     email TEXT,
     name TEXT,
     avatar_url TEXT,
     access_token TEXT,
     refresh_token TEXT,
-    last_deep_research_at TIMESTAMP,
+    last_deep_research_at DATETIME,
     deep_research_date TEXT,
     deep_research_count INTEGER DEFAULT 0,
     role TEXT DEFAULT 'user',
@@ -119,40 +38,74 @@ async function initDb() {
     assistant_break_end TEXT DEFAULT '13:00',
     assistant_meeting_buffer INTEGER DEFAULT 30,
     assistant_prompt TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`, () => r()));
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
 
     // Migration for existing table
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN access_token TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN refresh_token TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN last_deep_research_at TIMESTAMP", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN deep_research_date TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN deep_research_count INTEGER DEFAULT 0", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN deep_research_enabled INTEGER DEFAULT 0", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN token_expiry INTEGER", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN current_room TEXT DEFAULT 'open-space'", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN status_text TEXT DEFAULT 'Active'", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN is_remote INTEGER DEFAULT 0", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_work_start TEXT DEFAULT '09:00'", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_work_end TEXT DEFAULT '17:30'", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_meeting_buffer INTEGER DEFAULT 30", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_break_start TEXT DEFAULT '12:00'", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_break_end TEXT DEFAULT '13:00'", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_prompt TEXT", () => r()));
+    db.run("ALTER TABLE users ADD COLUMN access_token TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN refresh_token TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN last_deep_research_at DATETIME", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN deep_research_date TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN deep_research_count INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN deep_research_enabled INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN token_expiry INTEGER", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN current_room TEXT DEFAULT 'open-space'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN status_text TEXT DEFAULT 'Active'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN is_remote INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_work_start TEXT DEFAULT '09:00'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_work_end TEXT DEFAULT '17:30'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_meeting_buffer INTEGER DEFAULT 30", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_break_start TEXT DEFAULT '12:00'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_break_end TEXT DEFAULT '13:00'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN assistant_prompt TEXT", (err) => {
+        // Ignore error if column exists
+    });
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS deep_research_history (
-        id SERIAL PRIMARY KEY,
+    db.run(`CREATE TABLE IF NOT EXISTS deep_research_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         query_text TEXT,
         status TEXT,
         result_link TEXT,
         pod_id TEXT,
         selected_article_ids TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS deep_research_workflows (
+    db.run(`CREATE TABLE IF NOT EXISTS deep_research_workflows (
         id TEXT PRIMARY KEY,
         user_id INTEGER,
         query_text TEXT,
@@ -166,17 +119,17 @@ async function initDb() {
         pod_id TEXT,
         workflow_definition_id TEXT,
         selected_article_ids TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS invitations (
+    db.run(`CREATE TABLE IF NOT EXISTS invitations (
         email TEXT PRIMARY KEY,
         invited_by INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS deep_research_workflow_definitions (
+    db.run(`CREATE TABLE IF NOT EXISTS deep_research_workflow_definitions (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT,
@@ -189,53 +142,57 @@ async function initDb() {
         pod_id TEXT,
         reference_knowledge INTEGER DEFAULT 0,
         reference_pod_id TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS published_reports (
+    db.run(`CREATE TABLE IF NOT EXISTS published_reports (
         id TEXT PRIMARY KEY,
         title TEXT,
         content TEXT,
         mime_type TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS settings (
+    db.run(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
-  )`, () => r()));
+  )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS rag_files (
+    db.run(`CREATE TABLE IF NOT EXISTS rag_files (
     drive_file_id TEXT PRIMARY KEY,
     gemini_file_uri TEXT,
     folder_id TEXT,
     mime_type TEXT,
-    last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     file_hash TEXT
-  )`, () => r()));
+  )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS rag_queries (
-    id SERIAL PRIMARY KEY,
+    db.run(`CREATE TABLE IF NOT EXISTS rag_queries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     query_text TEXT UNIQUE,
     usage_count INTEGER DEFAULT 1,
-    last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`, () => r()));
+    last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
 
 
     // Migration for rag_files
-    await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN folder_id TEXT", () => r()));
+    db.run("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE rag_files ADD COLUMN folder_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
 
     // User Preferences (Window State)
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS user_preferences (
+    db.run(`CREATE TABLE IF NOT EXISTS user_preferences (
         user_id INTEGER PRIMARY KEY,
         window_state TEXT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     // Memos (Stickies)
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS memos (
+    db.run(`CREATE TABLE IF NOT EXISTS memos (
         id TEXT PRIMARY KEY,
         user_id INTEGER,
         content TEXT,
@@ -245,13 +202,13 @@ async function initDb() {
         width INTEGER,
         height INTEGER,
         z_index INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     // Knowledge Base Articles
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS knowledge_articles (
-        id SERIAL PRIMARY KEY,
+    db.run(`CREATE TABLE IF NOT EXISTS knowledge_articles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         content TEXT,
         tags TEXT,
@@ -260,75 +217,100 @@ async function initDb() {
         input_tokens INTEGER DEFAULT 0,
         output_tokens INTEGER DEFAULT 0,
         pod_id TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(author_id) REFERENCES users(id)
-    )`, () => r()));
+    )`);
 
     // Migration for knowledge_articles token_count
-    await new Promise(r => pool.query("ALTER TABLE knowledge_articles ADD COLUMN token_count INTEGER DEFAULT 0", () => r()));
+    db.run("ALTER TABLE knowledge_articles ADD COLUMN token_count INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
 
-    await new Promise(r => pool.query("ALTER TABLE deep_research_workflows ADD COLUMN workflow_definition_id TEXT", () => r()));
+    db.run("ALTER TABLE deep_research_workflows ADD COLUMN workflow_definition_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
     db.run("ALTER TABLE knowledge_articles ADD COLUMN input_tokens INTEGER DEFAULT 0", (err) => {
         // Ignore error if column exists
         db.run(`UPDATE knowledge_articles SET input_tokens = CAST(token_count * 0.2 AS INTEGER), output_tokens = CAST(token_count * 0.8 AS INTEGER) WHERE input_tokens = 0 AND output_tokens = 0 AND token_count > 0;`);
     });
-    await new Promise(r => pool.query("ALTER TABLE knowledge_articles ADD COLUMN output_tokens INTEGER DEFAULT 0", () => r()));
+    db.run("ALTER TABLE knowledge_articles ADD COLUMN output_tokens INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
 
     // External Skills
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS skills (
+    db.run(`CREATE TABLE IF NOT EXISTS skills (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT,
         icon_url TEXT,
         entrypoint_url TEXT NOT NULL,
         manifest_url TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
     // MCP Servers (Multiple)
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS mcp_servers (
-        id SERIAL PRIMARY KEY,
+    db.run(`CREATE TABLE IF NOT EXISTS mcp_servers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         endpoint_url TEXT NOT NULL,
         token_url TEXT,
         client_id TEXT,
         client_secret TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS pods (
+    db.run(`CREATE TABLE IF NOT EXISTS pods (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-    await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS dm_messages (
-        id SERIAL PRIMARY KEY,
+    db.run(`CREATE TABLE IF NOT EXISTS dm_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         sender_id INTEGER NOT NULL,
         receiver_id INTEGER NOT NULL,
         sender_type TEXT DEFAULT 'user',
         text TEXT NOT NULL,
         is_read INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`, () => r()));
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     // Add is_read column to existing dm_messages for migration
-    await new Promise(r => pool.query("ALTER TABLE dm_messages ADD COLUMN is_read INTEGER DEFAULT 0", () => r()));
+    db.run("ALTER TABLE dm_messages ADD COLUMN is_read INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
 
     // Add pod_id column to existing tables for logical separation
-    await new Promise(r => pool.query("ALTER TABLE knowledge_articles ADD COLUMN pod_id TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE deep_research_workflow_definitions ADD COLUMN pod_id TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE deep_research_workflows ADD COLUMN pod_id TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE deep_research_history ADD COLUMN pod_id TEXT", () => r()));
+    db.run("ALTER TABLE knowledge_articles ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_workflow_definitions ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_workflows ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_history ADD COLUMN pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
 
-    await new Promise(r => pool.query("ALTER TABLE deep_research_workflow_definitions ADD COLUMN reference_knowledge INTEGER DEFAULT 0", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE deep_research_workflow_definitions ADD COLUMN reference_pod_id TEXT", () => r()));
+    db.run("ALTER TABLE deep_research_workflow_definitions ADD COLUMN reference_knowledge INTEGER DEFAULT 0", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_workflow_definitions ADD COLUMN reference_pod_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
 
-    await new Promise(r => pool.query("ALTER TABLE deep_research_workflows ADD COLUMN selected_article_ids TEXT", () => r()));
-    await new Promise(r => pool.query("ALTER TABLE deep_research_history ADD COLUMN selected_article_ids TEXT", () => r()));
+    db.run("ALTER TABLE deep_research_workflows ADD COLUMN selected_article_ids TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE deep_research_history ADD COLUMN selected_article_ids TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    }); // End db.serialize
 }
 
 const { encrypt, decrypt } = require('./crypto.cjs');
@@ -722,6 +704,6 @@ async function autoActivate() {
 }
 
 // Call autoActivate immediately after initialization (since setting getter/setters are promises)
-
+setTimeout(() => autoActivate(), 1000);
 
 module.exports = db;
