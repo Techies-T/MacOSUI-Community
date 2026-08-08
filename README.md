@@ -94,23 +94,26 @@ MacOSUI OSS版では、安定した運用とトラブルシューティングの
 ### Step 1: インフラの初期構築 (3つのパターンから選択)
 
 MacOSUI-oss では、用途や予算に合わせて **3つのインフラデプロイメントパターン** を用意しています。
+まずは、本リポジトリを **Fork** し、お手元の環境に **Clone** してください。
 
-#### Pattern A: ローカル開発・検証用 (Docker Compose)
-Mac上やお手元のサーバーで最も手軽に起動・検証するための構成です。DBにはSQLiteが使用されます。
-1. `docker-compose up -d` を実行します。
-2. ブラウザで `http://localhost:8080` にアクセスします。
+#### Pattern A: ローカル開発・検証用 (MacOS / Local Docker)
+Mac上やお手元のPCで最も手軽に起動・検証するための構成です。ローカルのソースコードからビルドされ、DBにはSQLiteが使用されます。
+1. `docker-compose up -d` を実行します（初回はビルドが走ります）。
+2. ブラウザで `http://localhost:8080` にアクセスし、アクティベーションを行います。
 
 #### Pattern B: 超低コストスタート構成 (Single AWS EC2)
 最小コストでインターネット上に本番環境を公開したい小規模向けの構成です。
 1. `cd terraform/aws-ec2`
 2. `terraform init` && `terraform apply` を実行します。
-3. 自動的にDockerとSQLite永続化環境が構築されたEC2インスタンスが起動します。
+3. 起動したEC2インスタンス内で自動的にリポジトリがCloneされ、ソースコードからコンテナがビルド・起動します（DBはSQLite）。
+4. **GitHub Actions** を設定することで、以降のPush時に自動デプロイが可能です。
 
 #### Pattern C: クラウドネイティブ・サーバーレス構成 (AWS Fargate + RDS)
 運用保守をなくし、トラフィックに応じて自動スケールさせる本格的なエンタープライズ構成です。
 1. `cd terraform/aws-fargate`
 2. `bash ../../scripts/setup-infra.sh` または手動で `terraform apply` を実行します。
 3. FargateコンテナとPostgreSQL(RDS)が構築されます。
+4. **GitHub Actions** を設定することで、以降のPush時に自動デプロイ（ECRプッシュ＆ローリングアップデート）が可能です。
 
 ### Step 2: GitHub Actions 連携とデプロイ (CI/CD)
 インフラ構築が完了したら、日々のアプリケーション更新は GitHub Actions に任せます。
