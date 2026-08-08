@@ -13,30 +13,24 @@ systemctl enable docker
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
-# Create app directory
-mkdir -p /opt/macosui/data
-cd /opt/macosui
+# Create a 2GB swap file to prevent Out-Of-Memory (OOM) during Docker build on t4g.micro
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
 
-# Create docker-compose.yml
-cat << 'EOF' > docker-compose.yml
-version: '3.8'
+# Clone the repository
+mkdir -p /opt/macosui
+git clone https://github.com/Techies-T/MacOSUI-oss.git /opt/macosui/repo
+cd /opt/macosui/repo
 
-services:
-  web:
-    image: ghcr.io/techies-t/macosui-oss:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - PORT=8080
-      - DB_TYPE=sqlite
-    restart: unless-stopped
-EOF
+# Start the application using the local docker-compose.yml which builds from source
+mkdir -p data
 
 # Create an initial empty database file to ensure correct permissions
-touch /opt/macosui/data/database.sqlite
-chmod 666 /opt/macosui/data/database.sqlite
+touch data/database.sqlite
+chmod 666 data/database.sqlite
 
-# Start the application
-/usr/local/bin/docker-compose up -d
+# Build and start the application
+/usr/local/bin/docker-compose up -d --build
