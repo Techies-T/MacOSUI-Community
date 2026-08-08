@@ -31,6 +31,32 @@ if (fs.existsSync(path.resolve(__dirname, 'development.env'))) {
     dotenv.config(); // fallback to default .env
 }
 
+// Encryption Key Validation & Generation Logic
+if (!process.env.DB_ENCRYPTION_KEY) {
+    if (process.env.NODE_ENV === 'production') {
+        console.error("FATAL ERROR: DB_ENCRYPTION_KEY environment variable is missing in production.");
+        console.error("Please inject it securely (e.g. via AWS Secrets Manager or Fargate Task Definition).");
+        process.exit(1);
+    } else {
+        const newKey = crypto.randomBytes(32).toString('hex');
+        process.env.DB_ENCRYPTION_KEY = newKey; // Set in memory
+        
+        const envPath = path.resolve(__dirname, 'development.env');
+        const envLine = `\nDB_ENCRYPTION_KEY=${newKey}\n`;
+        
+        try {
+            if (fs.existsSync(envPath)) {
+                fs.appendFileSync(envPath, envLine);
+            } else {
+                fs.writeFileSync(envPath, envLine);
+            }
+            console.log("Dynamically generated and saved new DB_ENCRYPTION_KEY to development.env");
+        } catch (fileErr) {
+            console.error("Failed to write DB_ENCRYPTION_KEY to env file:", fileErr);
+        }
+    }
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -206,30 +232,6 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
         // ZTA Security Boundary Check: Block external domain users
         if (isConfigured && await isExternalUser(req.user)) {
             return res.status(403).json({ error: 'Permission denied. External domain users cannot change system configurations.' });
-        }
-
-        // Dynamic Key Generation on Activation
-        if (!process.env.DB_ENCRYPTION_KEY) {
-            const crypto = require('crypto');
-            const fs = require('fs');
-            const path = require('path');
-            
-            const newKey = crypto.randomBytes(32).toString('hex');
-            process.env.DB_ENCRYPTION_KEY = newKey; // Set in memory
-            
-            const envPath = path.resolve(__dirname, 'development.env');
-            const envLine = `\nDB_ENCRYPTION_KEY=${newKey}\n`;
-            
-            try {
-                if (fs.existsSync(envPath)) {
-                    fs.appendFileSync(envPath, envLine);
-                } else {
-                    fs.writeFileSync(envPath, envLine);
-                }
-                console.log("Dynamically generated and saved new DB_ENCRYPTION_KEY to development.env");
-            } catch (fileErr) {
-                console.error("Failed to write DB_ENCRYPTION_KEY to env file:", fileErr);
-            }
         }
 
         const allowedActions = req.user?.allowed_actions || [];

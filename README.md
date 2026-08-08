@@ -91,18 +91,26 @@ graph TD
 
 MacOSUI OSS版では、安定した運用とトラブルシューティングの容易さを考慮し、**「①インフラの初期構築」**と**「②アプリケーションの継続的デプロイ (CI/CD)」**を完全に分離した設計を採用しています。
 
-### Step 1: AWS インフラの初期構築 (1回のみ)
-Terraform を使用して、ECS (Fargate), ALB, ECR, DynamoDB などの AWS リソースを自動構築します。
+### Step 1: インフラの初期構築 (3つのパターンから選択)
 
-1. **前提条件**:
-   - AWS CLI がローカル環境にインストールされ、管理者権限を持つプロファイルでログイン (`aws configure`) されていること。
-   - 実行環境（Mac/Linux）に Terraform (v1.5.0以上) がインストールされていること。
-2. **セットアップスクリプトの実行**:
-   ```bash
-   # Terraform バックエンド(S3/DynamoDB)の作成から、全AWSリソースのプロビジョニングまで一括実行
-   bash scripts/setup-infra.sh
-   ```
-   ※デフォルトでは、SSL証明書（HTTPS）や独自ドメインは無効化されており、即座に **HTTP (80番ポート)** で ALB の標準DNS名からアクセステストが可能です。
+MacOSUI-oss では、用途や予算に合わせて **3つのインフラデプロイメントパターン** を用意しています。
+
+#### Pattern A: ローカル開発・検証用 (Docker Compose)
+Mac上やお手元のサーバーで最も手軽に起動・検証するための構成です。DBにはSQLiteが使用されます。
+1. `docker-compose up -d` を実行します。
+2. ブラウザで `http://localhost:8080` にアクセスします。
+
+#### Pattern B: 超低コストスタート構成 (Single AWS EC2)
+最小コストでインターネット上に本番環境を公開したい小規模向けの構成です。
+1. `cd terraform/aws-ec2`
+2. `terraform init` && `terraform apply` を実行します。
+3. 自動的にDockerとSQLite永続化環境が構築されたEC2インスタンスが起動します。
+
+#### Pattern C: クラウドネイティブ・サーバーレス構成 (AWS Fargate + RDS)
+運用保守をなくし、トラフィックに応じて自動スケールさせる本格的なエンタープライズ構成です。
+1. `cd terraform/aws-fargate`
+2. `bash ../../scripts/setup-infra.sh` または手動で `terraform apply` を実行します。
+3. FargateコンテナとPostgreSQL(RDS)が構築されます。
 
 ### Step 2: GitHub Actions 連携とデプロイ (CI/CD)
 インフラ構築が完了したら、日々のアプリケーション更新は GitHub Actions に任せます。

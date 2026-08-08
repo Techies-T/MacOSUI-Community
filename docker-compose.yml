@@ -1,34 +1,17 @@
 version: '3.8'
 
 services:
-  web:
-    image: ${WEB_IMAGE:-843109109185.dkr.ecr.ap-northeast-1.amazonaws.com/macosui-oss:latest}
-    container_name: macosui-web
-    extra_hosts:
-      - "macosui-staging.techiespod.co.jp:host-gateway"
-    volumes:
-      - ./server/database.sqlite:/app/server/database.sqlite
-      - ./server/audit_database.sqlite:/app/server/audit_database.sqlite
-      - ./server/${ENV_FILE:-development.env}:/app/.env
-    environment:
-      - NODE_ENV=development
-      - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - DB_ENCRYPTION_KEY=${DB_ENCRYPTION_KEY:-}
+  macosui:
+    image: ghcr.io/techies-t/macosui-oss:latest
+    container_name: macosui-local
     ports:
       - "8080:8080"
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    container_name: macosui-nginx
-    extra_hosts:
-      - "agile-agent-staging:host-gateway"
-    ports:
-      - "80:80"
     volumes:
-      - ./server/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - web
+      - ./data:/app/data
+    environment:
+      - PORT=8080
+      - DB_TYPE=sqlite
+      # In local development, missing DB_ENCRYPTION_KEY will trigger auto-generation.
+      # If you want a fixed key, uncomment and set the below:
+      # - DB_ENCRYPTION_KEY=your_secure_32_byte_hex_string_here
     restart: unless-stopped
