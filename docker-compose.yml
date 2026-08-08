@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   macosui:
-    image: ghcr.io/techies-t/macosui-oss:latest
+    build: .
     container_name: macosui-local
     ports:
       - "8080:8080"
