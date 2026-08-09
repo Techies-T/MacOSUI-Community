@@ -2,7 +2,11 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 // メインデータベースとは物理的に隔離された監査ログ専用のデータベースファイル
-const dbPath = path.resolve(__dirname, 'audit_database.sqlite');
+const fs = require('fs');
+const dataDir = path.resolve(__dirname, '../data');
+const dbPath = fs.existsSync(dataDir)
+    ? path.join(dataDir, 'audit_database.sqlite')
+    : path.resolve(__dirname, 'audit_database.sqlite');
 
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {

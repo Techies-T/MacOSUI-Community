@@ -563,9 +563,11 @@ app.post('/api/auth/google', async (req, res) => {
                             details: { message: `User logged in successfully with role: ${role}` }
                         });
 
+                        const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
                         res.cookie('token', token, {
                             httpOnly: true,
-                            secure: process.env.NODE_ENV === 'production',
+                            secure: isHttps,
+                            sameSite: 'lax',
                             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
                         });
 
@@ -714,9 +716,11 @@ app.get('/api/auth/me', (req, res) => {
                     process.env.JWT_SECRET || 'secret',
                     { expiresIn: '7d' }
                 );
+                const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
                 res.cookie('token', newToken, {
                     httpOnly: true,
-                    secure: process.env.NODE_ENV === 'production',
+                    secure: isHttps,
+                    sameSite: 'lax',
                     maxAge: 7 * 24 * 60 * 60 * 1000
                 });
 
