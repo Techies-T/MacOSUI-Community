@@ -24,24 +24,34 @@ function getContextHashes(req) {
 // .env と development.env (Docker等でマウントされる名前) の両方をサポート
 const fs = require('fs');
 const path = require('path');
-if (fs.existsSync(path.resolve(__dirname, 'development.env'))) {
+
+const envDataPath = path.resolve(__dirname, '../data/development.env');
+const envLocalPath = path.resolve(__dirname, 'development.env');
+
+if (fs.existsSync(envDataPath)) {
+    console.log("Loading environment variables from data/development.env");
+    dotenv.config({ path: envDataPath });
+} else if (fs.existsSync(envLocalPath)) {
     console.log("Loading environment variables from development.env");
-    dotenv.config({ path: path.resolve(__dirname, 'development.env') });
+    dotenv.config({ path: envLocalPath });
 } else {
     dotenv.config(); // fallback to default .env
 }
 
 // Encryption Key Validation & Generation Logic
 if (!process.env.DB_ENCRYPTION_KEY) {
-    if (process.env.NODE_ENV === 'production') {
-        console.error("FATAL ERROR: DB_ENCRYPTION_KEY environment variable is missing in production.");
+    if (process.env.NODE_ENV === 'production' && process.env.DB_TYPE === 'postgres') {
+        console.error("FATAL ERROR: DB_ENCRYPTION_KEY environment variable is missing for PostgreSQL production deployment.");
         console.error("Please inject it securely (e.g. via AWS Secrets Manager or Fargate Task Definition).");
         process.exit(1);
     } else {
         const newKey = crypto.randomBytes(32).toString('hex');
         process.env.DB_ENCRYPTION_KEY = newKey; // Set in memory
         
-        const envPath = path.resolve(__dirname, 'development.env');
+        const dataDir = path.resolve(__dirname, '../data');
+        const isDataDirPersistent = fs.existsSync(dataDir);
+        const envPath = isDataDirPersistent ? envDataPath : envLocalPath;
+        
         const envLine = `\nDB_ENCRYPTION_KEY=${newKey}\n`;
         
         try {
@@ -50,7 +60,7 @@ if (!process.env.DB_ENCRYPTION_KEY) {
             } else {
                 fs.writeFileSync(envPath, envLine);
             }
-            console.log("Dynamically generated and saved new DB_ENCRYPTION_KEY to development.env");
+            console.log(`Dynamically generated and saved new DB_ENCRYPTION_KEY to ${isDataDirPersistent ? 'data/development.env' : 'development.env'}`);
         } catch (fileErr) {
             console.error("Failed to write DB_ENCRYPTION_KEY to env file:", fileErr);
         }
@@ -174,6 +184,7 @@ app.get('/api/config', async (req, res) => {
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
             isConfigured,
+            isGeminiConfigured: !!geminiKey,
             geminiModel,
             googleDriveRootId: googleDriveRootId || '',
             googleDriveRagFolders,

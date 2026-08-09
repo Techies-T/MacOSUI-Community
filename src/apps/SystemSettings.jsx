@@ -36,6 +36,7 @@ const SystemSettings = ({ user }) => {
     const [googleClientId, setGoogleClientId] = useState('');
     const [googleClientSecret, setGoogleClientSecret] = useState('');
     const [isConfigured, setIsConfigured] = useState(false);
+    const [isGeminiConfigured, setIsGeminiConfigured] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
@@ -106,6 +107,12 @@ const SystemSettings = ({ user }) => {
                 }
                 if (data.isConfigured) {
                     setIsConfigured(data.isConfigured);
+                }
+                if (data.clientId) {
+                    setGoogleClientId(data.clientId);
+                }
+                if (data.isGeminiConfigured !== undefined) {
+                    setIsGeminiConfigured(data.isGeminiConfigured);
                 }
                 if (data.lastRagSyncTime) {
                     setLastRagSyncTime(data.lastRagSyncTime);
@@ -841,6 +848,7 @@ const SystemSettings = ({ user }) => {
                         googleClientSecret={googleClientSecret}
                         setGoogleClientSecret={setGoogleClientSecret}
                         isConfigured={isConfigured}
+                        isGeminiConfigured={isGeminiConfigured}
                         handleSaveSettings={handleSaveSettings}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
