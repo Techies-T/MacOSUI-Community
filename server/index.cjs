@@ -184,6 +184,7 @@ app.get('/api/config', async (req, res) => {
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
             isConfigured,
+            isGeminiConfigured: !!geminiKey,
             geminiModel,
             googleDriveRootId: googleDriveRootId || '',
             googleDriveRagFolders,
