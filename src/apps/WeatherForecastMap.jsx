@@ -299,8 +299,11 @@ const WeatherForecastMap = ({ data }) => {
     // 親から渡されたデータをもとに初期化 (データ整合性確保)
     const normalizeData = (inputData) => {
         if (!inputData || !inputData.cities || inputData.cities.length === 0) {
-            return defaultData;
+            return { ...defaultData, viewMode: 'national', title: '全国都市別天気ダッシュボード' };
         }
+
+        const viewMode = inputData.viewMode || 'national';
+        const title = inputData.title || (viewMode === 'national' ? '全国都市別天気ダッシュボード' : '天気予報');
 
         // 各都市の hourly データを安全にマッピング・補正する
         const cleanCities = inputData.cities.map(city => {
@@ -331,7 +334,7 @@ const WeatherForecastMap = ({ data }) => {
                     baseHourly[2], // 17:00 (夕)
                     { time: '20:00', temp: baseHourly[3].temp, weather: baseHourly[3].weather, type: baseHourly[3].type }  // 20:00 (夜の代替)
                 ];
-            } else if (hourly.length === 0) {
+            } else if (hourly.length === 0 && viewMode === 'national') {
                 // hourlyがない場合はデフォルトからコピー
                 const matchDefault = defaultData.cities.find(c => c.id === city.id);
                 hourly = matchDefault ? matchDefault.hourly : [];
@@ -344,6 +347,15 @@ const WeatherForecastMap = ({ data }) => {
                 weather: h.weather || city.weather || '晴れ',
                 type: h.type || city.type || 'sunny'
             }));
+            
+            const cleanDaily = (city.daily || []).map(d => ({
+                date: d.date || '日付未定',
+                tempMax: typeof d.tempMax === 'number' ? d.tempMax : parseInt(d.tempMax) || 25,
+                tempMin: typeof d.tempMin === 'number' ? d.tempMin : parseInt(d.tempMin) || 15,
+                weather: d.weather || city.weather || '晴れ',
+                type: d.type || city.type || 'sunny',
+                pop: typeof d.pop === 'number' ? d.pop : parseInt(d.pop) || 0
+            }));
 
             return {
                 ...city,
@@ -351,11 +363,14 @@ const WeatherForecastMap = ({ data }) => {
                 tempMin: typeof city.tempMin === 'number' ? city.tempMin : parseInt(city.tempMin) || 15,
                 pop: typeof city.pop === 'number' ? city.pop : parseInt(city.pop) || 0,
                 humidity: typeof city.humidity === 'number' ? city.humidity : parseInt(city.humidity) || 50,
-                hourly: cleanHourly
+                hourly: cleanHourly,
+                daily: cleanDaily
             };
         });
 
         return {
+            viewMode: viewMode,
+            title: title,
             date: inputData.date || defaultData.date,
             comment: inputData.comment || defaultData.comment,
             cities: cleanCities
@@ -365,14 +380,17 @@ const WeatherForecastMap = ({ data }) => {
     const forecast = normalizeData(data);
     const dateStr = forecast.date;
     const commentStr = forecast.comment;
+    const isNational = forecast.viewMode === 'national';
+    const isWeekly = forecast.viewMode === 'local_weekly';
 
-    // 現在選択されている都市 (デフォルト「東京」)
-    const [selectedCity, setSelectedCity] = useState(forecast.cities[2] || forecast.cities[0]);
+    // 現在選択されている都市 (全国なら東京(3番目)、それ以外なら最初の都市)
+    const [selectedCity, setSelectedCity] = useState(isNational ? (forecast.cities[2] || forecast.cities[0]) : forecast.cities[0]);
 
     // 親から新しいデータが渡された場合に選択状態を同期
     useEffect(() => {
         if (forecast.cities && forecast.cities.length > 0) {
-            const found = forecast.cities.find(c => c.id === selectedCity.id) || forecast.cities[2] || forecast.cities[0];
+            const defaultCity = forecast.viewMode === 'national' ? (forecast.cities[2] || forecast.cities[0]) : forecast.cities[0];
+            const found = forecast.cities.find(c => c.id === selectedCity?.id) || defaultCity;
             setSelectedCity(found);
         }
     }, [data]);
@@ -401,7 +419,7 @@ const WeatherForecastMap = ({ data }) => {
                     <div className="flex items-center gap-2">
                         <span className="text-xl">📅</span>
                         <h3 className="text-lg md:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-cyan-200">
-                            全国都市別天気ダッシュボード
+                            {forecast.title}
                         </h3>
                         <span className="text-xs px-2.5 py-0.5 bg-cyan-400/20 text-cyan-300 rounded-full font-bold border border-cyan-400/20 flex-shrink-0">
                             {dateStr}
@@ -416,14 +434,15 @@ const WeatherForecastMap = ({ data }) => {
             {/* メインレイアウトグリッド */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
                 
-                {/* 左側：全国主要都市リスト (5列) */}
-                <div className="col-span-1 lg:col-span-5 flex flex-col gap-3 max-h-[460px] overflow-y-auto pr-1">
-                    <div className="text-xs font-semibold text-white/50 px-1 uppercase tracking-wider mb-1 flex items-center justify-between">
-                        <span>🗺️ 主要都市を選択してください</span>
-                        <span className="text-[10px] text-cyan-400/80">({forecast.cities.length}都市)</span>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 lg:grid-cols-1 gap-2.5">
+                {/* 左側：地域リスト (複数地域の場合のみ表示) */}
+                {forecast.cities.length > 1 && (
+                    <div className="col-span-1 lg:col-span-4 flex flex-col gap-3 max-h-[460px] overflow-y-auto pr-1">
+                        <div className="text-xs font-semibold text-white/50 px-1 uppercase tracking-wider mb-1 flex items-center justify-between">
+                            <span>🗺️ 地域を選択</span>
+                            <span className="text-[10px] text-cyan-400/80">({forecast.cities.length}地点)</span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 lg:grid-cols-1 gap-2.5">
                         {forecast.cities.map((city) => {
                             const isSelected = selectedCity.id === city.id;
                             return (
@@ -463,9 +482,10 @@ const WeatherForecastMap = ({ data }) => {
                         })}
                     </div>
                 </div>
-
-                {/* 右側：選択された都市の詳細2時間おき予報ダッシュボード (7列) */}
-                <div className={`col-span-1 lg:col-span-7 bg-gradient-to-b ${getThemeGrad(selectedCity.type)} border border-white/10 rounded-3xl p-4 md:p-5 flex flex-col justify-between min-h-[440px] lg:h-[460px] transition-all duration-500 relative overflow-hidden`}>
+                )}
+                
+                {/* 右側：選択都市の詳細 (リストがない場合は全幅) */}
+                <div className={`col-span-1 ${forecast.cities.length > 1 ? 'lg:col-span-8' : 'lg:col-span-12'} flex flex-col gap-4 relative animate-slideInRight bg-gradient-to-b ${getThemeGrad(selectedCity.type)} border border-white/10 rounded-3xl p-4 md:p-5 flex flex-col justify-between min-h-[440px] lg:h-[460px] transition-all duration-500 relative overflow-hidden`}>
                     
                     {/* 背景装飾ぼかし */}
                     <div className="absolute -top-16 -right-16 w-36 h-36 bg-white/5 rounded-full blur-2xl pointer-events-none"></div>
@@ -511,39 +531,68 @@ const WeatherForecastMap = ({ data }) => {
                         </div>
                     </div>
 
-                    {/* 2時間おきのタイムライン (水平スクロール・スライド) */}
-                    <div className="mt-6 relative bg-white/5 border border-white/10 rounded-2xl p-3 overflow-hidden">
-                        <div className="text-[11px] font-bold text-white/60 mb-2.5 flex items-center justify-between px-1">
-                            <span className="flex items-center gap-1">⏱️ 2時間おきの天気予報</span>
-                            <span className="text-[9.5px] text-white/30">(横スクロール可)</span>
-                        </div>
-                        
-                        {/* タイムラインカード一覧 */}
-                        <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide select-none relative z-10">
-                            {selectedCity.hourly.map((hour, idx) => (
-                                <div 
-                                    key={idx} 
-                                    className="flex-shrink-0 w-[64px] bg-white/5 border border-white/5 hover:border-white/15 rounded-xl p-2.5 flex flex-col items-center justify-between text-center transition-all duration-300 hover:scale-[1.03]"
-                                >
-                                    <span className="text-[10.5px] font-semibold text-white/50 leading-none">
-                                        {hour.time}
-                                    </span>
-                                    <div className="my-1.5 flex items-center justify-center">
-                                        <WeatherIcon type={hour.type || 'sunny'} size={24} />
+                    {/* 下部パネル: タイムライン または 週間カレンダー */}
+                    {isWeekly && selectedCity.daily && selectedCity.daily.length > 0 ? (
+                        <div className="mt-6 relative bg-white/5 border border-white/10 rounded-2xl p-3 overflow-hidden">
+                            <div className="text-[11px] font-bold text-white/60 mb-2.5 flex items-center justify-between px-1">
+                                <span className="flex items-center gap-1">📆 週間天気予報</span>
+                                <span className="text-[9.5px] text-white/30">(横スクロール可)</span>
+                            </div>
+                            
+                            <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide select-none relative z-10">
+                                {selectedCity.daily.map((day, idx) => (
+                                    <div 
+                                        key={idx} 
+                                        className="flex-shrink-0 w-[64px] bg-white/5 border border-white/5 hover:border-white/15 rounded-xl p-2.5 flex flex-col items-center justify-between text-center transition-all duration-300 hover:scale-[1.03]"
+                                    >
+                                        <span className="text-[10.5px] font-semibold text-white/70 leading-none">
+                                            {day.date}
+                                        </span>
+                                        <div className="my-1.5 flex items-center justify-center">
+                                            <WeatherIcon type={day.type || 'sunny'} size={24} />
+                                        </div>
+                                        <div className="flex items-center justify-center gap-1.5 mt-1">
+                                            <span className="text-xs font-bold text-orange-400 leading-none">{day.tempMax}°</span>
+                                            <span className="text-xs font-bold text-cyan-300 leading-none">{day.tempMin}°</span>
+                                        </div>
+                                        <span className="text-[8.5px] text-white/40 truncate max-w-full mt-1.5 bg-white/5 rounded px-1 py-0.5">
+                                            {day.pop}%
+                                        </span>
                                     </div>
-                                    <span className="text-xs font-black text-white leading-none">
-                                        {hour.temp}°
-                                    </span>
-                                    <span className="text-[8.5px] text-white/40 truncate max-w-full mt-1">
-                                        {hour.weather}
-                                    </span>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
                         </div>
-
-                        {/* 気温推移を表現する薄い背景の折れ線グラフ */}
-                        <TempChartLine points={selectedCity.hourly} />
-                    </div>
+                    ) : (
+                        <div className="mt-6 relative bg-white/5 border border-white/10 rounded-2xl p-3 overflow-hidden">
+                            <div className="text-[11px] font-bold text-white/60 mb-2.5 flex items-center justify-between px-1">
+                                <span className="flex items-center gap-1">⏱️ 2時間おきの天気予報</span>
+                                <span className="text-[9.5px] text-white/30">(横スクロール可)</span>
+                            </div>
+                            
+                            <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide select-none relative z-10">
+                                {selectedCity.hourly && selectedCity.hourly.map((hour, idx) => (
+                                    <div 
+                                        key={idx} 
+                                        className="flex-shrink-0 w-[64px] bg-white/5 border border-white/5 hover:border-white/15 rounded-xl p-2.5 flex flex-col items-center justify-between text-center transition-all duration-300 hover:scale-[1.03]"
+                                    >
+                                        <span className="text-[10.5px] font-semibold text-white/50 leading-none">
+                                            {hour.time}
+                                        </span>
+                                        <div className="my-1.5 flex items-center justify-center">
+                                            <WeatherIcon type={hour.type || 'sunny'} size={24} />
+                                        </div>
+                                        <span className="text-xs font-black text-white leading-none">
+                                            {hour.temp}°
+                                        </span>
+                                        <span className="text-[8.5px] text-white/40 truncate max-w-full mt-1">
+                                            {hour.weather}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                            {selectedCity.hourly && <TempChartLine points={selectedCity.hourly} />}
+                        </div>
+                    )}
                 </div>
 
             </div>
