@@ -225,28 +225,42 @@ const Gemini = () => {
                 const todayStr = today.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' }); // 例: "5月27日(水)"
                 
                 dynamicSystemInstruction = "You have access to Google Search. ALWAYS use Google Search for any questions about weather. Prioritize search results over internal knowledge. \n\n" +
-                    "【重要】本日は " + todayStr + " です。回答には、必ず全国の主要都市（札幌、仙台、東京、新潟、名古屋、大阪、広島、高松、福岡、那覇）の本日の天気情報を以下のJSON形式で含めてください。テキストの末尾に、必ず ` ```json-weather` と ` ``` ` で囲んだコードブロックとして記述すること。\n" +
-                    "JSONのスキーマ：\n" +
+                    "【重要】本日は " + todayStr + " です。ユーザーの質問内容に応じて、最も適切な天気の形式を選び、以下のJSONスキーマに従って出力してください。テキストの末尾に、必ず ` ```json-weather` と ` ``` ` で囲んだコードブロックとして記述すること。\n\n" +
+                    "1. 質問が「全国の天気」や特定の地域を指定していない場合：\n" +
+                    "   viewMode: 'national'\n" +
+                    "   cities: 全国主要10都市（札幌、仙台、東京、新潟、名古屋、大阪、広島、高松、福岡、那覇）の今日の天気（hourlyに2時間おきのデータ）\n\n" +
+                    "2. 質問が特定の地域（例：関西、大阪、東京など）の「今日の天気」の場合：\n" +
+                    "   viewMode: 'local_hourly'\n" +
+                    "   cities: 指定された地域（複数可）の今日の天気（hourlyに2時間おきのデータ）\n\n" +
+                    "3. 質問が特定の地域の「今週の天気」や「週間天気予報」の場合：\n" +
+                    "   viewMode: 'local_weekly'\n" +
+                    "   cities: 指定された地域（複数可）の週間天気（dailyに1週間分のデータ）\n\n" +
+                    "JSONの基本スキーマ：\n" +
                     "{\n" +
+                    "  \"viewMode\": \"national\", // \"national\", \"local_hourly\", \"local_weekly\" のいずれか\n" +
+                    "  \"title\": \"ウィジェットのタイトル（例：全国都市別天気ダッシュボード、大阪府 週間天気予報 など）\",\n" +
                     "  \"date\": \"" + todayStr + "\", \n" +
-                    "  \"comment\": \"全国の天気の短い概況\",\n" +
+                    "  \"comment\": \"天気概況の短い解説\",\n" +
                     "  \"cities\": [\n" +
                     "    {\n" +
-                    "      \"id\": \"sapporo\", \"name\": \"札幌\", \"weather\": \"曇り時々雨\", \"type\": \"rainy\", \"tempMax\": 16, \"tempMin\": 9, \"pop\": 60, \"humidity\": 70,\n" +
+                    "      \"id\": \"osaka\", \"name\": \"大阪\", \"weather\": \"晴れ時々曇り\", \"type\": \"sunny\", \"tempMax\": 33, \"tempMin\": 25, \"pop\": 20, \"humidity\": 60,\n" +
                     "      \"hourly\": [\n" +
-                    "        {\"time\": \"08:00\", \"temp\": 10, \"weather\": \"曇り\", \"type\": \"cloudy\"},\n" +
-                    "        {\"time\": \"10:00\", \"temp\": 12, \"weather\": \"曇り\", \"type\": \"cloudy\"},\n" +
-                    "        {\"time\": \"12:00\", \"temp\": 16, \"weather\": \"小雨\", \"type\": \"rainy\"},\n" +
-                    "        {\"time\": \"14:00\", \"temp\": 15, \"weather\": \"本降り\", \"type\": \"rainy\"},\n" +
-                    "        {\"time\": \"16:00\", \"temp\": 14, \"weather\": \"雨のち曇り\", \"type\": \"cloudy\"},\n" +
-                    "        {\"time\": \"18:00\", \"temp\": 12, \"weather\": \"曇り\", \"type\": \"cloudy\"},\n" +
-                    "        {\"time\": \"20:00\", \"temp\": 9, \"weather\": \"晴れ\", \"type\": \"sunny\"}\n" +
+                    "        {\"time\": \"08:00\", \"temp\": 22, \"weather\": \"晴れ\", \"type\": \"sunny\"},\n" +
+                    "        {\"time\": \"10:00\", \"temp\": 25, \"weather\": \"晴れ\", \"type\": \"sunny\"},\n" +
+                    "        {\"time\": \"12:00\", \"temp\": 30, \"weather\": \"晴れ\", \"type\": \"sunny\"},\n" +
+                    "        {\"time\": \"14:00\", \"temp\": 33, \"weather\": \"晴れ\", \"type\": \"sunny\"},\n" +
+                    "        {\"time\": \"16:00\", \"temp\": 31, \"weather\": \"晴れ\", \"type\": \"sunny\"},\n" +
+                    "        {\"time\": \"18:00\", \"temp\": 28, \"weather\": \"晴れ\", \"type\": \"sunny\"},\n" +
+                    "        {\"time\": \"20:00\", \"temp\": 25, \"weather\": \"晴れ\", \"type\": \"sunny\"}\n" +
+                    "      ],\n" +
+                    "      \"daily\": [\n" +
+                    "        {\"date\": \"8/12(月)\", \"tempMax\": 33, \"tempMin\": 25, \"weather\": \"晴れ\", \"type\": \"sunny\", \"pop\": 10}\n" +
                     "      ]\n" +
-                    "    },\n" +
-                    "    ...（10都市分すべて。idは 'sapporo', 'sendai', 'tokyo', 'niigata', 'nagoya', 'osaka', 'hiroshima', 'takamatsu', 'fukuoka', 'naha'。typeは 'sunny', 'cloudy', 'rainy', 'snowy' のいずれか。tempMax, tempMin, pop, humidityは数値。hourlyは 08:00から20:00までの2時間ごとの予報（計7要素）の配列で、各時間帯の天気情報も含めること）\n" +
+                    "    }\n" +
                     "  ]\n" +
                     "}\n" +
-                    "ユーザーには通常の言葉で本日の全国の天気予報を要約した解説テキストを必ず先に書き、その後にこのJSONブロックを記述してください。";
+                    "※ cities配列内の各都市について、hourly または daily データのいずれかを必ず7要素分作成すること（typeは 'sunny', 'cloudy', 'rainy', 'snowy'）。\n" +
+                    "ユーザーには通常の言葉で天気を解説するテキストを必ず先に書き、その後にこのJSONブロックを記述してください。";
             }
 
             // Start Job
