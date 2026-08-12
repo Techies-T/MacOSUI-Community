@@ -142,9 +142,10 @@ app.get('/api/config', async (req, res) => {
 
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
-        const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
-        const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
-        const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
+        const globalGeminiModel = geminiModel || 'gemini-3.6-flash';
+        const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
+        const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel;
+        const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel;
         const geminiMcpChatModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || '';
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
         const deepResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
@@ -174,7 +175,7 @@ app.get('/api/config', async (req, res) => {
         const companyWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY') || '';
 
         // Antigravity Agent Configuration Settings
-        const antigravityAgentModel = await db.getSetting('ANTIGRAVITY_AGENT_MODEL') || 'gemini-3.5-flash';
+        const antigravityAgentModel = await db.getSetting('ANTIGRAVITY_AGENT_MODEL') || globalGeminiModel;
         const antigravityAgentInstructions = await db.getSetting('ANTIGRAVITY_AGENT_SYSTEM_INSTRUCTIONS') || '';
         const antigravityAgentSafetyPolicy = await db.getSetting('ANTIGRAVITY_AGENT_SAFETY_POLICY') || 'confirm_run_command';
         const antigravityAgentExternalPolicyEnabled = (await db.getSetting('ANTIGRAVITY_AGENT_EXTERNAL_POLICY_ENABLED') || 'true') === 'true';
@@ -1571,7 +1572,7 @@ app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
             if (apiKey && companyWorkPolicy) {
                 try {
                     const client = new GoogleGenAI({ apiKey });
-                    const model = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
+                    const model = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
 
                     const systemInstruction = `あなたは会社のコンプライアンスおよび労働管理（36協定）の監査用AIです。
 提供された「就業規則」と、ユーザーが設定しようとしている「AIアシスタント用プロンプト」を比較し、AIアシスタントの指示が就業規則に違反している（または違反を助長している）疑いがないかを判定してください。
@@ -2101,13 +2102,14 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
                 });
             });
         }
-
+        const globalGeminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+        
         if (mode === 'research') {
-            requestedModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
+            requestedModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel;
         } else if (mode === 'nanobanana') {
-            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
+            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
         } else if (mode === 'html_svg') {
-            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
+            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel;
         }
 
         const allowedModels = req.user.allowed_models || [];
@@ -2314,30 +2316,36 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
 
             console.log("Sending request to Gemini for Image Generation...");
+            
+            // Extract the string prompt from contents
+            let promptText = "";
+            if (typeof message === 'string') {
+                promptText = message;
+            } else if (Array.isArray(contents)) {
+                promptText = contents.map(c => c.text || "").join(' ');
+            }
+            
+            // Note: @google/genai SDK uses generateImages for Imagen 3
             const result = await Promise.race([
-                client.models.generateContent({
+                client.models.generateImages({
                     model: modelName,
-                    contents: contents,
+                    prompt: promptText,
                     config: {
                         numberOfImages: 1,
                         outputMimeType: "image/png",
-                        aspectRatio: customConfig?.aspectRatio || "16:9" // Support dynamic aspect ratio for avatars
+                        aspectRatio: customConfig?.aspectRatio || "1:1"
                     }
                 }),
                 createTimeout()
             ]);
 
-            const parts = result.candidates?.[0]?.content?.parts;
-            if (!parts) throw new Error("No candidates in Gemini response");
-
-            const imagePart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('image/'));
-            if (imagePart) {
-                const base64Data = imagePart.inlineData.data;
-                const mimeType = imagePart.inlineData.mimeType;
+            const generatedImage = result.generatedImages?.[0]?.image;
+            if (generatedImage && generatedImage.imageBytes) {
+                const base64Data = generatedImage.imageBytes;
                 geminiJobs[jobId] = {
                     ...geminiJobs[jobId],
                     state: 'completed',
-                    reply: JSON.stringify({ type: 'image', mimeType, data: base64Data }),
+                    reply: JSON.stringify({ type: 'image', mimeType: 'image/png', data: base64Data }),
                     error: null
                 };
                 console.log(`Gemini Job ${jobId} completed. (Image generated)`);
@@ -3680,7 +3688,7 @@ async function estimateTravelTimes(apiKey, events, ownerName) {
     
     try {
         const client = new GoogleGenAI({ apiKey });
-        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
+        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
 
         const formatEventsForTravel = (events) => {
             return events.map(e => {
@@ -4105,7 +4113,7 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                         try {
                             const { GoogleGenAI } = require("@google/genai");
                             const client = new GoogleGenAI({ apiKey });
-                            const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.5-flash';
+                            const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
 
                             // データベースからデフォルトプロンプトを取得
                             const defaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';

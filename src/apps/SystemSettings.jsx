@@ -120,20 +120,21 @@ const SystemSettings = ({ user }) => {
                 if (data.geminiResearchFolderId) {
                     setResearchFolderId(data.geminiResearchFolderId);
                 }
+                const globalGeminiModel = data.geminiModel || 'gemini-3.6-flash';
                 if (data.nanoBananaModel) {
                     setCurrentNanoBananaModel(data.nanoBananaModel);
                 } else {
-                    setCurrentNanoBananaModel('gemini-3.1-pro-preview');
+                    setCurrentNanoBananaModel('imagen-3.0-generate-002');
                 }
                 if (data.geminiResearchModel) {
                     setCurrentResearchModel(data.geminiResearchModel);
                 } else {
-                    setCurrentResearchModel('gemini-3.1-pro-preview-customtools');
+                    setCurrentResearchModel(globalGeminiModel);
                 }
                 if (data.geminiHtmlSvgModel) {
                     setCurrentHtmlSvgModel(data.geminiHtmlSvgModel);
                 } else {
-                    setCurrentHtmlSvgModel('gemini-3.1-flash-lite-preview');
+                    setCurrentHtmlSvgModel(globalGeminiModel);
                 }
                 if (data.nanoBananaPrompt) {
                     setNanoBananaPrompt(data.nanoBananaPrompt);
@@ -855,6 +856,10 @@ const SystemSettings = ({ user }) => {
                         filteredModels={filteredModels}
                         currentModel={currentModel}
                         handleModelChange={handleModelChange}
+                        currentNanoBananaModel={currentNanoBananaModel}
+                        handleNanoBananaModelChange={handleNanoBananaModelChange}
+                        currentHtmlSvgModel={currentHtmlSvgModel}
+                        handleHtmlSvgModelChange={handleHtmlSvgModelChange}
                     />
                 )}
 
