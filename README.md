@@ -167,6 +167,15 @@ GitHub Actions のデプロイは「成功（グリーン）」になってい�
 - **Google Drive API**: RAG（File Search）機能で使用。
 - **OAuth 2.0 クライアント ID**: 認証に使用。
 
+> [!IMPORTANT]
+> **「テストユーザー」の追加について (Google Cloud Consoleの仕様)**
+> 新規作成したOAuth同意画面は初期状態で「テスト中 (Testing)」となります。テスト中のアプリには、あらかじめ登録した「テストユーザー」しかログインできません（403 `access_denied` エラーになります）。以下の手順でご自身のアカウントを追加してください：
+> 1. Google Cloud Console で対象プロジェクトを開く。
+> 2. 左側のメニューから **「API とサービス」 ＞ 「OAuth 同意画面」** をクリック。
+> 3. 左のメニューから **「対象 (Audience)」** タブを選択。
+> 4. 画面を下へスクロールし **「テストユーザー (Test users)」** セクションを見つける。
+> 5. **「+ ユーザーを追加 (ADD USERS)」** を押し、ログインさせたい `@gmail.com` 等のメールアドレスを追加して保存。
+
 ### 2. アクティベーション手順
 ブラウザで `https://<あなたのドメイン>` または `http://localhost:8080` にアクセスし、画面の指示に従って Google OAuth Client ID/Secret および Gemini API キーを入力してアクティベートします。
 

@@ -142,7 +142,7 @@ app.get('/api/config', async (req, res) => {
 
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
-        const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
+        const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
         const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
         const geminiMcpChatModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || '';
@@ -2105,7 +2105,7 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
         if (mode === 'research') {
             requestedModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL') || 'gemini-3.1-pro-preview-customtools';
         } else if (mode === 'nanobanana') {
-            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
+            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
         } else if (mode === 'html_svg') {
             requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
         }
@@ -2314,30 +2314,36 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
 
             console.log("Sending request to Gemini for Image Generation...");
+            
+            // Extract the string prompt from contents
+            let promptText = "";
+            if (typeof message === 'string') {
+                promptText = message;
+            } else if (Array.isArray(contents)) {
+                promptText = contents.map(c => c.text || "").join(' ');
+            }
+            
+            // Note: @google/genai SDK uses generateImages for Imagen 3
             const result = await Promise.race([
-                client.models.generateContent({
+                client.models.generateImages({
                     model: modelName,
-                    contents: contents,
+                    prompt: promptText,
                     config: {
                         numberOfImages: 1,
                         outputMimeType: "image/png",
-                        aspectRatio: customConfig?.aspectRatio || "16:9" // Support dynamic aspect ratio for avatars
+                        aspectRatio: customConfig?.aspectRatio || "1:1"
                     }
                 }),
                 createTimeout()
             ]);
 
-            const parts = result.candidates?.[0]?.content?.parts;
-            if (!parts) throw new Error("No candidates in Gemini response");
-
-            const imagePart = parts.find(p => p.inlineData && p.inlineData.mimeType.startsWith('image/'));
-            if (imagePart) {
-                const base64Data = imagePart.inlineData.data;
-                const mimeType = imagePart.inlineData.mimeType;
+            const generatedImage = result.generatedImages?.[0]?.image;
+            if (generatedImage && generatedImage.imageBytes) {
+                const base64Data = generatedImage.imageBytes;
                 geminiJobs[jobId] = {
                     ...geminiJobs[jobId],
                     state: 'completed',
-                    reply: JSON.stringify({ type: 'image', mimeType, data: base64Data }),
+                    reply: JSON.stringify({ type: 'image', mimeType: 'image/png', data: base64Data }),
                     error: null
                 };
                 console.log(`Gemini Job ${jobId} completed. (Image generated)`);

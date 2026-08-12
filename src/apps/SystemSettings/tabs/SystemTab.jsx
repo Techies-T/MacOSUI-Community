@@ -14,7 +14,9 @@ const SystemTab = ({
     setSearchTerm,
     filteredModels,
     currentModel,
-    handleModelChange
+    handleModelChange,
+    currentNanoBananaModel,
+    handleNanoBananaModelChange
 }) => {
     return (
         <div className="space-y-6">
@@ -50,6 +52,17 @@ const SystemTab = ({
                             placeholder={isConfigured ? '••••••••••••••••' : 'Enter OAuth Client Secret'}
                             className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
                         />
+                    </div>
+                    <div className="pt-2 border-t border-gray-100">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Image Generation Model (Avatar)</label>
+                        <input
+                            type="text"
+                            value={currentNanoBananaModel || ''}
+                            onChange={(e) => handleNanoBananaModelChange(e.target.value)}
+                            placeholder="e.g. imagen-3.0-generate-002"
+                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">Leave empty to use the default image generation model.</p>
                     </div>
                     <button
                         onClick={handleSaveSettings}

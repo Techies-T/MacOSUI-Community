@@ -855,6 +855,8 @@ const SystemSettings = ({ user }) => {
                         filteredModels={filteredModels}
                         currentModel={currentModel}
                         handleModelChange={handleModelChange}
+                        currentNanoBananaModel={currentNanoBananaModel}
+                        handleNanoBananaModelChange={handleNanoBananaModelChange}
                     />
                 )}
 
