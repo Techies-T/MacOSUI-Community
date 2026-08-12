@@ -16,7 +16,9 @@ const SystemTab = ({
     currentModel,
     handleModelChange,
     currentNanoBananaModel,
-    handleNanoBananaModelChange
+    handleNanoBananaModelChange,
+    currentHtmlSvgModel,
+    handleHtmlSvgModelChange
 }) => {
     return (
         <div className="space-y-6">
@@ -63,6 +65,17 @@ const SystemTab = ({
                             className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
                         />
                         <p className="text-[10px] text-gray-400 mt-1">Leave empty to use the default image generation model.</p>
+                    </div>
+                    <div className="pt-2 border-t border-gray-100">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">HTML/SVG Generation Model</label>
+                        <input
+                            type="text"
+                            value={currentHtmlSvgModel || ''}
+                            onChange={(e) => handleHtmlSvgModelChange(e.target.value)}
+                            placeholder="e.g. gemini-3.1-flash-lite-preview"
+                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">Leave empty to use the default lightweight text model (Flash Lite).</p>
                     </div>
                     <button
                         onClick={handleSaveSettings}

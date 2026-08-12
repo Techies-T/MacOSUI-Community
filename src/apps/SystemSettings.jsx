@@ -857,6 +857,8 @@ const SystemSettings = ({ user }) => {
                         handleModelChange={handleModelChange}
                         currentNanoBananaModel={currentNanoBananaModel}
                         handleNanoBananaModelChange={handleNanoBananaModelChange}
+                        currentHtmlSvgModel={currentHtmlSvgModel}
+                        handleHtmlSvgModelChange={handleHtmlSvgModelChange}
                     />
                 )}
 
