@@ -143,7 +143,7 @@ app.get('/api/config', async (req, res) => {
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
         const globalGeminiModel = geminiModel || 'gemini-3.6-flash';
-        const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
+        const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || globalGeminiModel;
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel;
         const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel;
         const geminiMcpChatModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || '';
@@ -2107,7 +2107,7 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
         if (mode === 'research') {
             requestedModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel;
         } else if (mode === 'nanobanana') {
-            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
+            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || globalGeminiModel;
         } else if (mode === 'html_svg') {
             requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel;
         }
@@ -2176,7 +2176,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             console.log(`Research Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'nanobanana') {
             const configuredNanoModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL');
-            modelName = configuredNanoModel || 'imagen-3.0-generate-002';
+            modelName = configuredNanoModel || globalGeminiModel;
             console.log(`Nano Banana Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'html_svg') {
             const configuredHtmlSvgModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL');
@@ -2312,12 +2312,12 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             });
         });
 
-        // 1. Nanobanana (Image Generation) Mode uses stateless Models API
+        // 1. Nanobanana (Image Generation) Mode
         if (mode === 'nanobanana') {
             const timeoutMs = 120000;
             const createTimeout = () => new Promise((_, reject) => setTimeout(() => reject(new Error("Gemini API Request Timeout (120s)")), timeoutMs));
 
-            console.log("Sending request to Gemini for Image Generation...");
+            console.log(`Sending request to Gemini for Image Generation using model: ${modelName}...`);
             
             // Extract the string prompt from contents
             let promptText = "";
@@ -2327,30 +2327,63 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                 promptText = contents.map(c => c.text || "").join(' ');
             }
             
-            // Note: @google/genai SDK uses generateImages for Imagen 3
-            const result = await Promise.race([
-                client.models.generateImages({
-                    model: modelName,
-                    prompt: promptText,
-                    config: {
-                        numberOfImages: 1,
-                        outputMimeType: "image/png",
-                        aspectRatio: customConfig?.aspectRatio || "1:1"
-                    }
-                }),
-                createTimeout()
-            ]);
+            let base64Data = null;
 
-            const generatedImage = result.generatedImages?.[0]?.image;
-            if (generatedImage && generatedImage.imageBytes) {
-                const base64Data = generatedImage.imageBytes;
+            // Strategy A: If it's an imagen model, try client.models.generateImages
+            if (modelName.includes('imagen')) {
+                try {
+                    const result = await Promise.race([
+                        client.models.generateImages({
+                            model: modelName,
+                            prompt: promptText,
+                            config: {
+                                numberOfImages: 1,
+                                outputMimeType: "image/png",
+                                aspectRatio: customConfig?.aspectRatio || "1:1"
+                            }
+                        }),
+                        createTimeout()
+                    ]);
+                    const generatedImage = result.generatedImages?.[0]?.image;
+                    if (generatedImage && generatedImage.imageBytes) {
+                        base64Data = generatedImage.imageBytes;
+                    }
+                } catch (err) {
+                    console.warn(`generateImages failed for ${modelName} (${err.message}). Falling back to generateContent with responseModalities: ['IMAGE']...`);
+                }
+            }
+
+            // Strategy B: Fallback / standard multimodal image generation via generateContent
+            if (!base64Data) {
+                const targetModel = modelName.includes('imagen') ? globalGeminiModel : modelName;
+                console.log(`Executing generateContent with responseModalities: ['IMAGE'] on model ${targetModel}...`);
+                const result = await Promise.race([
+                    client.models.generateContent({
+                        model: targetModel,
+                        contents: promptText,
+                        config: {
+                            responseModalities: ['IMAGE']
+                        }
+                    }),
+                    createTimeout()
+                ]);
+
+                const candidates = result.candidates || [];
+                const parts = candidates[0]?.content?.parts || [];
+                const imagePart = parts.find(p => p.inlineData && p.inlineData.data);
+                if (imagePart) {
+                    base64Data = imagePart.inlineData.data;
+                }
+            }
+
+            if (base64Data) {
                 geminiJobs[jobId] = {
                     ...geminiJobs[jobId],
                     state: 'completed',
                     reply: JSON.stringify({ type: 'image', mimeType: 'image/png', data: base64Data }),
                     error: null
                 };
-                console.log(`Gemini Job ${jobId} completed. (Image generated)`);
+                console.log(`Gemini Job ${jobId} completed. (Image generated successfully)`);
                 return; // Successfully finished
             } else {
                 throw new Error("No image data returned from model.");
