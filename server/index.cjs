@@ -2167,18 +2167,20 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             });
         }
 
+        const globalGeminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+
         // Deep Research: Force Custom Tools model if not explicitly configured
         if (mode === 'research') {
             const configuredResearchModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL');
-            modelName = configuredResearchModel || 'gemini-3.1-pro-preview-customtools';
+            modelName = configuredResearchModel || globalGeminiModel;
             console.log(`Research Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'nanobanana') {
             const configuredNanoModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL');
-            modelName = configuredNanoModel || 'gemini-3.1-pro-preview';
+            modelName = configuredNanoModel || 'imagen-3.0-generate-002';
             console.log(`Nano Banana Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'html_svg') {
             const configuredHtmlSvgModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL');
-            modelName = configuredHtmlSvgModel || 'gemini-3.1-flash-lite-preview';
+            modelName = configuredHtmlSvgModel || globalGeminiModel;
             console.log(`HTML/SVG Mode Activated: Enforcing model ${modelName}`);
         }
 
