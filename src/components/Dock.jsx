@@ -151,7 +151,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
     };
 
     const allowedWidgets = user?.allowed_widgets || [];
-    const isAdminUser = user?.role?.includes('admin') || user?.email?.includes('minoru');
+    const isAdminUser = user?.role?.includes('admin');
 
     const dynamicApps = customSkills.map(skill => ({
         id: skill.id,
