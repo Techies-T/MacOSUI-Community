@@ -509,10 +509,10 @@ app.post('/api/auth/google', async (req, res) => {
                     });
                 });
 
-                // Enforce Universal Default Widgets
-                ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator', 'app:virtual-office', 'app:deep-research', 'app:knowledge-base', 'app:html-editor', 'app:browser', 'app:finder', 'app:stickies', 'app:app-monitor'].forEach(w => allowed_widgets_set.add(w));
+                // Enforce Universal Default Widgets for profile management
+                ['app:settings'].forEach(w => allowed_widgets_set.add(w));
 
-                const isAdmin = roles.includes('admin') || email.includes('minoru');
+                const isAdmin = roles.includes('admin');
                 const allowed_widgets = (isAdmin || allowed_widgets_set.has('*')) ? ['*'] : Array.from(allowed_widgets_set);
                 const allowed_actions = (isAdmin || allowed_actions_set.has('*')) ? ['*'] : Array.from(allowed_actions_set);
                 const allowed_models = (isAdmin || hasWildcardModels) ? ['*'] : Array.from(allowed_models_set);
@@ -692,8 +692,8 @@ app.get('/api/auth/me', (req, res) => {
                     });
                 });
 
-                // Enforce Universal Default Widgets
-                ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+                // Enforce Universal Default Widgets for profile management
+                ['app:settings'].forEach(w => allowed_widgets_set.add(w));
 
                 user.allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
                 user.allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
@@ -1413,7 +1413,7 @@ app.get('/api/users/:id/permissions', requireAuth, (req, res) => {
         });
 
         // Implicit built-in apps
-        ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+        ['app:settings'].forEach(w => allowed_widgets_set.add(w));
 
         res.json({
             user_id: user.id,
