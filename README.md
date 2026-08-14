@@ -165,10 +165,18 @@ GitHub Actions のデプロイは「成功（グリーン）」になってい�
 
 初回起動時には **MacOSUI アクティベーション** 画面が表示されます。手動で `.env` ファイルを設定する必要はありませんが、以下の API 設定が **必須** となります。
 
-### 1. Google Cloud コンソールの設定
-- **Google Calendar API**: バーチャルオフィスの予定調整に使用。
-- **Google Drive API**: RAG（File Search）機能で使用。
-- **OAuth 2.0 クライアント ID**: 認証に使用。
+### 1. Google Cloud コンソールの設定と必須 API の有効化
+
+MacOSUI の機能（カレンダー連携・RAGナレッジ検索・DeepResearchのレポート保存など）を正しく動作させるため、Google Cloud Console で以下の **2つの API の有効化** および **OAuth 設定** が必須となります。
+
+> [!IMPORTANT]
+> **必須 API の有効化 (未有効化の場合、503 / 403 `PERMISSION_DENIED` エラーになります)**
+> Google Cloud Console にアクセスし、プロジェクトを選択の上、以下の API を有効化してください：
+> 1. **Google Drive API**: [Google Drive API 有効化ページ](https://console.developers.google.com/apis/api/drive.googleapis.com/overview)
+>    - *用途*: RAG (File Search) のファイル同期、DeepResearch レポートの Google Drive 自動保存
+> 2. **Google Calendar API**: [Google Calendar API 有効化ページ](https://console.developers.google.com/apis/api/calendar.googleapis.com/overview)
+>    - *用途*: カレンダーウィジェットおよびバーチャルオフィスの予定同期・調整
+> 3. **OAuth 2.0 クライアント ID**: Google ログイン認証用 (ウェブアプリケーションタイプ)
 
 > [!IMPORTANT]
 > **「テストユーザー」の追加について (Google Cloud Consoleの仕様)**
