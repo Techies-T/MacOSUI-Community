@@ -263,6 +263,7 @@ function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+    db.run("UPDATE mcp_servers SET endpoint_url = REPLACE(endpoint_url, 'https://localhost', 'http://localhost'), token_url = REPLACE(token_url, 'https://localhost', 'http://localhost') WHERE endpoint_url LIKE 'https://localhost%'");
 
     db.run(`CREATE TABLE IF NOT EXISTS pods (
         id TEXT PRIMARY KEY,
@@ -559,15 +560,11 @@ async function autoActivate() {
             console.log('DEBUG: Registering Knowledge Base MCP Server with ZTA credentials...');
             
             const domain = process.env.DOMAIN_NAME || 'localhost:8080';
-            const isDev = process.env.NODE_ENV === 'development';
+            const isLocalhost = domain.includes('localhost') || domain.includes('127.0.0.1');
+            const protocol = isLocalhost ? 'http' : 'https';
             
-            const endpointUrl = isDev && domain.includes('localhost')
-                ? 'http://localhost:8080/api/mcp/knowledge/sse'
-                : `https://${domain}/api/mcp/knowledge/sse`;
-                
-            const tokenUrl = isDev && domain.includes('localhost')
-                ? 'http://localhost:8080/api/auth/token-exchange'
-                : `https://${domain}/api/auth/token-exchange`;
+            const endpointUrl = `${protocol}://${domain}/api/mcp/knowledge/sse`;
+            const tokenUrl = `${protocol}://${domain}/api/auth/token-exchange`;
 
             const clientId = 'macos-ui-internal-client';
             const rawSecret = process.env.DB_ENCRYPTION_KEY || 'development-encryption-key-123456';
@@ -584,6 +581,9 @@ async function autoActivate() {
                 }
             );
         }
+
+        // Migrate any existing mcp_servers with https://localhost to http://localhost
+        db.run("UPDATE mcp_servers SET endpoint_url = REPLACE(endpoint_url, 'https://localhost', 'http://localhost'), token_url = REPLACE(token_url, 'https://localhost', 'http://localhost') WHERE endpoint_url LIKE 'https://localhost%'");
 
         // Auto-register Default MCP Quick Prompts
         console.log("DEBUG: Checking existingPrompts...");

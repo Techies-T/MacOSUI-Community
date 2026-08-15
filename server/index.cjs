@@ -146,7 +146,7 @@ app.get('/api/config', async (req, res) => {
         const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || globalGeminiModel;
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel;
         const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel;
-        const geminiMcpChatModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || '';
+        const geminiMcpChatModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || globalGeminiModel;
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
         const deepResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
         const htmlSvgPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
@@ -410,12 +410,10 @@ app.use('/api/mcp/knowledge', knowledgeMcpModule.router);
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
 
-// MCP Servers requires either manage_system_settings, manage_roles, or app-monitor widget access (for connection management)
+// MCP Servers requires either manage_system_settings or manage_roles
 app.use('/api/mcp/servers', requireAuth, (req, res, next) => {
     const allowed = req.user.allowed_actions || [];
-    const allowedWidgets = req.user.allowed_widgets || [];
-    const hasWidgetAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:app-monitor');
-    if (allowed.includes('*') || allowed.includes('action:manage_system_settings') || allowed.includes('action:manage_roles') || hasWidgetAccess) {
+    if (allowed.includes('*') || allowed.includes('action:manage_system_settings') || allowed.includes('action:manage_roles')) {
         next();
     } else {
         res.status(403).json({ error: 'Permission denied' });

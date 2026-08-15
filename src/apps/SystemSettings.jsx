@@ -163,7 +163,7 @@ const SystemSettings = ({ user }) => {
                 if (data.geminiMcpChatModel) {
                     setCurrentMcpChatModel(data.geminiMcpChatModel);
                 } else {
-                    setCurrentMcpChatModel('');
+                    setCurrentMcpChatModel(globalGeminiModel);
                 }
                 if (data.rbacPolicies) {
                     setRbacPolicies(data.rbacPolicies);
@@ -634,7 +634,7 @@ const SystemSettings = ({ user }) => {
                 label: 'Deep Research'
             }
         ] : []),
-        ...(hasWidget('app:app-monitor') || hasAction('action:manage_system_settings') ? [
+        ...(hasAction('action:manage_system_settings') ? [
             {
                 id: 'Server Monitor', 
                 icon: (
