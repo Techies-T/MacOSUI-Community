@@ -137,16 +137,11 @@ const Desktop = ({ user, onLogout, config }) => {
 
   const openWindow = React.useCallback((id, type, title, props = {}) => {
     setWindows(prev => {
-      // For app-monitor, always open a new window
-      if (type === 'app-monitor') {
-          id = `app-monitor-${Date.now()}`;
-      } else {
-          // If window already exists, bring to front and restore if minimized
-          const existing = prev.find(w => w.id === id);
-          if (existing) {
-            const maxZ = Math.max(...prev.map(w => w.zIndex), 0);
-            return prev.map(w => w.id === id ? { ...w, zIndex: maxZ + 1, minimized: false, props: { ...w.props, ...props } } : w);
-          }
+      // If window already exists, bring to front and restore if minimized
+      const existing = prev.find(w => w.id === id);
+      if (existing) {
+        const maxZ = Math.max(...prev.map(w => w.zIndex), 0);
+        return prev.map(w => w.id === id ? { ...w, zIndex: maxZ + 1, minimized: false, props: { ...w.props, ...props } } : w);
       }
       // Open new window
       const maxZ = Math.max(...prev.map(w => w.zIndex), 0);
@@ -166,9 +161,6 @@ const Desktop = ({ user, onLogout, config }) => {
       } else if (type === 'html-editor') {
         width = 800;
         height = 600;
-      } else if (type === 'app-monitor') {
-        width = 650;
-        height = 450;
       } else if (type === 'mcp-chat') {
         width = 1000;
         height = 650;
