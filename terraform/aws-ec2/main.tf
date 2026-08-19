@@ -2,14 +2,14 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Fetch the latest Amazon Linux 2023 AMI (ARM64 for t4g instances)
-data "aws_ami" "al2023_arm64" {
+# Fetch the latest Amazon Linux 2023 AMI (x86_64 / AMD / Intel)
+data "aws_ami" "al2023_x86_64" {
   most_recent = true
   owners      = ["amazon"]
 
   filter {
     name   = "name"
-    values = ["al2023-ami-2023.*-arm64"]
+    values = ["al2023-ami-2023.*-x86_64"]
   }
 }
 

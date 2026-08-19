@@ -4,8 +4,8 @@ variable "aws_region" {
 }
 
 variable "instance_type" {
-  description = "EC2 Instance type (ARM64 recommended for t4g)"
-  default     = "t4g.micro"
+  description = "EC2 Instance type (x86_64 / AMD / Intel, e.g., t3.micro, t3.small, t3a.small)"
+  default     = "t3.micro"
 }
 
 variable "key_name" {

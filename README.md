@@ -6,7 +6,8 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 ## 🚀 主な機能とエンタープライズ特長
 
-- **AWS ECS (Fargate) サーバーレス設計**: ホスト OS の運用・管理を不要にし、コンテナメモリダンプ等の脅威を構造的に無力化する高度なセキュリティアーキテクチャ。
+- **AWS EC2 (x86_64 / AMD & Intel) シングルインスタンス設計**: 最小限のインフラコスト（`t3.micro` / `t3.small` 1台）で高速に立ち上げ可能なシンプルかつ堅牢な Docker デプロイアーキテクチャ。
+- **全自動プロビジョニング (Terraform & User Data)**: `terraform apply` 一発で x86_64 サーバーの起動、Docker インストール、メモリ保護（スワップ自動作成）、コンテナビルド・起動までを完全自動化。
 - **AWS DynamoDB 超低コストナレッジ分離**: ナレッジデータを AWS DynamoDB (オンデマンド/永久無料枠 25GB) に分離可能。**月額コスト 0円 〜 数十円** で永続データを高速・安全に外部分離保管。
 - **ナレッジベース (Knowledge Base) Import/Export**: JSON パッケージによるナレッジデータのポータブルなインポート・エクスポートを完全サポート。
 - **RAG (Gemini File Search)**: Google Drive やローカルファイルを **Gemini 3.6 Flash** 以上の File Search 機能で高速に検索・要約（安価なトークンコストで非常に高速・高精度な **Gemini 3.6 Flash** の使用を強く推奨します）。
@@ -19,145 +20,95 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 | 項目 | 最低条件 | 推奨条件 (本番運用) |
 | :--- | :--- | :--- |
-| **デプロイ基盤** | **AWS ECS (Fargate) + ECR** | AWS ECS (Fargate) + ALB + CloudFront |
+| **デプロイ基盤** | **Single AWS EC2 (x86_64) / VPS** | Single AWS EC2 (`t3.small` / `t3a.small`) + Elastic IP / ALB |
+| **CPU アーキテクチャ** | **x86_64 (AMD / Intel)** | **x86_64 (AMD / Intel)** |
 | **AI モデル** | **Gemini 3.5 Flash 以上** | **Gemini 3.6 Flash (最推奨・低コスト)** / Pro |
-| **コンテナ構成** | 0.5 vCPU / 1 GB RAM | 1 vCPU / 2 GB RAM 以上 |
+| **コンテナ構成** | 1 vCPU / 1 GB RAM (スワップ 2GB) | 2 vCPU / 2 GB RAM 以上 |
 | **ライセンス** | **Apache License 2.0** | オープンソース商用利用・改変・再配布可能 |
 
 ---
 
-## 📊 インフラコンポーネント構成・ステータス一覧
+## 🏗 本番インフラ・アーキテクチャ図 (Single EC2)
 
-本システムがデプロイ・全自動構築する AWS インフラの構成要素およびステータス一覧です。
-
-| インフラコンポーネント | ステータス | 役割と詳細説明 |
-| :--- | :--- | :--- |
-| **AWS ECS (Fargate) クラスタ** | ✅ **自動構築** | `MacOSUI-Cluster`: ホスト OS 不要のサーバーレスコンテナ実行環境 |
-| **AWS ECS (Fargate) サービス** | ✅ **自動構築** | `MacOSUI-Service`: 最新アプリケーションコンテナの実行・ロールアウト管理 |
-| **AWS ECR リポジトリ** | ✅ **自動構築** | `macosui-oss`: Docker コンテナイメージの保存・脆弱性スキャン |
-| **AWS DynamoDB テーブル** | ✅ **自動構築** | `MacOSUI-KnowledgeArticles`: ナレッジベース用オンデマンド DB (月額 0円〜) |
-| **AWS VPC / サブネット / SG** | ✅ **自動構築** | 2AZ パブリックサブネット (10.0.1.0/24, 10.0.2.0/24) ＆ セキュリティグループ |
-| **AWS ALB (Load Balancer)** | ✅ **自動構築** | HTTP:80 トラフィックの受信・ターゲットグループへの安全な転送 |
-| **AWS ACM (SSL/TLS 証明書)** | ✅ **自動構築** | `terraform` により無料証明書を自動発行・ALB 443 に自動バインド |
-| **Route 53 / 外部 DNS** | ✅ **自動構築** | ACM 検証用レコードおよび ALB への A レコード (Alias) を自動マッピング |
-
----
-
-### 🔍 デプロイ完了時のインフラ正常性チェック（CLI 検証コマンド）
-
-顧客企業や他社エンジニアが Terraform または GitHub Actions 経由でデプロイを終えた際、全インフラが正常にプロビジョニングされたかを以下のワンライナーコマンドで手元から確認できます：
-
-```bash
-# AWS インフラ自動チェックコマンド (AWS CLI)
-aws ecs describe-clusters --clusters MacOSUI-Cluster --region ap-northeast-1 --query "clusters[0].status" --output text && \
-aws ecs describe-services --cluster MacOSUI-Cluster --services MacOSUI-Service --region ap-northeast-1 --query "services[0].status" --output text && \
-aws dynamodb describe-table --table-name MacOSUI-KnowledgeArticles --region ap-northeast-1 --query "Table.TableStatus" --output text
-```
-
-> **期待される出力**: `ACTIVE`, `ACTIVE`, `ACTIVE` （すべて ACTIVE と表示されれば全インフラ構築が 100% 成功しています）
-
----
-
-## 🏗 本番インフラ・アーキテクチャ図
-
-本システムの標準構成（AWS ECS Fargate ＋ ALB ＋ DynamoDB ゼロコストデータ分離）の構造図です。
+本システムの標準構成（AWS EC2 1台構成 ＋ Docker ＋ 自動プロビジョニング）の構造図です。
 
 ```mermaid
 graph TD
-    User([🌐 ユーザー / ブラウザ]) -->|HTTPS: 443| Route53[Route 53 / 独自ドメイン]
-    Route53 -->|A レコード (Alias)| ALB[Application Load Balancer / ACM 無料SSL証明書]
+    User([🌐 ユーザー / ブラウザ]) -->|HTTP: 8080 または HTTPS: 443| EC2[AWS EC2 インスタンス (Amazon Linux 2023 x86_64)]
     
-    subgraph AWS VPC (10.0.0.0/16)
-        subgraph Public Subnets (2AZ)
-            ALB -->|HTTP: 8080 ヘルスチェック & 転送| Fargate[AWS ECS Fargate コンテナ (macosui-web)]
+    subgraph AWS Cloud (ap-northeast-1)
+        subgraph EC2 Instance (t3.micro / t3.small)
+            DockerDaemon[Docker Engine & Compose]
+            DockerDaemon --> Container[MacOSUI Web Container (macosui-web)]
+            Container --> SQLite[(永続ボリューム: SQLite /data)]
+            SwapSpace[2GB Swap File (OOM保護)]
         end
+        
+        Container -->|ナレッジ外部分離保管 (オプション)| DynamoDB[(AWS DynamoDB: MacOSUI-KnowledgeArticles)]
+        Container -->|機密キー保護| SecretsManager[AWS Secrets Manager / KMS]
     end
     
-    Fargate -->|暗号化キー取得 / Zeroization| SecretsManager[AWS Secrets Manager / KMS]
-    Fargate -->|ナレッジ保存 (月額0円〜)| DynamoDB[(AWS DynamoDB: MacOSUI-KnowledgeArticles)]
-    Fargate -->|コンテナイメージ取得| ECR[(Amazon ECR: macosui-oss)]
-    
-    GitHubActions[🐙 GitHub Actions CI/CD] -->|100% 鍵不要 API デプロイ| ECR
-    GitHubActions -->|Terraform 自動構築 & Rollout| Fargate
+    Container -->|RAG検索 & レポート保存| GoogleDrive[Google Drive & Calendar API]
+    Container -->|AI推論・思考| GeminiAPI[Google Gemini 3.6 Flash API]
 ```
-
-> **💡 なぜ Fargate では SSH 鍵や Host IP の登録が不要なのか？**
-> EC2 時代のように `EC2_HOST_IP` や `SSH_PRIVATE_KEY` などの秘密鍵を GitHub Secrets に登録する必要は**一切ありません**。
-> GitHub Actions は AWS 公式の IAM クレデンシャル（`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`）を使用して AWS API を直接呼び出し、コンテナのビルド・ECR プッシュ・タスク定義の更新・ALB ターゲットグループへの自動バインドまでを安全に完結させます。
 
 ---
 
 ## 🛠 デプロイメント＆構築ワークフロー
 
-MacOSUI OSS版では、安定した運用とトラブルシューティングの容易さを考慮し、**「①インフラの初期構築」**と**「②アプリケーションの継続的デプロイ (CI/CD)」**を完全に分離した設計を採用しています。
+MacOSUI-oss では、用途や運用環境に合わせて以下のデプロイメントパターンを用意しています。
 
-### Step 1: インフラの初期構築 (3つのパターンから選択)
-
-MacOSUI-oss では、用途や予算に合わせて **3つのインフラデプロイメントパターン** を用意しています。
-まずは、本リポジトリを **Fork** し、お手元の環境に **Clone** してください。
-
-#### Pattern A: ローカル開発・検証用 (MacOS / Local Docker)
-Mac上やお手元のPCで最も手軽に起動・検証するための構成です。ローカルのソースコードからビルドされ、DBにはSQLiteが使用されます。
-1. `docker-compose up -d` を実行します（初回はビルドが走ります）。
-2. ブラウザで `http://localhost:8080` にアクセスし、アクティベーションを行います。
-
-#### Pattern B: 超低コストスタート構成 (Single AWS EC2)
-最小コストでインターネット上に本番環境を公開したい小規模向けの構成です。
-1. `cd terraform/aws-ec2`
-2. `terraform init` && `terraform apply` を実行します。
-3. 起動したEC2インスタンス内で自動的にリポジトリがCloneされ、ソースコードからコンテナがビルド・起動します（DBはSQLite）。
-4. **GitHub Actions** を設定することで、以降のPush時に自動デプロイが可能です。
-
-#### Pattern C: クラウドネイティブ・サーバーレス構成 (AWS Fargate + RDS)
-運用保守をなくし、トラフィックに応じて自動スケールさせる本格的なエンタープライズ構成です。
-1. `cd terraform/aws-fargate`
-2. `bash ../../scripts/setup-infra.sh` または手動で `terraform apply` を実行します。
-3. FargateコンテナとPostgreSQL(RDS)が構築されます。
-4. **GitHub Actions** を設定することで、以降のPush時に自動デプロイ（ECRプッシュ＆ローリングアップデート）が可能です。
-
-### Step 2: GitHub Actions 連携とデプロイ (CI/CD)
-インフラ構築が完了したら、日々のアプリケーション更新は GitHub Actions に任せます。
-
-1. **GitHub Secrets の設定**:
-   フォークしたリポジトリの **[Settings] ➔ [Secrets and variables] ➔ [Actions]** に以下を設定します。
-   - `AWS_ACCESS_KEY_ID` (IAM ユーザーのアクセスキー)
-   - `AWS_SECRET_ACCESS_KEY` (IAM ユーザーのシークレットキー)
-2. **自動デプロイ**:
-   `main` ブランチにコードを Push すると自動で GitHub Actions が走り、Docker イメージのビルド、監査、ECR へのプッシュ、ECS コンテナの無停止ローリングアップデートを行います。
-
-### Step 3: (オプション) 本番向け HTTPS (SSL証明書) の有効化
-独自ドメインを取得し、HTTPS で通信を暗号化する場合の追加設定です。
-
-1. `terraform/variables.tf` を開き、以下の変数を `true` に変更します。
-   ```hcl
-   variable "enable_https_listener" {
-     default = true
-   }
-   variable "domain_name" {
-     default = "macosui.your-domain.com"
-   }
+### Pattern A: ローカル開発・検証用 (Docker Compose)
+お手元の Mac / PC で手軽に起動・検証するための構成です。ローカルのソースコードからビルドされ、DBにはSQLiteが使用されます。
+1. 本リポジトリを Clone します。
+   ```bash
+   git clone https://github.com/Techies-T/MacOSUI-oss.git
+   cd MacOSUI-oss
    ```
-2. 再度 `bash scripts/setup-infra.sh` を実行します。
-3. 出力された CNAME レコード（ACM 検証用）を、ご利用のドメイン管理サービス（Route 53, お名前.com など）に登録します。
-4. 検証が完了すると、自動的に ALB の 443 番ポート（HTTPS）が開放されます。
+2. コンテナを起動します。
+   ```bash
+   docker compose up -d --build
+   ```
+3. ブラウザで `http://localhost:8080` にアクセスし、アクティベーション画面から初期設定を行います。
+
+---
+
+### Pattern B: AWS EC2 (x86_64 AMD/Intel) 1台構成 (Terraform)
+最小限のコストでインターネット上に本番環境を公開・運用する推奨構成です。
+`user_data.sh` により、EC2 の起動から Docker・スワップ作成・アプリ起動までが全自動で完了します。
+
+1. **Terraform ディレクトリへ移動**:
+   ```bash
+   cd terraform/aws-ec2
+   ```
+2. **初期化とプロビジョニング**:
+   ```bash
+   terraform init
+   terraform apply
+   ```
+   > ※ 必要に応じて `terraform.tfvars` で `aws_region`、`instance_type` (デフォルト: `t3.micro`)、`key_name` (SSHキー名) をカスタマイズできます。
+3. **アクセス確認**:
+   `terraform apply` 完了時に出力される `app_url` (`http://<EC2-PUBLIC-IP>:8080`) にブラウザでアクセスします。
 
 ---
 
 ## 🚑 トラブルシューティングガイド
 
-GitHub Actions のデプロイは「成功（グリーン）」になっているのに、サイトにアクセスすると **`503 Service Temporarily Unavailable`** エラーが出る場合、AWS (ECS) 側でコンテナの起動に失敗している可能性が高いです。
+EC2 やローカル環境でサイトにアクセスできない場合の解決手順です。
 
-以下の手順で原因（停止理由）を特定してください：
+### 1. サーバー上のコンテナ稼働状況を確認
+EC2 インスタンスに SSH 接続（またはローカルターミナル）でログインし、コンテナの状態を確認します：
+```bash
+docker ps
+```
+- `macosui-web` コンテナが `Up`（起動中）になっているか確認します。
+- もし `Restarting` や停止している場合は、以下のコマンドでログを確認します：
+```bash
+docker logs --tail 100 macosui-web
+```
 
-1. AWS コンソールの検索窓で **`ECS`** と検索し、Elastic Container Service を開きます。
-2. **`MacOSUI-Cluster`** ➔ サービス **`MacOSUI-Service`** の順にクリックします。
-3. **[タスク] (Tasks)** タブを開きます。
-4. ステータスのフィルタを「RUNNING」から **`STOPPED` (停止済み)** に変更します。
-5. 一覧から一番新しいタスクの ID (青いリンク) をクリックして詳細画面を開きます。
-6. 画面中央の **「停止理由 (Stopped reason)」** を確認します。
-   - 例: `CannotPullContainerError` (ECR からイメージを取得できない)
-   - 例: `unable to assume the role` (IAM ロールの設定ミス)
-7. コンテナ内の Node.js アプリケーションがクラッシュしている場合は、**[ログ] (Logs)** タブに `Error: ...` などの詳細なクラッシュログが出力されます。
+### 2. ポート 8080 のセキュリティグループ確認
+ブラウザで `http://<EC2-PUBLIC-IP>:8080` にアクセスできない場合、AWS セキュリティグループでポート `8080` が許可されているか確認してください。
 
 ---
 
@@ -188,24 +139,23 @@ MacOSUI の機能（カレンダー連携・RAGナレッジ検索・DeepResearch
 > 5. **「+ ユーザーを追加 (ADD USERS)」** を押し、ログインさせたい `@gmail.com` 等のメールアドレスを追加して保存。
 
 ### 2. アクティベーション手順
-ブラウザで `https://<あなたのドメイン>` または `http://localhost:8080` にアクセスし、画面の指示に従って Google OAuth Client ID/Secret および Gemini API キーを入力してアクティベートします。
+ブラウザで `http://<あなたのサーバーIP>:8080` または `http://localhost:8080` にアクセスし、画面の指示に従って Google OAuth Client ID/Secret および Gemini API キーを入力してアクティベートします。
 
 ### 🔐 セキュリティ・通信暗号化 (HTTPS / HTTP) と ZTA 規定
 
 MacOSUI では、Zero Trust Architecture (ZTA) の原則（「ネットワーク境界を信頼せず、すべての通信を暗号化・検証せよ」）に基づき、以下の通信暗号化方針を定めています：
 
 1. **環境ごとの HTTPS / HTTP 通信規定**:
-   - **AWS EC2 構成 (Pattern B)**: **HTTPS 必須**。パブリックネットワーク上での盗聴・中間者攻撃 (MitM) やセッションハイジャックを防ぐため、本番運用においては Nginx + Let's Encrypt や ALB / Cloudflare を前段に配置し、通信の HTTPS 化を必須とします。
-   - **AWS Fargate 構成 (Pattern C)**: **HTTPS 必須**。ALB (ACM 無料SSL証明書) により 443 ポート通信を強制リダイレクトし、エンドツーエンドで暗号化します。
-   - **ローカル開発環境 (`localhost` / `127.0.0.1`)**: 手元でのクイックな動作検証のため HTTP (`http://localhost:8080`) での動作を許可していますが、本番に近い ZTA セキュリティ検証を行うため **HTTPS 接続での利用を強く推奨** します。
+   - **AWS EC2 / 本番サーバー構成**: 本番ドメイン運用においては、パブリックネットワーク上での盗聴・中間者攻撃 (MitM) やセッションハイジャックを防ぐため、Nginx + Let's Encrypt や ALB / Cloudflare を前段に配置した HTTPS 暗号化通信を強く推奨します。
+   - **ローカル開発環境 (`localhost` / `127.0.0.1`)**: 手元でのクイックな動作検証のため HTTP (`http://localhost:8080`) での動作を許可しています。
 
 2. **認証クッキー (`Secure` 属性) の動的コントロール**:
    - セッション認証クッキー (`token`) の `Secure` 属性（HTTPS限定送信フラグ）は、通信プロトコルを動的に判定します。
-   - `HTTPS` 通信時（EC2 / Fargate / ローカルHTTPS）は自動的に `Secure` 属性が有効化され、`HTTP (localhost)` 通信時のみブラウザ側でクッキーが拒否されないよう柔軟にコントロールされるため、開発環境でもセッションが切れずにスムーズに動作します。
+   - `HTTPS` 通信時は自動的に `Secure` 属性が有効化され、`HTTP (localhost)` 通信時のみブラウザ側でクッキーが拒否されないよう柔軟にコントロールされるため、開発環境でもセッションが切れずにスムーズに動作します。
 
 3. **データベースの暗号化と自動キー生成 (`DB_ENCRYPTION_KEY`)**:
    - Gemini API キーや Google OAuth Client Secret などの機密設定値は、データベース（SQLite / PostgreSQL）内で **AES-256-GCM により暗号化** されて保存されます。
-   - 暗号化キー (`DB_ENCRYPTION_KEY`) は、ローカル環境 (`docker-compose up -d`) の初回起動時にプログラムが全自動で生成し、永続ボリューム (`data/development.env`) に安全に保存するため、ユーザーが手動で暗号キーを発行・管理する手間は一切ありません。
+   - 暗号化キー (`DB_ENCRYPTION_KEY`) は、初回起動時にプログラムが全自動で生成し、永続ボリューム (`data/development.env`) に安全に保存するため、ユーザーが手動で暗号キーを発行・管理する手間は一切ありません。
 
 ---
 
