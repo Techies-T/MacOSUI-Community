@@ -6,7 +6,7 @@ provider "aws" {
 data "aws_ami" "al2023_arm64" {
   most_recent = true
   owners      = ["amazon"]
-  
+
   filter {
     name   = "name"
     values = ["al2023-ami-2023.*-arm64"]
@@ -54,9 +54,10 @@ resource "aws_security_group" "macosui_ec2_sg" {
 resource "aws_instance" "macosui_server" {
   ami           = data.aws_ami.al2023_arm64.id
   instance_type = var.instance_type
-  
+  key_name      = var.key_name
+
   vpc_security_group_ids = [aws_security_group.macosui_ec2_sg.id]
-  
+
   # Ensure the instance has a public IP
   associate_public_ip_address = true
 

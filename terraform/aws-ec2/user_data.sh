@@ -8,6 +8,7 @@ dnf install -y docker git
 # Start and enable Docker
 systemctl start docker
 systemctl enable docker
+usermod -aG docker ec2-user || true
 
 # Install Docker Compose
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
