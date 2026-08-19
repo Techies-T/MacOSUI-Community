@@ -10,7 +10,6 @@ import SystemSettings from '../apps/SystemSettings';
 import Browser from '../apps/Browser';
 import HtmlEditor from '../apps/HtmlEditor';
 import DeepResearch from '../apps/DeepResearch';
-import AppRunnerDashboard from '../apps/AppRunnerDashboard';
 import KnowledgeBase from '../apps/KnowledgeBase';
 import ExternalWidget from '../apps/ExternalWidget';
 import McpChat from '../apps/McpChat';
@@ -33,7 +32,6 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'html-editor': return <HtmlEditor onOpen={onOpen} {...win.props} />;
             case 'deep-research': return <DeepResearch onOpen={onOpen} />;
             case 'knowledge-base': return <KnowledgeBase />;
-            case 'app-monitor': return <AppRunnerDashboard windowId={win.id} />;
             case 'mcp-chat': return <McpChat />;
             case 'virtual-office': return <VirtualOffice onOpen={onOpen} user={user} />;
             case 'dm-chat': return <DmChat {...win.props} />;

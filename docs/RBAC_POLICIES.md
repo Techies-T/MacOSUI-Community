@@ -45,7 +45,6 @@ MacOSUI は、ゼロトラストアーキテクチャ (ZTA) に準拠した一�
 | `mcp-chat` | `app:mcp-chat` | MCP Chat Client |
 | `deep-research` | `app:deep-research` | Deep Research (自律型リサーチエージェント) |
 | `virtual-office` | `app:virtual-office` | Virtual Office (バーチャルオフィス) |
-| `app-monitor` | `app:app-monitor` | App Monitor (プロセスマネージャー) |
 | `dm-chat` | `app:dm-chat` | Direct Messaging Chat |
 
 ---

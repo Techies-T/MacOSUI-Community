@@ -117,15 +117,6 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'app-monitor', name: 'App Monitor', icon: (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#10b981' }}>
-                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
-                    <path d="M12 12v9" />
-                    <path d="m8 17 4 4 4-4" />
-                </svg>
-            )
-        },
-        {
             id: 'virtual-office', name: 'Virtual Office', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#06b6d4' }}>
                     <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />

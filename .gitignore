@@ -28,6 +28,9 @@ dist-ssr
 .env.local
 .env.*.local
 *.sqlite*
+*.db
+data/
+server/*.env
 certbot/
 scratch/
 
