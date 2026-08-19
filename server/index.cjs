@@ -1691,8 +1691,8 @@ ${newPrompt}`;
 });
 
 app.post('/api/virtual-office/status', requireAuth, (req, res) => {
-    const { current_room, status_text, is_remote, targetUserId } = req.body;
-    const userId = targetUserId !== undefined ? targetUserId : req.user.id;
+    const { current_room, status_text, is_remote } = req.body;
+    const userId = req.user.id;
     
     db.get("SELECT current_room, status_text, is_remote FROM users WHERE id = ?", [userId], (err, user) => {
         if (err) {
