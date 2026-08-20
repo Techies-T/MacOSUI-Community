@@ -52,7 +52,7 @@ resource "aws_security_group" "macosui_ec2_sg" {
 
 # EC2 Instance
 resource "aws_instance" "macosui_server" {
-  ami           = data.aws_ami.al2023_arm64.id
+  ami           = data.aws_ami.al2023_x86_64.id
   instance_type = var.instance_type
   key_name      = var.key_name
 
