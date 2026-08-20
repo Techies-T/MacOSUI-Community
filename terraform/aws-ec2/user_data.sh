@@ -1,4 +1,5 @@
 #!/bin/bash
+exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 set -e
 
 # Update and install dependencies
@@ -13,13 +14,16 @@ usermod -aG docker ec2-user || true
 # Install Docker Compose
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
+ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose || true
 
-# Create a 2GB swap file to prevent Out-Of-Memory (OOM) during Docker build on t4g.micro
-fallocate -l 2G /swapfile
-chmod 600 /swapfile
-mkswap /swapfile
-swapon /swapfile
-echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+# Create a 2GB swap file using dd (required for XFS filesystem on Amazon Linux 2023)
+if [ ! -f /swapfile ]; then
+    dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+fi
 
 # Clone the repository
 mkdir -p /opt/macosui
@@ -28,8 +32,6 @@ cd /opt/macosui/repo
 
 # Start the application using the local docker-compose.yml which builds from source
 mkdir -p data
-
-# Create an initial empty database file to ensure correct permissions
 touch data/database.sqlite
 chmod 666 data/database.sqlite
 
