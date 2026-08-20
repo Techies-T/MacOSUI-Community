@@ -61,7 +61,10 @@ resource "aws_instance" "macosui_server" {
   # Ensure the instance has a public IP
   associate_public_ip_address = true
 
-  user_data = file("${path.module}/user_data.sh")
+  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+    github_token = var.github_token
+    repo_url     = var.repo_url
+  })
 
   tags = {
     Name = "MacOSUI-OSS-Server"
