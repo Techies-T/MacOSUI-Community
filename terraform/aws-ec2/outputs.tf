@@ -3,7 +3,19 @@ output "instance_public_ip" {
   value       = aws_instance.macosui_server.public_ip
 }
 
-output "app_url" {
-  description = "The URL to access the MacOSUI application"
-  value       = "http://${aws_instance.macosui_server.public_ip}:8080"
+output "https_mode" {
+  description = "The active HTTPS termination mode"
+  value       = var.https_mode
+}
+
+output "app_https_url" {
+  description = "The secure HTTPS URL to access the MacOSUI application"
+  value = var.https_mode == "cloudfront" ? "https://${aws_cloudfront_distribution.macosui_cf[0].domain_name}" : (
+    var.domain_name != "" ? "https://${var.domain_name}" : "http://${aws_lb.macosui_alb[0].dns_name}"
+  )
+}
+
+output "acm_validation_records" {
+  description = "DNS validation records for ACM certificate (if ALB with custom domain is used)"
+  value       = var.https_mode == "alb" && var.domain_name != "" ? aws_acm_certificate.macosui_cert[0].domain_validation_options : null
 }

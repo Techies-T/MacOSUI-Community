@@ -75,20 +75,36 @@ MacOSUI-oss では、用途や運用環境に合わせて以下のデプロイ�
 
 ### Pattern B: AWS EC2 (x86_64 AMD/Intel) 1台構成 (Terraform)
 最小限のコストでインターネット上に本番環境を公開・運用する推奨構成です。
-`user_data.sh` により、EC2 の起動から Docker・スワップ作成・アプリ起動までが全自動で完了します。
+情報漏洩防止および Google OAuth / ZTA 規定に準拠するため、**HTTPS 通信が必須** となっています。
+Terraform の `https_mode` フラグで用途に応じた HTTPS 方式を 1 行で選択できます。
+
+| `https_mode` の値 | コスト目安 | 特徴と推奨ユースケース |
+| :--- | :--- | :--- |
+| **`"cloudfront"` (デフォルト)** | **月額 0円〜数十円** | **低コスト・即時利用**。ドメイン取得なしでも AWS が提供する `https://xxxx.cloudfront.net` で即座に HTTPS 通信・アクティベーションが可能。 |
+| **`"alb"` (本番推奨)** | **月額 約2,000円〜** | **本番推奨・高安定性**。WebSocket やリアルタイム SSE 通信に最適。AWS ACM による無料 SSL 証明書の自動発行・更新に対応。 |
 
 1. **Terraform ディレクトリへ移動**:
    ```bash
    cd terraform/aws-ec2
    ```
-2. **初期化とプロビジョニング**:
+2. **設定ファイルの作成 (`terraform.tfvars`)**:
+   ```hcl
+   # HTTPS 方式の選択 ("cloudfront" または "alb")
+   https_mode = "cloudfront"
+
+   # プライベートリポジトリの場合のみ指定 (Public リポジトリの場合は不要)
+   # github_token = "ghp_xxxxxxxxxxxx"
+
+   # ALB ＋ 独自ドメインを利用する場合のみ指定
+   # domain_name = "macosui.your-domain.com"
+   ```
+3. **初期化とプロビジョニング**:
    ```bash
    terraform init
    terraform apply
    ```
-   > ※ 必要に応じて `terraform.tfvars` で `aws_region`、`instance_type` (デフォルト: `t3.micro`)、`key_name` (SSHキー名) をカスタマイズできます。
-3. **アクセス確認**:
-   `terraform apply` 完了時に出力される `app_url` (`http://<EC2-PUBLIC-IP>:8080`) にブラウザでアクセスします。
+4. **アクセス確認**:
+   `terraform apply` 完了時に出力される `app_https_url` (`https://xxxx.cloudfront.net` 等) にブラウザでアクセスします。
 
 ---
 

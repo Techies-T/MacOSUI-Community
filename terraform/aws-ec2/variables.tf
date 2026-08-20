@@ -26,3 +26,20 @@ variable "github_token" {
   default     = ""
   sensitive   = true
 }
+
+variable "https_mode" {
+  description = "HTTPS termination method: 'cloudfront' (low-cost CDN with default HTTPS domain) or 'alb' (production ALB with ACM)"
+  type        = string
+  default     = "cloudfront"
+
+  validation {
+    condition     = contains(["cloudfront", "alb"], var.https_mode)
+    error_message = "https_mode must be either 'cloudfront' or 'alb'. Plain HTTP is not permitted for activation and security compliance."
+  }
+}
+
+variable "domain_name" {
+  description = "Optional custom domain name (e.g., macosui.your-domain.com) for ALB / ACM certificate"
+  type        = string
+  default     = ""
+}
