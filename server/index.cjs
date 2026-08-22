@@ -693,19 +693,24 @@ app.post('/api/auth/google', async (req, res) => {
                 );
             };
 
-            if (existingUser) {
-                // User already exists, proceed. Maintain role.
-                proceedWithLogin(existingUser.role || 'user');
-            } else {
-                // Check if this is the very first user
-                db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
-                    if (err) return res.status(500).json({ error: 'Database error' });
-                    
-                    if (Number(result.count) === 0) {
-                        // First user gets admin privileges
+            // Check if there are any active admin users in the system
+            db.get("SELECT COUNT(*) as adminCount FROM users WHERE role LIKE '%admin%'", [], (adminErr, adminResult) => {
+                if (adminErr) return res.status(500).json({ error: 'Database error' });
+                const hasAdmin = Number(adminResult?.adminCount || 0) > 0;
+
+                if (existingUser) {
+                    // If no admin exists in the system yet, promote this existing user to admin
+                    if (!hasAdmin) {
                         proceedWithLogin('admin');
                     } else {
-                        // Not the first user. Check if they are invited.
+                        proceedWithLogin(existingUser.role || 'user');
+                    }
+                } else {
+                    // If no admin exists in the system, the very first user MUST be admin
+                    if (!hasAdmin) {
+                        proceedWithLogin('admin');
+                    } else {
+                        // Not the first admin. Check if they are invited.
                         db.get("SELECT email, created_at FROM invitations WHERE email = ?", [email], (err, invite) => {
                             if (err) return res.status(500).json({ error: 'Database error' });
                             
@@ -745,8 +750,8 @@ app.post('/api/auth/google', async (req, res) => {
                             }
                         });
                     }
-                });
-            }
+                }
+            });
         });
     } catch (error) {
         console.error('Auth Error:', error);
