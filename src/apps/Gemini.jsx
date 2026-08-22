@@ -263,6 +263,69 @@ const Gemini = () => {
                     "ユーザーには通常の言葉で天気を解説するテキストを必ず先に書き、その後にこのJSONブロックを記述してください。";
             }
 
+            if (mode === 'gemma4') {
+                // Direct LiveStream from Local Gemma 4
+                try {
+                    const response = await fetch('/api/gemma/stream', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: userMessage.text,
+                            systemInstruction: dynamicSystemInstruction || "You are Gemma 4, a powerful, fast, and secure local AI running on Apple Silicon. Answer helpfully, accurately, and concisely in Japanese or the language requested."
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json().catch(() => ({}));
+                        throw new Error(errData.error || `Server returned ${response.status}`);
+                    }
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let streamText = '';
+
+                    // Add placeholder model message for streaming
+                    setMessages(prev => [...prev, { role: 'model', text: '', isStreaming: true }]);
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n').filter(l => l.trim().length > 0);
+                        for (const line of lines) {
+                            if (line.includes('[DONE]')) continue;
+                            const jsonStr = line.replace(/^data:\s*/, '').trim();
+                            if (!jsonStr) continue;
+                            try {
+                                const json = JSON.parse(jsonStr);
+                                if (json.error) throw new Error(json.error);
+                                if (json.text) {
+                                    streamText += json.text;
+                                    setMessages(prev => {
+                                        const updated = [...prev];
+                                        if (updated.length > 0) {
+                                            updated[updated.length - 1] = {
+                                                role: 'model',
+                                                text: streamText,
+                                                isStreaming: !json.done
+                                            };
+                                        }
+                                        return updated;
+                                    });
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                    setIsLoading(false);
+                    return;
+                } catch (gemmaErr) {
+                    console.error("Gemma stream error:", gemmaErr);
+                    setMessages(prev => [...prev, { role: 'model', text: "Error connecting to Local Gemma 4: " + gemmaErr.message + " (Make sure Ollama is running)" }]);
+                    setIsLoading(false);
+                    return;
+                }
+            }
+
             // Start Job
             const requestBody = {
                 message: userMessage.text,
@@ -420,6 +483,7 @@ const Gemini = () => {
                             {ragFolders.map((f, idx) => (
                                 <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 {f.name}</option>
                             ))}
+                            <option value="gemma4" className="text-gray-800">🦙 Gemma 4 (Local AI)</option>
                             <option value="research" className="text-gray-800">🔍 Deep Research</option>
                             <option value="html_svg" className="text-gray-800">🎨 HTML/SVG Dev</option>
                         </select>
@@ -431,6 +495,12 @@ const Gemini = () => {
                             <div className={`w-8 h-4 rounded-full transition-colors relative ${useGrounding ? 'bg-green-400' : 'bg-white/20'}`}>
                                 <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${useGrounding ? 'translate-x-4' : 'translate-x-0.5'}`}></div>
                             </div>
+                        </div>
+                    )}
+                    {mode === 'gemma4' && (
+                        <div className="ml-3 flex items-center bg-emerald-500/20 backdrop-blur-md rounded-lg px-3 py-1.5 border border-emerald-400/30">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-2"></span>
+                            <span className="text-xs font-semibold text-emerald-200">⚡️ Local MoE (Apple MLX)</span>
                         </div>
                     )}
 

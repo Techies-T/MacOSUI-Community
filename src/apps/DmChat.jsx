@@ -248,26 +248,46 @@ const DmChat = ({ targetUser, urgent }) => {
         );
     }
 
+    const LANG_MAP = {
+        ja: { label: '日本語', flag: '🇯🇵' },
+        en: { label: 'English', flag: '🇺🇸' },
+        es: { label: 'Español', flag: '🇪🇸' }
+    };
+    const targetLang = LANG_MAP[user.native_language] || LANG_MAP['ja'];
+
     return (
         <div className="h-full flex flex-col bg-[#0b0f19] text-[#e2e8f0] overflow-hidden font-sans">
             {/* Header */}
-            <div className="flex items-center space-x-3 px-5 py-3 bg-[#111827]/85 border-b border-gray-800 backdrop-blur-md">
-                <div className="relative">
-                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-900 border border-gray-800">
-                        <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+            <div className="flex items-center justify-between px-5 py-3 bg-[#111827]/85 border-b border-gray-800 backdrop-blur-md">
+                <div className="flex items-center space-x-3">
+                    <div className="relative">
+                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-900 border border-gray-800">
+                            <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#111827] ${
+                            user.current_room === 'focus-zone' ? 'bg-amber-400' :
+                            user.current_room === 'remote' ? 'bg-cyan-400' : 'bg-emerald-400'
+                        }`} />
                     </div>
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#111827] ${
-                        user.current_room === 'focus-zone' ? 'bg-amber-400' :
-                        user.current_room === 'remote' ? 'bg-cyan-400' : 'bg-emerald-400'
-                    }`} />
+                    <div>
+                        <div className="flex items-center gap-1.5">
+                            <h3 className="font-bold text-sm text-gray-100">{user.name}</h3>
+                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-950/60 border border-indigo-500/40 text-[9px] text-indigo-300 font-semibold inline-flex items-center gap-1">
+                                <span>{targetLang.flag}</span>
+                                <span>{targetLang.label}</span>
+                            </span>
+                        </div>
+                        <p className="text-[10px] text-gray-500">
+                            {user.is_remote ? '🏡 Remote Active' : '🏢 Office Active'}
+                            <span className="mx-1.5">•</span>
+                            Status: {user.status_text || 'Active'}
+                        </p>
+                    </div>
                 </div>
-                <div>
-                    <h3 className="font-bold text-sm text-gray-100">{user.name}</h3>
-                    <p className="text-[10px] text-gray-500">
-                        {user.is_remote ? '🏡 Remote Active' : '🏢 Office Active'}
-                        <span className="mx-1.5">•</span>
-                        Status: {user.status_text || 'Active'}
-                    </p>
+
+                <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-[10px] font-semibold text-emerald-300">🦙 Gemma 4 Live</span>
                 </div>
             </div>
 

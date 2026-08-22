@@ -119,6 +119,7 @@ async function initDb() {
     assistant_break_end TEXT DEFAULT '13:00',
     assistant_meeting_buffer INTEGER DEFAULT 30,
     assistant_prompt TEXT,
+    native_language TEXT DEFAULT 'ja',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`, () => r()));
 
@@ -140,6 +141,7 @@ async function initDb() {
     await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_break_start TEXT DEFAULT '12:00'", () => r()));
     await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_break_end TEXT DEFAULT '13:00'", () => r()));
     await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_prompt TEXT", () => r()));
+    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN native_language TEXT DEFAULT 'ja'", () => r()));
 
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS deep_research_history (
         id SERIAL PRIMARY KEY,
@@ -657,6 +659,17 @@ async function autoActivate() {
 ## 2. AIアシスタントへの指示（プロンプト）の制限
 - AIアシスタントに対するカスタマイズプロンプトにおいて、「深夜労働」「違法行為の隠蔽」「ハラスメント」などを肯定、または推奨する内容を記述してはなりません。`;
             await db.setSetting('COMPANY_WORK_POLICY', defaultPolicy);
+        }
+
+        // Auto-register Local AI (Gemma 4) Default Settings
+        const existingLocalAiModel = await db.getSetting('LOCAL_AI_MODEL');
+        if (!existingLocalAiModel) {
+            console.log('DEBUG: Initializing Local AI (Gemma 4) Default Settings in Postgres...');
+            await db.setSetting('LOCAL_AI_ENABLED', 'true');
+            await db.setSetting('LOCAL_AI_PROVIDER', 'ollama');
+            await db.setSetting('LOCAL_AI_HOST', 'http://localhost:11434');
+            await db.setSetting('LOCAL_AI_MODEL', 'gemma4:26b-mlx');
+            await db.setSetting('LOCAL_AI_TEMPERATURE', '0.7');
         }
 
         // Auto-Register Default Deep Research Workflows

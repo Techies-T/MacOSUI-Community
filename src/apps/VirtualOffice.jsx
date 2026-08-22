@@ -34,11 +34,22 @@ const getStatusDotColor = (text = '', room = '') => {
     return 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]';
 };
 
+const LANGUAGES = [
+    { code: 'ja', label: '日本語', flag: '🇯🇵' },
+    { code: 'en', label: 'English', flag: '🇺🇸' },
+    { code: 'es', label: 'Español', flag: '🇪🇸' }
+];
+
+const getLangInfo = (code) => {
+    return LANGUAGES.find(l => l.code === code) || LANGUAGES[0];
+};
+
 const VirtualOffice = ({ onOpen, user }) => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedUser, setSelectedUser] = useState(null);
     const [myStatus, setMyStatus] = useState({ room: 'open-space', text: 'Active' });
+    const [myLang, setMyLang] = useState('ja');
     const [customStatusText, setCustomStatusText] = useState('Active');
     const [isStatusPopoverOpen, setIsStatusPopoverOpen] = useState(false);
     const [generatingAvatarId, setGeneratingAvatarId] = useState(null);
@@ -131,6 +142,9 @@ const VirtualOffice = ({ onOpen, user }) => {
                         room: meInDb.current_room || 'open-space',
                         text: meInDb.status_text || 'Active'
                     });
+                    if (meInDb.native_language) {
+                        setMyLang(meInDb.native_language);
+                    }
                 }
             }
         } catch (err) {
@@ -190,13 +204,15 @@ const VirtualOffice = ({ onOpen, user }) => {
         }
     };
 
-    // 自分のステータス（位置・状態テキスト）の更新
-    const handleUpdateMyStatus = async (room, text) => {
+    // 自分のステータス（位置・状態テキスト・母語）の更新
+    const handleUpdateMyStatus = async (room, text, lang) => {
         const targetRoom = room || myStatus.room || 'open-space';
         const targetText = text !== undefined ? text : (myStatus.text || 'Active');
+        const targetLang = lang !== undefined ? lang : myLang;
 
         // 即座にUIに反映（楽観的更新）
         setMyStatus({ room: targetRoom, text: targetText });
+        setMyLang(targetLang);
         setCustomStatusText(targetText);
         setUsers(prev => prev.map(u => {
             const isMe = u.id === user?.id;
@@ -205,6 +221,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                     ...u,
                     current_room: targetRoom,
                     status_text: targetText,
+                    native_language: targetLang,
                     is_remote: targetRoom === 'remote' ? 1 : 0
                 };
             }
@@ -218,6 +235,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                 body: JSON.stringify({
                     current_room: targetRoom,
                     status_text: targetText,
+                    native_language: targetLang,
                     is_remote: targetRoom === 'remote' ? 1 : 0
                 })
             });
@@ -365,9 +383,34 @@ const VirtualOffice = ({ onOpen, user }) => {
                                 {/* Header */}
                                 <div className="flex justify-between items-center pb-2 border-b border-gray-800">
                                     <span className="text-xs font-bold text-gray-200 flex items-center gap-1.5">
-                                        <span>✨</span> ステータス・プレゼンス設定
+                                        <span>✨</span> ステータス・母語設定
                                     </span>
                                     <button onClick={() => setIsStatusPopoverOpen(false)} className="text-gray-400 hover:text-gray-200 text-xs cursor-pointer p-1">✕</button>
+                                </div>
+
+                                {/* Native Language Selector */}
+                                <div className="space-y-1.5 bg-gray-900/60 p-2.5 rounded-xl border border-gray-800/80">
+                                    <label className="text-[10px] font-bold text-indigo-400 block uppercase flex items-center gap-1">
+                                        <span>🌐</span> ネイティブ言語 (自動翻訳)
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                        {LANGUAGES.map((l) => (
+                                            <button
+                                                key={l.code}
+                                                onClick={() => {
+                                                    handleUpdateMyStatus(myStatus.room, customStatusText, l.code);
+                                                }}
+                                                className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition cursor-pointer border ${
+                                                    myLang === l.code
+                                                        ? 'bg-indigo-600 border-indigo-400 text-white shadow-md'
+                                                        : 'bg-gray-800/80 border-gray-700/60 text-gray-300 hover:bg-gray-700 hover:text-white'
+                                                }`}
+                                            >
+                                                <span>{l.flag}</span>
+                                                <span>{l.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 {/* Custom Status Input */}
@@ -542,10 +585,15 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                     </div>
 
                                                     {/* Name & Status Chip */}
-                                                    <div className="flex flex-col items-center max-w-[75px]">
-                                                        <span className="text-[10px] font-semibold text-gray-300 group-hover:text-white truncate w-full text-center">
-                                                            {u.name}
-                                                        </span>
+                                                    <div className="flex flex-col items-center max-w-[85px]">
+                                                        <div className="flex items-center justify-center gap-1 max-w-full">
+                                                            <span className="text-[10px] font-semibold text-gray-300 group-hover:text-white truncate">
+                                                                {u.name}
+                                                            </span>
+                                                            <span className="text-[9px] shrink-0" title={`母語: ${getLangInfo(u.native_language).label}`}>
+                                                                {getLangInfo(u.native_language).flag}
+                                                            </span>
+                                                        </div>
                                                         {u.status_text && u.status_text !== 'Active' && (
                                                             <span 
                                                                 className="text-[8px] px-1.5 py-0.5 bg-gray-900/90 text-gray-300 rounded-full border border-gray-700/60 truncate max-w-full text-center mt-0.5 shadow-sm"
@@ -595,11 +643,17 @@ const VirtualOffice = ({ onOpen, user }) => {
                                 
                                 <div>
                                     <h3 className="font-extrabold text-base text-gray-100">{selectedUser.name}</h3>
-                                    <span className="px-2.5 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-[10px] text-gray-400 capitalize inline-block mt-1">
-                                        {selectedUser.role || 'Member'}
-                                    </span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-[10px] text-gray-400 capitalize inline-block">
+                                            {selectedUser.role || 'Member'}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full bg-indigo-950/60 border border-indigo-500/40 text-[10px] text-indigo-300 font-semibold inline-flex items-center gap-1">
+                                            <span>{getLangInfo(selectedUser.native_language).flag}</span>
+                                            <span>{getLangInfo(selectedUser.native_language).label}</span>
+                                        </span>
+                                    </div>
                                     {selectedUser.unread_count > 0 && (
-                                         <span className="ml-1.5 px-2 py-0.5 rounded-full bg-red-600/20 border border-red-500/50 text-[10px] text-red-400 font-bold inline-block mt-1 animate-pulse">
+                                         <span className="px-2 py-0.5 rounded-full bg-red-600/20 border border-red-500/50 text-[10px] text-red-400 font-bold inline-block mt-1 animate-pulse">
                                              🔴 {selectedUser.unread_count}件の未読
                                          </span>
                                      )}

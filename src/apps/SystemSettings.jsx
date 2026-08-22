@@ -51,6 +51,12 @@ const SystemSettings = ({ user }) => {
     const [mcpQuickPrompts, setMcpQuickPrompts] = useState([]);
     const [currentMcpChatModel, setCurrentMcpChatModel] = useState('');
     
+    // Local AI (Gemma 4) States
+    const [localAiEnabled, setLocalAiEnabled] = useState(true);
+    const [localAiHost, setLocalAiHost] = useState('http://localhost:11434');
+    const [localAiModel, setLocalAiModel] = useState('gemma4:26b-mlx');
+    const [localAiTemperature, setLocalAiTemperature] = useState('0.7');
+
     // RBAC Policies
     const [rbacPolicies, setRbacPolicies] = useState({});
     
@@ -186,6 +192,18 @@ const SystemSettings = ({ user }) => {
                 if (data.antigravityAgentMcpServers) {
                     setAntigravityAgentMcpServers(data.antigravityAgentMcpServers);
                 }
+                if (data.localAiEnabled !== undefined) {
+                    setLocalAiEnabled(data.localAiEnabled === 'true' || data.localAiEnabled === true);
+                }
+                if (data.localAiHost) {
+                    setLocalAiHost(data.localAiHost);
+                }
+                if (data.localAiModel) {
+                    setLocalAiModel(data.localAiModel);
+                }
+                if (data.localAiTemperature) {
+                    setLocalAiTemperature(data.localAiTemperature.toString());
+                }
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
@@ -270,6 +288,10 @@ const SystemSettings = ({ user }) => {
                 if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
                 if (googleClientSecret) payload.googleClientSecret = googleClientSecret;
                 if (mcpClientSecret) payload.mcpClientSecret = mcpClientSecret;
+                payload.localAiEnabled = localAiEnabled;
+                payload.localAiHost = localAiHost;
+                payload.localAiModel = localAiModel;
+                payload.localAiTemperature = localAiTemperature;
             }
 
             if (canSeeBase) {
@@ -860,6 +882,14 @@ const SystemSettings = ({ user }) => {
                         handleNanoBananaModelChange={handleNanoBananaModelChange}
                         currentHtmlSvgModel={currentHtmlSvgModel}
                         handleHtmlSvgModelChange={handleHtmlSvgModelChange}
+                        localAiEnabled={localAiEnabled}
+                        setLocalAiEnabled={setLocalAiEnabled}
+                        localAiHost={localAiHost}
+                        setLocalAiHost={setLocalAiHost}
+                        localAiModel={localAiModel}
+                        setLocalAiModel={setLocalAiModel}
+                        localAiTemperature={localAiTemperature}
+                        setLocalAiTemperature={setLocalAiTemperature}
                     />
                 )}
 
