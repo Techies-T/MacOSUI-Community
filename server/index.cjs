@@ -426,11 +426,22 @@ app.use('/api/mcp/knowledge', knowledgeMcpModule.router);
 const gemmaMcpRouter = require('./routes/gemmaMcp.cjs');
 app.use('/api/mcp/gemma', gemmaMcpRouter);
 
+function resolveLocalAiHost(configuredHost) {
+    let host = configuredHost || 'http://localhost:11434';
+    if (process.env.DOCKER_CONTAINER || fs.existsSync('/.dockerenv')) {
+        if (host.includes('localhost') || host.includes('127.0.0.1')) {
+            host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
+        }
+    }
+    return host.replace(/\/$/, '');
+}
+
 // Gemma 4 LiveStream & Models API
 app.get('/api/gemma/models', requireAuth, async (req, res) => {
     try {
-        const host = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
-        const response = await fetch(`${host.replace(/\/$/, '')}/api/tags`);
+        const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+        const host = resolveLocalAiHost(rawHost);
+        const response = await fetch(`${host}/api/tags`);
         if (!response.ok) {
             return res.status(502).json({ error: 'Failed to connect to local Ollama server' });
         }
@@ -448,7 +459,8 @@ app.post('/api/gemma/stream', requireAuth, async (req, res) => {
     }
 
     try {
-        const host = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+        const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+        const host = resolveLocalAiHost(rawHost);
         const defaultModel = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
         const model = requestedModel || defaultModel;
         const temp = temperature !== undefined ? parseFloat(temperature) : parseFloat((await db.getSetting('LOCAL_AI_TEMPERATURE')) || '0.7');
@@ -458,7 +470,7 @@ app.post('/api/gemma/stream', requireAuth, async (req, res) => {
         res.setHeader('Connection', 'keep-alive');
         if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
-        const ollamaRes = await fetch(`${host.replace(/\/$/, '')}/api/generate`, {
+        const ollamaRes = await fetch(`${host}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -4244,7 +4256,8 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                     const localAiEnabled = (await db.getSetting('LOCAL_AI_ENABLED')) === 'true';
                     if (localAiEnabled) {
                         try {
-                            const host = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+                            const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+                            const host = resolveLocalAiHost(rawHost);
                             const model = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
                             const senderLang = req.user.native_language || 'ja';
                             const targetLang = targetUser.native_language || 'ja';

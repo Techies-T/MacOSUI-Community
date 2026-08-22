@@ -6,13 +6,24 @@ const db = require('../db.cjs');
 
 const router = express.Router();
 
+function resolveLocalAiHost(configuredHost) {
+    let host = configuredHost || 'http://localhost:11434';
+    if (process.env.DOCKER_CONTAINER || require('fs').existsSync('/.dockerenv')) {
+        if (host.includes('localhost') || host.includes('127.0.0.1')) {
+            host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
+        }
+    }
+    return host.replace(/\/$/, '');
+}
+
 // Helper to call Local Ollama / Gemma 4
 async function callGemmaLocal({ prompt, systemInstruction, temperature }) {
-    const host = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+    const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+    const host = resolveLocalAiHost(rawHost);
     const model = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
     const temp = parseFloat((await db.getSetting('LOCAL_AI_TEMPERATURE')) || '0.7');
 
-    const res = await fetch(`${host.replace(/\/$/, '')}/api/generate`, {
+    const res = await fetch(`${host}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
