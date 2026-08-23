@@ -4216,19 +4216,65 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
         // 超過していない場合は is_read=0 (未読) で保存。
         const initialIsRead = isSessionLimitExceeded ? 1 : 0;
 
-        db.run(
-            "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text, is_read) VALUES (?, ?, 'user', ?, ?)",
-            [loginUserId, receiverId, text, initialIsRead],
-            async function(err) {
-                if (err) {
-                    return res.status(500).json({ error: 'Failed to send message' });
+        db.get("SELECT * FROM users WHERE id = ?", [receiverId], async (err, targetUser) => {
+            if (err || !targetUser) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
+            const senderLang = req.user.native_language || 'ja';
+            const targetLang = targetUser.native_language || 'ja';
+            const isDifferentLang = senderLang !== targetLang;
+            const targetLangName = targetLang === 'en' ? 'English' : targetLang === 'es' ? 'Spanish' : 'Japanese';
+            const senderLangName = senderLang === 'en' ? 'English' : senderLang === 'es' ? 'Spanish' : 'Japanese';
+            const senderLangFlag = senderLang === 'en' ? '🇺🇸' : senderLang === 'es' ? '🇪🇸' : '🇯🇵';
+            const targetLangFlag = targetLang === 'en' ? '🇺🇸' : targetLang === 'es' ? '🇪🇸' : '🇯🇵';
+
+            let textToSave = text;
+            const localAiEnabled = (await db.getSetting('LOCAL_AI_ENABLED')) === 'true';
+
+            // 1. 言語が異なる場合のみ、Gemma 4 (Local AI) による相手言語への自動翻訳を実行
+            if (isDifferentLang && localAiEnabled) {
+                try {
+                    const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+                    const host = resolveLocalAiHost(rawHost);
+                    const model = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
+
+                    const transRes = await fetch(`${host}/api/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model,
+                            prompt: `You are an expert translator. Translate the following ${senderLangName} message accurately and naturally into ${targetLangName}. Output ONLY the translated text without quotes or explanations:\n\n"${text}"`,
+                            stream: false,
+                            options: { temperature: 0.2 }
+                        })
+                    });
+
+                    if (transRes.ok) {
+                        const tData = await transRes.json();
+                        const translated = (tData.response || '').trim().replace(/^["']|["']$/g, '');
+                        if (translated) {
+                            textToSave = `🌐 [Gemma 4 Translated (${senderLangFlag} ➔ ${targetLangFlag})]\n${translated}\n\n(${senderLangFlag} 原文: ${text})`;
+                        }
+                    }
+                } catch (tErr) {
+                    console.error("Gemma 4 translation failed:", tErr.message);
                 }
+            }
 
-                const insertedId = this.lastID;
+            // 2. メッセージをDBへ保存
+            db.run(
+                "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text, is_read) VALUES (?, ?, 'user', ?, ?)",
+                [loginUserId, receiverId, textToSave, initialIsRead],
+                async function(insertErr) {
+                    if (insertErr) {
+                        return res.status(500).json({ error: 'Failed to send message' });
+                    }
 
-                // セッション制限超過時の処理
-                if (isSessionLimitExceeded) {
-                    db.get("SELECT name FROM users WHERE id = ?", [receiverId], (err, targetUser) => {
+                    const insertedId = this.lastID;
+
+                    // セッション制限超過時の処理
+                    if (isSessionLimitExceeded) {
                         const targetName = targetUser ? targetUser.name : '相手';
                         const replyText = `ただいま、${targetName} は複数のチャットが立ち上がっているため、対応できません。しばらく経ってから試してください。`;
                         
@@ -4241,22 +4287,15 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                                 }
                             );
                         }, 1000);
-                    });
 
-                    return res.json({ status: 'ok', messageId: insertedId });
-                }
-
-                // セッション制限以下の場合は、通常のステータスに応じた自動返信処理
-                db.get("SELECT * FROM users WHERE id = ?", [receiverId], async (err, targetUser) => {
-                    if (err || !targetUser) {
                         return res.json({ status: 'ok', messageId: insertedId });
                     }
 
+                    // 3. 通常のステータスに応じた自動返信処理
                     let replyText = '';
                     let isAssistant = false;
-                    const userText = text;
 
-                    // 1. カレンダー空きスケジュールと移動時間の算出
+                    // 3-1. カレンダー空きスケジュールと移動時間の算出
                     let freeSlotsText = "なし";
                     let isOvertime = false;
                     let isBufferMitigated = false;
@@ -4291,38 +4330,30 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                         console.error("Failed to fetch slots for AI Assistant context:", slotErr);
                     }
 
-                    // 2. Local AI (Gemma 4) による多言語・バイリンガル自動応答の試行
-                    const localAiEnabled = (await db.getSetting('LOCAL_AI_ENABLED')) === 'true';
+                    // 3-2. Local AI (Gemma 4) による自動応答（相手の言語で生成）
                     if (localAiEnabled) {
                         try {
                             const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
                             const host = resolveLocalAiHost(rawHost);
                             const model = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
-                            const senderLang = req.user.native_language || 'ja';
-                            const targetLang = targetUser.native_language || 'ja';
-
-                            const isDifferentLang = senderLang !== targetLang;
-                            const targetLangName = targetLang === 'en' ? 'English' : targetLang === 'es' ? 'Spanish' : 'Japanese';
-                            const senderLangName = senderLang === 'en' ? 'English' : senderLang === 'es' ? 'Spanish' : 'Japanese';
 
                             const defaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
                             const basePrompt = targetUser.assistant_prompt || defaultPrompt;
 
-                            const systemInstruction = `You are an executive bilingual AI Assistant for ${targetUser.name} (${targetUser.role || 'Boss'}).
+                            const systemInstruction = `You are an executive AI Assistant for ${targetUser.name} (${targetUser.role || 'Boss'}).
 - Current Room: ${targetUser.current_room || 'open-space'}
 - Working Hours: ${targetUser.assistant_work_start || '09:00'} - ${targetUser.assistant_work_end || '17:30'}
 - Today's Available Common Free Slots:
 ${freeSlotsText}
-- Boss's Native Language: ${targetLangName}
-- Sender's Native Language: ${senderLangName}
+- Sender (${req.user.name})'s Native Language: ${senderLangName}
 
 Instructions:
-1. If the sender is asking for a meeting, appointment, or chat, suggest the available free slots clearly.
-2. ${isDifferentLang ? `Since ${targetUser.name} speaks ${targetLangName} and the sender speaks ${senderLangName}, provide a polite response in ${targetLangName} for the boss, and provide the clear translation in ${senderLangName} for the sender.` : `Respond politely and naturally in ${targetLangName}.`}
+1. If the sender is asking for a meeting or chat, suggest the available free slots clearly.
+2. ${isDifferentLang ? `Respond politely and helpfully in ${senderLangName} (the sender's native language) so they can read it directly in ${senderLangName}.` : `Respond politely and naturally in ${senderLangName}.`}
 3. If ${targetUser.name} is in 'focus-zone' or 'meeting-room', state that they are currently unavailable and take a message.
 4. Output only the final assistant chat response without any meta commentary.`;
 
-                            const ollamaRes = await fetch(`${host.replace(/\/$/, '')}/api/generate`, {
+                            const ollamaRes = await fetch(`${host}/api/generate`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -4330,14 +4361,17 @@ Instructions:
                                     prompt: `Team Member (${req.user.name}) says: "${text}"`,
                                     system: systemInstruction,
                                     stream: false,
-                                    options: { temperature: 0.4 }
+                                    options: { temperature: 0.3 }
                                 })
                             });
 
                             if (ollamaRes.ok) {
                                 const data = await ollamaRes.json();
-                                replyText = (data.response || '').trim();
-                                if (replyText) isAssistant = true;
+                                const rawReply = (data.response || '').trim();
+                                if (rawReply) {
+                                    replyText = isDifferentLang ? `🤖 [AI Assistant (Gemma 4 🦙)]\n${rawReply}` : rawReply;
+                                    isAssistant = true;
+                                }
                             }
                         } catch (gemmaErr) {
                             console.error("Local Gemma 4 assistant reply error:", gemmaErr.message);
