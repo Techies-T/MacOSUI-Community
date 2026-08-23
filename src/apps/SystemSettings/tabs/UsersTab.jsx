@@ -177,18 +177,18 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
 
                 <div className="flex items-center gap-4">
                     <div className="flex flex-col items-end gap-1">
-                        <span className="text-[10px] font-bold text-indigo-300 uppercase flex items-center gap-1">
+                        <span className="text-[10px] font-bold text-indigo-600 uppercase flex items-center gap-1">
                             <span>🌐</span> 母語 (Native Language)
                         </span>
-                        <div className="flex gap-1 bg-black/30 p-1 rounded-lg border border-white/10">
+                        <div className="flex gap-1 bg-gray-200/90 p-1 rounded-lg border border-gray-300 shadow-inner">
                             {LANGUAGES.map(l => (
                                 <button
                                     key={l.code}
                                     onClick={() => handleUpdateMyLanguage(l.code)}
-                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition cursor-pointer ${
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
                                         (userLang || user?.native_language || 'ja') === l.code
                                             ? 'bg-indigo-600 text-white shadow-sm font-bold'
-                                            : 'text-gray-400 hover:text-white hover:bg-white/10'
+                                            : 'text-gray-700 hover:text-gray-900 hover:bg-white/80'
                                     }`}
                                 >
                                     <span>{l.flag}</span>
@@ -197,7 +197,7 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                             ))}
                         </div>
                     </div>
-                    <div className="px-3 py-1 bg-white/10 rounded-full text-sm font-medium self-center">
+                    <div className="px-3 py-1 bg-gray-100 border border-gray-200 text-gray-700 rounded-full text-xs font-semibold self-center">
                         {user?.role}
                     </div>
                 </div>
