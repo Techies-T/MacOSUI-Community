@@ -1489,7 +1489,7 @@ app.get('/api/users', requireAuth, (req, res) => {
     if (!allowed.includes('*') && !allowed.includes('action:manage_users') && !allowed.includes('action:invite_users')) {
         return res.status(403).json({ error: 'Permission denied' });
     }
-    db.all("SELECT id, email, name, avatar_url, role, deep_research_enabled, created_at FROM users", (err, rows) => {
+    db.all("SELECT id, email, name, avatar_url, role, native_language, deep_research_enabled, created_at FROM users", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json(rows);
     });
@@ -1620,6 +1620,33 @@ app.put('/api/users/me/avatar', requireAuth, (req, res) => {
     db.run("UPDATE users SET avatar_url = ? WHERE id = ?", [avatar_url, req.user.id], function(err) {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json({ success: true, avatar_url });
+    });
+});
+
+app.put('/api/users/me/language', requireAuth, (req, res) => {
+    const { native_language } = req.body;
+    if (!native_language) return res.status(400).json({ error: 'Language is required' });
+    const lang = ['ja', 'en', 'es'].includes(native_language) ? native_language : 'ja';
+    
+    db.run("UPDATE users SET native_language = ? WHERE id = ?", [lang, req.user.id], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        req.user.native_language = lang;
+        res.json({ success: true, native_language: lang });
+    });
+});
+
+app.put('/api/users/:id/language', requireAuth, (req, res) => {
+    const allowed = req.user.allowed_actions || [];
+    if (!allowed.includes('*') && !allowed.includes('action:manage_users')) {
+        return res.status(403).json({ error: 'Permission denied' });
+    }
+    const { id } = req.params;
+    const { native_language } = req.body;
+    const lang = ['ja', 'en', 'es'].includes(native_language) ? native_language : 'ja';
+    
+    db.run("UPDATE users SET native_language = ? WHERE id = ?", [lang, id], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json({ success: true, id, native_language: lang });
     });
 });
 
