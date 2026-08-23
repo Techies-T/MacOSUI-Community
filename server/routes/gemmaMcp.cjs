@@ -174,7 +174,7 @@ const transports = new Map();
 // SSE endpoint
 router.get('/sse', async (req, res) => {
     console.log('[Gemma 4 MCP] SSE connection requested.');
-    const transport = new SSEServerTransport('/api/mcp/gemma/messages', res);
+    const transport = new SSEServerTransport('/api/mcp/gemma/message', res);
     const server = createGemmaMcpServer();
 
     const sessionId = transport.sessionId;
@@ -188,8 +188,8 @@ router.get('/sse', async (req, res) => {
     await server.connect(transport);
 });
 
-// JSON-RPC message endpoint
-router.post('/messages', async (req, res) => {
+// JSON-RPC message endpoint (/message & /messages)
+const handlePost = async (req, res) => {
     const sessionId = req.query.sessionId;
     const transport = transports.get(sessionId);
 
@@ -197,7 +197,10 @@ router.post('/messages', async (req, res) => {
         return res.status(404).json({ error: 'Session not found' });
     }
 
-    await transport.handlePostMessage(req, res);
-});
+    await transport.handlePostMessage(req, res, req.body);
+};
+
+router.post('/message', handlePost);
+router.post('/messages', handlePost);
 
 module.exports = router;

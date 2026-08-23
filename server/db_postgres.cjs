@@ -598,6 +598,41 @@ async function autoActivate() {
             );
         }
 
+        // Auto-register Gemma 4 Local AI MCP Server
+        console.log("DEBUG: Checking gemmaMcpCount...");
+        const gemmaMcpCount = await new Promise((resolve) => {
+            db.get("SELECT COUNT(*) as count FROM mcp_servers WHERE name = 'Gemma 4 Local MCP (Built-in)'", [], (err, row) => {
+                if (err) resolve(-1);
+                else resolve(row ? row.count : 0);
+            });
+        });
+        console.log("DEBUG: gemmaMcpCount fetched:", gemmaMcpCount);
+
+        if (gemmaMcpCount === 0) {
+            console.log('DEBUG: Registering Gemma 4 Local MCP Server with ZTA credentials...');
+            
+            const domain = process.env.DOMAIN_NAME || 'localhost:8080';
+            const isLocalhost = domain.includes('localhost') || domain.includes('127.0.0.1');
+            const protocol = isLocalhost ? 'http' : 'https';
+            
+            const endpointUrl = `${protocol}://${domain}/api/mcp/gemma/sse`;
+            const tokenUrl = `${protocol}://${domain}/api/auth/token-exchange`;
+
+            const clientId = 'macos-ui-internal-client';
+            const rawSecret = process.env.DB_ENCRYPTION_KEY || 'development-encryption-key-123456';
+            
+            const { encrypt } = require('./crypto.cjs');
+            const encryptedSecret = encrypt(rawSecret);
+
+            db.run(`INSERT INTO mcp_servers (name, endpoint_url, token_url, client_id, client_secret) VALUES (?, ?, ?, ?, ?)`,
+                ['Gemma 4 Local MCP (Built-in)', endpointUrl, tokenUrl, clientId, encryptedSecret],
+                (err) => {
+                    if (err) console.error('Failed to register Gemma 4 Local MCP Server', err);
+                    else console.log('DEBUG: Gemma 4 Local MCP Server registered successfully with ZTA A2A Auth.');
+                }
+            );
+        }
+
         // Migrate any existing mcp_servers with https://localhost to http://localhost
         db.run("UPDATE mcp_servers SET endpoint_url = REPLACE(endpoint_url, 'https://localhost', 'http://localhost'), token_url = REPLACE(token_url, 'https://localhost', 'http://localhost') WHERE endpoint_url LIKE 'https://localhost%'");
 

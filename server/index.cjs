@@ -1087,7 +1087,7 @@ function requireAgentOrUserAuth(req, res, next) {
         if (decoded.type === 'agent_token') {
             // Verify if the token was issued for accessing this specific API resource.
             // Under our model, the audience (aud) for knowledge base MCP can be 'app:knowledge-base' or 'mcp:knowledge'
-            const validAudiences = ['app:knowledge-base', 'mcp:knowledge', '*'];
+            const validAudiences = ['app:knowledge-base', 'mcp:knowledge', 'app:gemma', 'mcp:gemma', '*'];
             if (!validAudiences.includes(decoded.aud)) {
                 return res.status(403).json({ error: 'Access denied. Invalid audience for agent token.' });
             }
