@@ -504,7 +504,12 @@ app.post('/api/gemma/stream', requireAuth, async (req, res) => {
             for (const line of lines) {
                 try {
                     const json = JSON.parse(line);
-                    res.write(`data: ${JSON.stringify({ text: json.response || '', done: json.done || false })}\n\n`);
+                    res.write(`data: ${JSON.stringify({ 
+                        text: json.response || '', 
+                        done: json.done || false,
+                        prompt_eval_count: json.prompt_eval_count,
+                        eval_count: json.eval_count
+                    })}\n\n`);
                 } catch (e) {}
             }
         }
@@ -2789,7 +2794,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             } else {
                 // normal output completion
                 if (responseText) {
-                    const usageMetadata = fullInteraction?.usage || null;
+                    const usageMetadata = fullInteraction?.usage || fullInteraction?.usage_metadata || fullInteraction?.usageMetadata || null;
                     geminiJobs[jobId] = { 
                         ...geminiJobs[jobId], 
                         state: 'completed', 

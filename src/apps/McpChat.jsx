@@ -5,6 +5,46 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 
+const renderContextUsage = (usage) => {
+    if (!usage) return null;
+    const promptTokens = usage.promptTokenCount ?? usage.prompt_token_count ?? usage.input_tokens ?? usage.prompt_eval_count ?? 0;
+    const responseTokens = usage.candidatesTokenCount ?? usage.candidates_token_count ?? usage.output_tokens ?? usage.eval_count ?? 0;
+    const totalTokens = usage.totalTokenCount ?? usage.total_token_count ?? usage.total_tokens ?? (promptTokens + responseTokens);
+
+    if (totalTokens === 0) return null;
+
+    const limit = 1000000;
+    const percentage = ((totalTokens / limit) * 100).toFixed(2);
+    const progressWidth = Math.max(0.5, Math.min(100, (totalTokens / limit) * 100));
+
+    return (
+        <div className="mt-3 pt-2.5 border-t border-gray-100 text-[11px] font-sans text-gray-600">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 font-semibold text-[10px] tracking-wide">
+                        📊 Context Window: {totalTokens.toLocaleString()} / {limit.toLocaleString()} tokens ({percentage}%)
+                    </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                    <span title="プロンプト・過去の会話履歴・MCPツール定義などの入力トークン数">
+                        📥 入力履歴: <strong className="text-gray-700 font-mono">{promptTokens.toLocaleString()}</strong>
+                    </span>
+                    <span>•</span>
+                    <span title="今回AIが生成した回答トークン数">
+                        📤 今回の回答: <strong className="text-gray-700 font-mono">{responseTokens.toLocaleString()}</strong>
+                    </span>
+                </div>
+            </div>
+            <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+                <div 
+                    className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full transition-all duration-500"
+                    style={{ width: `${progressWidth}%` }}
+                />
+            </div>
+        </div>
+    );
+};
+
 const McpChat = () => {
     const [messages, setMessages] = useState([]);
     const [previousInteractionId, setPreviousInteractionId] = useState(null);
@@ -83,9 +123,9 @@ const McpChat = () => {
 
             // Append model reply
             if (data.reply) {
-                setMessages(prev => [...prev, { role: 'model', text: data.reply }]);
+                setMessages(prev => [...prev, { role: 'model', text: data.reply, usage: data.usageMetadata }]);
             } else {
-                setMessages(prev => [...prev, { role: 'model', text: "Operation completed." }]);
+                setMessages(prev => [...prev, { role: 'model', text: "Operation completed.", usage: data.usageMetadata }]);
             }
 
             // Process artifacts (tool results)
@@ -282,6 +322,7 @@ const McpChat = () => {
                                             </ReactMarkdown>
                                         </div>
                                     )}
+                                    {msg.role === 'model' && renderContextUsage(msg.usage)}
                                 </div>
                             </div>
                         ))}

@@ -8,6 +8,46 @@ import WeatherForecastMap from './WeatherForecastMap';
 
 const SLASH_COMMANDS = [];
 
+const renderContextUsage = (usage, isDark = true) => {
+    if (!usage) return null;
+    const promptTokens = usage.promptTokenCount ?? usage.prompt_token_count ?? usage.input_tokens ?? usage.prompt_eval_count ?? 0;
+    const responseTokens = usage.candidatesTokenCount ?? usage.candidates_token_count ?? usage.output_tokens ?? usage.eval_count ?? 0;
+    const totalTokens = usage.totalTokenCount ?? usage.total_token_count ?? usage.total_tokens ?? (promptTokens + responseTokens);
+
+    if (totalTokens === 0) return null;
+
+    const limit = 1000000;
+    const percentage = ((totalTokens / limit) * 100).toFixed(2);
+    const progressWidth = Math.max(0.5, Math.min(100, (totalTokens / limit) * 100));
+
+    return (
+        <div className={`mt-3 pt-2.5 border-t text-[11px] font-sans ${isDark ? 'border-white/10 text-white/80' : 'border-gray-200 text-gray-600'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+                <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 font-semibold text-[10px] tracking-wide">
+                        📊 Context Window: {totalTokens.toLocaleString()} / {limit.toLocaleString()} tokens ({percentage}%)
+                    </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-white/60">
+                    <span title="プロンプト・過去の会話履歴・MCPツール定義などの入力トークン数">
+                        📥 入力履歴: <strong className="text-white/90 font-mono">{promptTokens.toLocaleString()}</strong>
+                    </span>
+                    <span>•</span>
+                    <span title="今回AIが生成した回答トークン数">
+                        📤 今回の回答: <strong className="text-white/90 font-mono">{responseTokens.toLocaleString()}</strong>
+                    </span>
+                </div>
+            </div>
+            <div className="w-full h-1 bg-black/40 rounded-full overflow-hidden">
+                <div 
+                    className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full transition-all duration-500"
+                    style={{ width: `${progressWidth}%` }}
+                />
+            </div>
+        </div>
+    );
+};
+
 const Gemini = () => {
     const [mode, setMode] = useState('normal');
     const [useGrounding, setUseGrounding] = useState(true);
@@ -306,13 +346,20 @@ const Gemini = () => {
                                 if (json.error) throw new Error(json.error);
                                 if (json.text) {
                                     streamText += json.text;
+                                    const currentUsage = (json.prompt_eval_count || json.eval_count) ? {
+                                        promptTokenCount: json.prompt_eval_count,
+                                        candidatesTokenCount: json.eval_count,
+                                        totalTokenCount: (json.prompt_eval_count || 0) + (json.eval_count || 0)
+                                    } : null;
+
                                     setMessages(prev => {
                                         const updated = [...prev];
                                         if (updated.length > 0) {
                                             updated[updated.length - 1] = {
                                                 role: 'model',
                                                 text: streamText,
-                                                isStreaming: !json.done
+                                                isStreaming: !json.done,
+                                                usage: currentUsage || updated[updated.length - 1]?.usage
                                             };
                                         }
                                         return updated;
@@ -370,7 +417,7 @@ const Gemini = () => {
 
                     if (jobData.state === 'completed') {
                         clearInterval(pollInterval);
-                        setMessages(prev => [...prev, { role: 'model', text: jobData.reply }]);
+                        setMessages(prev => [...prev, { role: 'model', text: jobData.reply, usage: jobData.usageMetadata }]);
                         if (jobData.interactionId) setPreviousInteractionId(jobData.interactionId);
                         if (jobData.environmentId) setEnvironmentId(jobData.environmentId);
                         setIsLoading(false);
@@ -667,6 +714,7 @@ const Gemini = () => {
                                             </div>
                                         );
                                     })()}
+                                    {msg.role === 'model' && renderContextUsage(msg.usage, true)}
                                 </div>
                                 {/* Actions Area */}
                                 <div className="flex gap-2 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
