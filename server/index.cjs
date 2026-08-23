@@ -256,6 +256,11 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             return res.status(403).json({ error: 'Permission denied. External domain users cannot change system configurations.' });
         }
 
+        // If this is initial activation (first time setup), set FIRST_ADMIN_PENDING flag
+        if (!isConfigured && googleClientId && googleClientSecret) {
+            await db.setSetting('FIRST_ADMIN_PENDING', 'true');
+        }
+
         const allowedActions = req.user?.allowed_actions || [];
         const hasWildcard = allowedActions.includes('*') || req.user?.id === 0 || !isConfigured;
         const hasSysSettings = hasWildcard || allowedActions.includes('action:manage_system_settings');
@@ -693,24 +698,23 @@ app.post('/api/auth/google', async (req, res) => {
                 );
             };
 
-            // Check if there are any active admin users in the system
-            db.get("SELECT COUNT(*) as adminCount FROM users WHERE role LIKE '%admin%'", [], (adminErr, adminResult) => {
-                if (adminErr) return res.status(500).json({ error: 'Database error' });
-                const hasAdmin = Number(adminResult?.adminCount || 0) > 0;
-
-                if (existingUser) {
-                    // If no admin exists in the system yet, promote this existing user to admin
-                    if (!hasAdmin) {
+            if (existingUser) {
+                // User already exists in database. Maintain their exact assigned role.
+                // Strict Zero Trust: Never auto-promote existing users.
+                proceedWithLogin(existingUser.role || 'user');
+            } else {
+                // New user login attempt:
+                // Check if this system was just activated via SetupScreen and is awaiting its 1-time initial admin registration
+                db.getSetting('FIRST_ADMIN_PENDING').then(async (pendingFlag) => {
+                    const isFirstAdminPending = pendingFlag === 'true';
+                    
+                    if (isFirstAdminPending) {
+                        // Consume the initial activation gate: lock it so no other admin can be auto-created
+                        await db.setSetting('FIRST_ADMIN_PENDING', 'false');
+                        await db.setSetting('ACTIVATION_COMPLETED', 'true');
                         proceedWithLogin('admin');
                     } else {
-                        proceedWithLogin(existingUser.role || 'user');
-                    }
-                } else {
-                    // If no admin exists in the system, the very first user MUST be admin
-                    if (!hasAdmin) {
-                        proceedWithLogin('admin');
-                    } else {
-                        // Not the first admin. Check if they are invited.
+                        // Operational Mode: Strictly require an active invitation from an existing Admin
                         db.get("SELECT email, created_at FROM invitations WHERE email = ?", [email], (err, invite) => {
                             if (err) return res.status(500).json({ error: 'Database error' });
                             
@@ -750,8 +754,11 @@ app.post('/api/auth/google', async (req, res) => {
                             }
                         });
                     }
-                }
-            });
+                }).catch(err => {
+                    console.error("Error reading FIRST_ADMIN_PENDING setting:", err);
+                    res.status(500).json({ error: 'Internal server error' });
+                });
+            }
         });
     } catch (error) {
         console.error('Auth Error:', error);
