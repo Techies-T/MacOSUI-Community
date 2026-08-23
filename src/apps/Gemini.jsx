@@ -10,40 +10,25 @@ const SLASH_COMMANDS = [];
 
 const renderContextUsage = (usage, isDark = true) => {
     if (!usage) return null;
-    const promptTokens = usage.promptTokenCount ?? usage.prompt_token_count ?? usage.input_tokens ?? usage.prompt_eval_count ?? 0;
-    const responseTokens = usage.candidatesTokenCount ?? usage.candidates_token_count ?? usage.output_tokens ?? usage.eval_count ?? 0;
+    const promptTokens = usage.promptTokenCount ?? usage.prompt_token_count ?? usage.prompt_tokens ?? usage.input_tokens ?? usage.prompt_eval_count ?? 0;
+    const responseTokens = usage.candidatesTokenCount ?? usage.candidates_token_count ?? usage.response_tokens ?? usage.candidates_tokens ?? usage.output_tokens ?? usage.eval_count ?? 0;
     const totalTokens = usage.totalTokenCount ?? usage.total_token_count ?? usage.total_tokens ?? (promptTokens + responseTokens);
 
     if (totalTokens === 0) return null;
 
     const limit = 1000000;
     const percentage = ((totalTokens / limit) * 100).toFixed(2);
-    const progressWidth = Math.max(0.5, Math.min(100, (totalTokens / limit) * 100));
 
     return (
-        <div className={`mt-3 pt-2.5 border-t text-[11px] font-sans ${isDark ? 'border-white/10 text-white/80' : 'border-gray-200 text-gray-600'}`}>
-            <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
-                <div className="flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 font-semibold text-[10px] tracking-wide">
-                        📊 Context Window: {totalTokens.toLocaleString()} / {limit.toLocaleString()} tokens ({percentage}%)
-                    </span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-white/60">
-                    <span title="プロンプト・過去の会話履歴・MCPツール定義などの入力トークン数">
-                        📥 入力履歴: <strong className="text-white/90 font-mono">{promptTokens.toLocaleString()}</strong>
-                    </span>
-                    <span>•</span>
-                    <span title="今回AIが生成した回答トークン数">
-                        📤 今回の回答: <strong className="text-white/90 font-mono">{responseTokens.toLocaleString()}</strong>
-                    </span>
-                </div>
-            </div>
-            <div className="w-full h-1 bg-black/40 rounded-full overflow-hidden">
-                <div 
-                    className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full transition-all duration-500"
-                    style={{ width: `${progressWidth}%` }}
-                />
-            </div>
+        <div className={`mt-2 pt-2 border-t flex flex-wrap items-center justify-between gap-2 text-xs font-sans ${isDark ? 'border-white/10 text-white/80' : 'border-gray-200 text-gray-600'}`}>
+            <span className="font-medium">
+                📊 コンテキスト使用量: <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalTokens.toLocaleString()}</span> / {limit.toLocaleString()} tokens ({percentage}%)
+            </span>
+            {(promptTokens > 0 || responseTokens > 0) && (
+                <span className={`text-[11px] font-mono ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                    [入力: {promptTokens.toLocaleString()} / 出力: {responseTokens.toLocaleString()}]
+                </span>
+            )}
         </div>
     );
 };
