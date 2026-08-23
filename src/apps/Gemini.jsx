@@ -1,4 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import WeatherForecastMap from './WeatherForecastMap';
 
 const SLASH_COMMANDS = [];
@@ -604,13 +609,63 @@ const Gemini = () => {
                                         if (hasWeatherWords && hasCityNames) {
                                             return (
                                                 <div className="space-y-4 w-full">
-                                                    <p className="whitespace-pre-wrap text-white">{msg.text}</p>
+                                                    <div className="prose prose-invert max-w-none text-white text-[15px] leading-relaxed break-words">
+                                                        <ReactMarkdown
+                                                            remarkPlugins={[remarkGfm, remarkMath]}
+                                                            rehypePlugins={[rehypeKatex]}
+                                                        >
+                                                            {msg.text}
+                                                        </ReactMarkdown>
+                                                    </div>
                                                     <WeatherForecastMap data={null} />
                                                 </div>
                                             );
                                         }
 
-                                        return <p className="whitespace-pre-wrap">{msg.text}</p>;
+                                        return (
+                                            <div className="prose prose-invert max-w-none text-white text-[15px] leading-relaxed break-words">
+                                                <ReactMarkdown
+                                                    remarkPlugins={[remarkGfm, remarkMath]}
+                                                    rehypePlugins={[rehypeKatex]}
+                                                    components={{
+                                                        p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-relaxed">{children}</p>,
+                                                        h1: ({ children }) => <h1 className="text-xl font-bold mt-3.5 mb-2 text-white border-b border-white/10 pb-1">{children}</h1>,
+                                                        h2: ({ children }) => <h2 className="text-lg font-bold mt-3 mb-1.5 text-white">{children}</h2>,
+                                                        h3: ({ children }) => <h3 className="text-base font-semibold mt-2.5 mb-1 text-indigo-200">{children}</h3>,
+                                                        ul: ({ children }) => <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>,
+                                                        ol: ({ children }) => <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>,
+                                                        li: ({ children }) => <li className="my-0.5 leading-relaxed">{children}</li>,
+                                                        strong: ({ children }) => <strong className="font-bold text-white bg-indigo-500/20 px-1 py-0.5 rounded">{children}</strong>,
+                                                        code: ({ inline, className, children, ...props }) => {
+                                                            if (inline) {
+                                                                return (
+                                                                    <code className="bg-black/40 text-cyan-300 px-1.5 py-0.5 rounded text-xs font-mono border border-white/10" {...props}>
+                                                                        {children}
+                                                                    </code>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <div className="my-2.5 rounded-xl bg-black/60 border border-white/10 p-3 overflow-x-auto text-xs font-mono text-gray-200">
+                                                                    <code className={className} {...props}>
+                                                                        {children}
+                                                                    </code>
+                                                                </div>
+                                                            );
+                                                        },
+                                                        table: ({ children }) => (
+                                                            <div className="overflow-x-auto my-3 rounded-lg border border-white/10">
+                                                                <table className="min-w-full text-xs text-left divide-y divide-white/10">{children}</table>
+                                                            </div>
+                                                        ),
+                                                        th: ({ children }) => <th className="px-3 py-2 bg-black/40 font-bold text-white border-b border-white/10">{children}</th>,
+                                                        td: ({ children }) => <td className="px-3 py-2 text-gray-200 border-b border-white/5">{children}</td>,
+                                                        hr: () => <hr className="my-3 border-white/10" />
+                                                    }}
+                                                >
+                                                    {msg.text}
+                                                </ReactMarkdown>
+                                            </div>
+                                        );
                                     })()}
                                 </div>
                                 {/* Actions Area */}
