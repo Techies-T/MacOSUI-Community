@@ -293,10 +293,11 @@ const Gemini = () => {
                     "ユーザーには通常の言葉で天気を解説するテキストを必ず先に書き、その後にこのJSONブロックを記述してください。";
             }
 
-            if (mode === 'gemma4') {
-                // Direct LiveStream from Local Gemma 4
+            if (mode === 'gemma4' || mode === 'local_rag') {
+                // Direct LiveStream from Local Gemma 4 (or Local RAG)
                 try {
-                    const response = await fetch('/api/gemma/stream', {
+                    const endpoint = mode === 'local_rag' ? '/api/local-rag/stream' : '/api/gemma/stream';
+                    const response = await fetch(endpoint, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -517,10 +518,11 @@ const Gemini = () => {
                             style={{ backgroundImage: 'none', minWidth: '120px' }}
                         >
                             <option value="normal" className="text-gray-800">💬 Normal Chat</option>
+                            <option value="local_rag" className="text-gray-800">🛡️ Gemma 4 Local RAG (完全社内完結)</option>
                             {ragFolders.map((f, idx) => (
-                                <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 {f.name}</option>
+                                <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 Cloud: {f.name}</option>
                             ))}
-                            <option value="gemma4" className="text-gray-800">🦙 Gemma 4 (Local AI)</option>
+                            <option value="gemma4" className="text-gray-800">🦙 Gemma 4 (Direct)</option>
                             <option value="research" className="text-gray-800">🔍 Deep Research</option>
                             <option value="html_svg" className="text-gray-800">🎨 HTML/SVG Dev</option>
                         </select>
@@ -532,6 +534,12 @@ const Gemini = () => {
                             <div className={`w-8 h-4 rounded-full transition-colors relative ${useGrounding ? 'bg-green-400' : 'bg-white/20'}`}>
                                 <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${useGrounding ? 'translate-x-4' : 'translate-x-0.5'}`}></div>
                             </div>
+                        </div>
+                    )}
+                    {mode === 'local_rag' && (
+                        <div className="ml-3 flex items-center bg-indigo-500/20 backdrop-blur-md rounded-lg px-3 py-1.5 border border-indigo-400/30 shadow-sm">
+                            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mr-2"></span>
+                            <span className="text-xs font-semibold text-indigo-200">🛡️ Zero Data Egress (Air-Gapped)</span>
                         </div>
                     )}
                     {mode === 'gemma4' && (
