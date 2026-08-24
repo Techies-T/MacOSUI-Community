@@ -34,22 +34,22 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 ```mermaid
 graph TD
-    User([🌐 ユーザー / ブラウザ]) -->|HTTP: 8080 または HTTPS: 443| EC2[AWS EC2 インスタンス (Amazon Linux 2023 x86_64)]
+    User["🌐 ユーザー / ブラウザ"] -->|"HTTP: 8080 または HTTPS: 443"| EC2["AWS EC2 インスタンス (Amazon Linux 2023 x86_64)"]
     
-    subgraph AWS Cloud (ap-northeast-1)
-        subgraph EC2 Instance (t3.micro / t3.small)
-            DockerDaemon[Docker Engine & Compose]
-            DockerDaemon --> Container[MacOSUI Web Container (macosui-web)]
-            Container --> SQLite[(永続ボリューム: SQLite /data)]
-            SwapSpace[2GB Swap File (OOM保護)]
+    subgraph AWS_Cloud["AWS Cloud (ap-northeast-1)"]
+        subgraph EC2_Instance["EC2 Instance (t3.micro / t3.small)"]
+            DockerDaemon["Docker Engine & Compose"]
+            DockerDaemon --> Container["MacOSUI Web Container (macosui-web)"]
+            Container --> SQLite[("永続ボリューム: SQLite /data")]
+            SwapSpace["2GB Swap File (OOM保護)"]
         end
         
-        Container -->|ナレッジ外部分離保管 (オプション)| DynamoDB[(AWS DynamoDB: MacOSUI-KnowledgeArticles)]
-        Container -->|機密キー保護| SecretsManager[AWS Secrets Manager / KMS]
+        Container -->|"ナレッジ外部分離保管 (オプション)"| DynamoDB[("AWS DynamoDB: MacOSUI-KnowledgeArticles")]
+        Container -->|"機密キー保護"| SecretsManager["AWS Secrets Manager / KMS"]
     end
     
-    Container -->|RAG検索 & レポート保存| GoogleDrive[Google Drive & Calendar API]
-    Container -->|AI推論・思考| GeminiAPI[Google Gemini 3.6 Flash API]
+    Container -->|"RAG検索 & レポート保存"| GoogleDrive["Google Drive & Calendar API"]
+    Container -->|"AI推論・思考"| GeminiAPI["Google Gemini 3.6 Flash API"]
 ```
 
 ---
