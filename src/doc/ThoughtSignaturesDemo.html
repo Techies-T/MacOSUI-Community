@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini 3.0: 思考署名 (Thought Signatures)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #F0F4F8;
+            color: #102A43;
+        }
+
+        /* パレット: "Brilliant Blues"
+           Primary: #006094 (深海)
+           Secondary: #0088C8 (ブライトブルー)
+           Accent: #4CC9F0 (シアン)
+           Surface: #FFFFFF
+        */
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 矢印などの装飾 */
+        .arrow-right {
+            display: inline-block;
+            width: 0;
+            height: 0;
+            border-top: 10px solid transparent;
+            border-bottom: 10px solid transparent;
+            border-left: 15px solid #0088C8;
+        }
+
+        @media (max-width: 768px) {
+            .arrow-right {
+                transform: rotate(90deg);
+                margin: 10px 0;
+            }
+        }
+
+        /* ローディングアニメーション */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CC9F0;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body class="antialiased">
+
+    <!-- 
+    日本語版インフォグラフィック構成:
+    1. タイトル: Gemini 3.0 思考署名 (Thought Signatures)
+    2. セクション1: 透明性のパラドックス (従来のブラックボックス問題)
+    3. セクション2: 仕組み (思考署名の連鎖 - フローチャート)
+    4. セクション3: 比較 (思考の連鎖 CoT vs 思考署名 TS - レーダーチャート)
+    5. セクション4: インパクト (信頼性、デバッグ、ハルシネーション対策 - 棒グラフ)
+    6. [NEW] セクション5: ライブデモ (Gemini API連携)
+    -->
+
+    <!-- ヘッダー -->
+    <div class="bg-gradient-to-r from-[#003F63] to-[#006094] text-white py-10 px-4 shadow-lg">
+        <div class="max-w-6xl mx-auto text-center">
+            <h1 class="text-3xl md:text-5xl font-bold mb-4 tracking-tight">Gemini 3.0: 思考署名</h1>
+            <h2 class="text-xl md:text-2xl font-light text-[#4CC9F0]">AIの「ブラックボックス」を解明する新技術</h2>
+        </div>
+    </div>
+
+    <!-- メインコンテンツ -->
+    <div class="max-w-6xl mx-auto p-4 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 -mt-6">
+
+        <!-- セクション1: 導入 -->
+        <div class="card p-6 md:col-span-2">
+            <h2 class="text-2xl font-bold text-[#006094] mb-4 border-b-2 border-[#4CC9F0] inline-block pb-1">透明性のパラドックス
+            </h2>
+            <p class="text-gray-700 leading-relaxed mb-4">
+                長年、高度なAIモデルは「入力」と「出力」の間にある複雑な計算過程が人間に見えない「ブラックボックス」として機能してきました。<strong>Thought
+                    Signatures（思考署名）</strong>は、このパラダイムを変える技術です。従来の外部的なプロンプト技術とは異なり、モデルの<strong>内部的な計算状態</strong>に追跡可能なID（署名）を付与することで、推論のすべてのステップを「指紋」のように記録します。
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                <div class="text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
+                    <p class="mb-3"><strong class="text-[#003F63]">従来モデル:</strong><br> 答えが「魔法のように」出力され、検証が困難。</p>
+                    <p><strong class="text-[#0088C8]">思考署名 (TS):</strong><br> 論理の飛躍がすべて記録され、監査可能。</p>
+                </div>
+                <!-- チャート1: 可視性の比較 (ドーナツ) -->
+                <div class="chart-container h-64">
+                    <canvas id="visibilityChart"></canvas>
+                </div>
+            </div>
+            <p class="text-xs text-center text-gray-500 mt-2">図1: プロセス可視性の概念的シフト</p>
+        </div>
+
+        <!-- セクション2: 仕組み (フロー) -->
+        <div class="card p-6 md:col-span-2">
+            <h2 class="text-2xl font-bold text-[#006094] mb-4 border-b-2 border-[#4CC9F0] inline-block pb-1">仕組み:
+                思考署名の連鎖</h2>
+            <p class="text-gray-700 leading-relaxed mb-6">
+                思考署名は単に思考過程をテキストで説明する（Chain-of-Thought）のではなく、重要な瞬間の<strong>内部ニューラル状態</strong>をキャプチャします。複雑なクエリを処理する際、Gemini
+                3.0はこれらの署名のシーケンスを生成し、認知パスの構造化された監査証跡を作成します。
+            </p>
+
+            <!-- HTML/CSS フローチャート (SVGなし) -->
+            <div
+                class="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0 md:space-x-2 w-full p-4 bg-gray-50 rounded-lg border border-gray-200">
+
+                <!-- ステップ 1 -->
+                <div class="flex flex-col items-center w-full md:w-1/5">
+                    <div
+                        class="w-full bg-gray-800 text-white p-4 rounded-lg shadow-md text-center h-32 flex flex-col justify-center items-center">
+                        <div class="font-bold text-[#4CC9F0] text-lg">入力</div>
+                        <div class="text-xs mt-2">「フランス革命の<br>主な原因は？」</div>
+                    </div>
+                </div>
+
+                <!-- 矢印 -->
+                <div class="text-[#0088C8] text-2xl font-bold transform md:rotate-0 rotate-90">→</div>
+
+                <!-- ステップ 2 -->
+                <div class="flex flex-col items-center w-full md:w-1/5">
+                    <div
+                        class="w-full bg-[#006094] text-white p-4 rounded-lg shadow-md text-center relative h-32 flex flex-col justify-center items-center">
+                        <div class="font-bold text-sm">署名 #A102</div>
+                        <div class="text-xs mt-2 text-gray-200">概念特定:<br>歴史的要因 / 経済</div>
+                        <div
+                            class="absolute -top-3 -right-3 bg-[#4CC9F0] text-[#003F63] text-xs font-bold px-2 py-1 rounded-full shadow-sm">
+                            Step 1</div>
+                    </div>
+                </div>
+
+                <!-- 矢印 -->
+                <div class="text-[#0088C8] text-2xl font-bold transform md:rotate-0 rotate-90">→</div>
+
+                <!-- ステップ 3 -->
+                <div class="flex flex-col items-center w-full md:w-1/5">
+                    <div
+                        class="w-full bg-[#0088C8] text-white p-4 rounded-lg shadow-md text-center relative h-32 flex flex-col justify-center items-center">
+                        <div class="font-bold text-sm">署名 #B455</div>
+                        <div class="text-xs mt-2 text-gray-100">事実検索:<br>負債・税制・身分制度</div>
+                        <div
+                            class="absolute -top-3 -right-3 bg-[#4CC9F0] text-[#003F63] text-xs font-bold px-2 py-1 rounded-full shadow-sm">
+                            Step 2</div>
+                    </div>
+                </div>
+
+                <!-- 矢印 -->
+                <div class="text-[#0088C8] text-2xl font-bold transform md:rotate-0 rotate-90">→</div>
+
+                <!-- ステップ 4 -->
+                <div class="flex flex-col items-center w-full md:w-1/5">
+                    <div
+                        class="w-full bg-[#4CC9F0] text-[#003F63] p-4 rounded-lg shadow-md text-center h-32 flex flex-col justify-center items-center">
+                        <div class="font-bold text-lg">出力</div>
+                        <div class="text-xs mt-2">構造化された<br>回答生成</div>
+                    </div>
+                </div>
+            </div>
+            <p class="text-xs text-center text-gray-500 mt-2">図2: 内部的な「署名の連鎖」プロセス</p>
+        </div>
+
+        <!-- NEW: セクション ライブデモ (Gemini API) -->
+        <div class="card p-6 md:col-span-2 border-2 border-[#4CC9F0] bg-gradient-to-b from-white to-[#F0F9FF]">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-2xl font-bold text-[#006094]">✨ ライブデモ: 思考署名を体験する</h2>
+                <span class="bg-[#4CC9F0] text-[#003F63] text-xs font-bold px-3 py-1 rounded-full">Powered by
+                    Gemini</span>
+            </div>
+            <p class="text-gray-700 leading-relaxed mb-6">
+                任意の質問を入力して、Geminiがどのように思考プロセス（署名の連鎖）を構築するかをシミュレーションしてみましょう。
+            </p>
+
+            <div class="flex flex-col md:flex-row gap-4 mb-6">
+                <input type="text" id="userQuery" placeholder="例: なぜ空は青いのですか？"
+                    class="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0088C8] text-gray-700">
+                <button onclick="generateSignatures()"
+                    class="bg-[#006094] hover:bg-[#003F63] text-white font-bold py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2">
+                    <span>✨ 署名を生成</span>
+                </button>
+            </div>
+
+            <!-- 結果表示エリア -->
+            <div id="demoResult" class="hidden">
+                <div class="space-y-4">
+                    <h3 class="text-lg font-bold text-[#003F63] text-center mb-4">生成された思考プロセス</h3>
+
+                    <!-- 動的フローチャート -->
+                    <div id="dynamicFlow"
+                        class="flex flex-col md:flex-row justify-between items-start space-y-4 md:space-y-0 md:space-x-2 w-full p-4 bg-white rounded-lg border border-gray-200 overflow-x-auto">
+                        <!-- JSでここにコンテンツを挿入 -->
+                    </div>
+
+                    <div class="bg-[#E0E6ED] p-4 rounded-lg mt-4">
+                        <h4 class="font-bold text-[#006094] text-sm mb-2">最終回答:</h4>
+                        <p id="finalOutput" class="text-gray-800 text-sm leading-relaxed"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ローダー -->
+            <div id="loader" class="hidden flex justify-center items-center py-12">
+                <div class="loader"></div>
+                <span class="ml-3 text-[#006094] font-medium">思考プロセスを解析中...</span>
+            </div>
+
+            <p class="text-xs text-center text-gray-400 mt-4">※ このデモはGemini APIを使用して、思考署名の概念をシミュレートしたものです。</p>
+        </div>
+
+
+        <!-- セクション3: 比較分析 -->
+        <div class="card p-6">
+            <h2 class="text-xl font-bold text-[#006094] mb-4">他技術との徹底比較</h2>
+            <p class="text-gray-700 text-sm mb-4">
+                「Chain of Thought (CoT)」プロンプティングとの違いは何でしょうか？
+                CoTは言語的であり、モデルに思考を「語らせる」ものです。一方、思考署名は計算的であり、モデルの「脳の状態」を直接記録します。
+            </p>
+            <!-- チャート3: レーダーチャート -->
+            <div class="chart-container">
+                <canvas id="comparisonRadar"></canvas>
+            </div>
+            <p class="text-xs text-gray-500 mt-4 text-center">
+                Gemini 3.0 (青) vs CoT (水色) vs 標準LLM (グレー) の性能比較
+            </p>
+        </div>
+
+        <!-- セクション4: インパクト -->
+        <div class="card p-6">
+            <h2 class="text-xl font-bold text-[#006094] mb-4">信頼性へのインパクト</h2>
+            <p class="text-gray-700 text-sm mb-4">
+                思考プロセスがアドレス可能（参照可能）になることで、安全性と信頼性が劇的に向上します。ハルシネーション（もっともらしい嘘）が発生しても、「事実検索」の段階で失敗したのか、論理構築で失敗したのかを特定できます。
+            </p>
+            <!-- チャート4: 棒グラフ -->
+            <div class="chart-container">
+                <canvas id="impactBar"></canvas>
+            </div>
+            <p class="text-xs text-gray-500 mt-4 text-center">
+                主要運用領域における改善スコア（10点満点）
+            </p>
+        </div>
+
+        <!-- セクション5: 結論 -->
+        <div class="card p-6 md:col-span-2 bg-[#003F63] text-white">
+            <h2 class="text-2xl font-bold text-[#4CC9F0] mb-2">結論: 「信頼できるパートナー」への進化</h2>
+            <p class="leading-relaxed opacity-90 text-sm md:text-base">
+                Gemini
+                3.0の思考署名は、「ツールとしてのAI」から「検証可能なパートナーとしてのAI」への移行を象徴しています。意思決定の認知構造をさらけ出すことで、Googleは企業や科学分野での採用における最大のハードルである「信頼」に取り組んでいます。この技術が成熟すれば、AIのデバッグはソフトウェアのデバッグと同じくらい正確になり、「ブラックボックス」の謎は過去のものとなるでしょう。
+            </p>
+        </div>
+
+    </div>
+
+    <!-- フッター -->
+    <footer class="text-center py-8 text-gray-500 text-xs">
+        <p>&copy; 2025 AI Research Analytics. Gemini 3.0 Technical Reportに基づく作成。</p>
+    </footer>
+
+    <!-- JavaScript ロジック -->
+    <script>
+        // --- Gemini API Logic ---
+        // Gemini API calls now use the backend proxy `/api/gemini/proxy`
+        // and fetch the current model dynamically from `/api/config`.
+        let geminiModel = 'gemini-3.1-flash-lite-preview';
+
+        async function initConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const config = await res.json();
+                if (config.geminiModel) {
+                    geminiModel = config.geminiModel;
+                }
+            } catch (e) {
+                console.error("Failed to fetch config, using default model.", e);
+            }
+        }
+
+        // Initialize config on load
+        initConfig();
+
+        async function generateSignatures() {
+            const query = document.getElementById('userQuery').value;
+            if (!query) return;
+
+            // UI状態の更新
+            document.getElementById('demoResult').classList.add('hidden');
+            document.getElementById('loader').classList.remove('hidden');
+
+            const systemPrompt = `
+                あなたはGemini 3.0の「Thought Signatures（思考署名）」技術のシミュレーターです。
+                ユーザーのクエリに対して、回答に至るまでの思考プロセスを3つの明確なステップ（署名）に分解してください。
+                
+                以下のJSON形式のみを返してください：
+                {
+                    "steps": [
+                        { "id": "Sig #A...", "type": "概念特定", "desc": "簡潔な説明" },
+                        { "id": "Sig #B...", "type": "事実/論理", "desc": "簡潔な説明" },
+                        { "id": "Sig #C...", "type": "統合/結論", "desc": "簡潔な説明" }
+                    ],
+                    "finalOutput": "最終的な回答（簡潔に）"
+                }
+                日本語で出力してください。
+            `;
+
+            try {
+                const targetUrl = encodeURIComponent(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`);
+                const response = await fetch(`/api/gemini/proxy?target=${targetUrl}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{ text: `クエリ: ${query}` }]
+                        }],
+                        systemInstruction: {
+                            parts: [{ text: systemPrompt }]
+                        },
+                        generationConfig: {
+                            responseMimeType: "application/json"
+                        }
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error.message);
+                }
+
+                const resultText = data.candidates[0].content.parts[0].text;
+                const resultJson = JSON.parse(resultText);
+
+                renderDemoResult(resultJson);
+
+            } catch (error) {
+                console.error("API Error:", error);
+                alert("生成中にエラーが発生しました。しばらく待ってから再試行してください。");
+            } finally {
+                document.getElementById('loader').classList.add('hidden');
+            }
+        }
+
+        function renderDemoResult(data) {
+            const container = document.getElementById('dynamicFlow');
+            container.innerHTML = ''; // クリア
+
+            // ステップのレンダリング
+            data.steps.forEach((step, index) => {
+                const stepHtml = `
+                    <div class="flex flex-col items-center w-full md:w-1/3 min-w-[150px] p-2">
+                        <div class="w-full ${index === 0 ? 'bg-[#006094]' : index === 1 ? 'bg-[#0088C8]' : 'bg-[#4CC9F0] text-[#003F63]'} ${index < 2 ? 'text-white' : ''} p-4 rounded-lg shadow-md text-center relative h-32 flex flex-col justify-center items-center">
+                            <div class="font-bold text-sm">${step.id}</div>
+                            <div class="font-bold text-xs mt-1 opacity-90">${step.type}</div>
+                            <div class="text-xs mt-2 leading-tight">${step.desc}</div>
+                            <div class="absolute -top-3 -right-3 bg-white text-[#003F63] border border-[#006094] text-xs font-bold px-2 py-1 rounded-full shadow-sm">Step ${index + 1}</div>
+                        </div>
+                    </div>
+                `;
+
+                container.innerHTML += stepHtml;
+
+                // 矢印の追加（最後以外）
+                if (index < data.steps.length - 1) {
+                    container.innerHTML += `<div class="text-[#0088C8] text-2xl font-bold self-center transform md:rotate-0 rotate-90 my-2 md:my-0">→</div>`;
+                }
+            });
+
+            document.getElementById('finalOutput').textContent = data.finalOutput;
+            document.getElementById('demoResult').classList.remove('hidden');
+        }
+
+        // --- 日本語用ラベル折り返し関数 ---
+        function wrapJapaneseText(text, maxChars) {
+            if (typeof text !== 'string' || text.length <= maxChars) return text;
+            const lines = [];
+            for (let i = 0; i < text.length; i += maxChars) {
+                lines.push(text.substring(i, i + maxChars));
+            }
+            return lines;
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+
+            // Chart.js 共通設定
+            Chart.defaults.color = '#102A43';
+            Chart.defaults.font.family = "'Noto Sans JP', sans-serif";
+
+            // ツールチップ設定: 配列（改行）を結合して表示
+            const tooltipConfig = {
+                callbacks: {
+                    title: function (tooltipItems) {
+                        const item = tooltipItems[0];
+                        let label = item.chart.data.labels[item.dataIndex];
+                        if (Array.isArray(label)) {
+                            return label.join('');
+                        } else {
+                            return label;
+                        }
+                    }
+                }
+            };
+
+            // --- チャート1: 可視性ドーナツ ---
+            const ctxVisibility = document.getElementById('visibilityChart').getContext('2d');
+            new Chart(ctxVisibility, {
+                type: 'doughnut',
+                data: {
+                    labels: ['不透明なプロセス', '透明なプロセス (署名)'],
+                    datasets: [{
+                        data: [15, 85],
+                        backgroundColor: ['#E0E6ED', '#0088C8'],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { size: 12 } } },
+                        tooltip: tooltipConfig,
+                        title: { display: false }
+                    }
+                }
+            });
+
+            // --- チャート3: 比較レーダー ---
+            const ctxRadar = document.getElementById('comparisonRadar').getContext('2d');
+            // ラベルを日本語化し、折り返し処理を適用 (9文字制限)
+            const rawLabelsRadar = ['内部可視性', 'デバッグ容易性', '論理追跡能力', '計算コスト効率', '人間による解読性'];
+            const wrappedLabelsRadar = rawLabelsRadar.map(l => wrapJapaneseText(l, 7));
+
+            new Chart(ctxRadar, {
+                type: 'radar',
+                data: {
+                    labels: wrappedLabelsRadar,
+                    datasets: [
+                        {
+                            label: 'Gemini 3.0 (TS)',
+                            data: [95, 90, 95, 60, 80],
+                            fill: true,
+                            backgroundColor: 'rgba(0, 96, 148, 0.5)',
+                            borderColor: '#006094',
+                            pointBackgroundColor: '#4CC9F0',
+                            pointBorderColor: '#fff',
+                        },
+                        {
+                            label: 'Chain of Thought',
+                            data: [50, 60, 70, 40, 90],
+                            fill: true,
+                            backgroundColor: 'rgba(76, 201, 240, 0.2)',
+                            borderColor: '#4CC9F0',
+                            pointBackgroundColor: '#4CC9F0',
+                        },
+                        {
+                            label: '標準LLM',
+                            data: [10, 20, 10, 20, 95],
+                            fill: true,
+                            backgroundColor: 'rgba(150, 150, 150, 0.1)',
+                            borderColor: '#999',
+                            pointBackgroundColor: '#999',
+                            borderDash: [5, 5]
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: { color: '#E0E6ED' },
+                            grid: { color: '#E0E6ED' },
+                            pointLabels: {
+                                font: { size: 11, weight: '500' },
+                                color: '#102A43'
+                            },
+                            suggestedMin: 0,
+                            suggestedMax: 100,
+                            ticks: {
+                                backdropColor: 'transparent',
+                                stepSize: 20
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: tooltipConfig,
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } }
+                    }
+                }
+            });
+
+            // --- チャート4: インパクト棒グラフ ---
+            const ctxBar = document.getElementById('impactBar').getContext('2d');
+            // ラベル日本語化、長さを考慮
+            const rawLabelsBar = ['信頼性と安全性', 'エラー修正効率', 'ハルシネーション検知', 'バイアス検出'];
+            const wrappedLabelsBar = rawLabelsBar.map(l => wrapJapaneseText(l, 10));
+
+            new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: wrappedLabelsBar,
+                    datasets: [{
+                        label: 'インパクトスコア (1-10)',
+                        data: [9.5, 9.2, 8.8, 8.0],
+                        backgroundColor: [
+                            '#003F63',
+                            '#006094',
+                            '#0088C8',
+                            '#4CC9F0'
+                        ],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 10,
+                            grid: { display: false }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { size: 11 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: tooltipConfig,
+                    }
+                }
+            });
+
+        });
+    </script>
+</body>
+
+</html>

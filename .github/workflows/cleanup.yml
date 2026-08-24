@@ -1,0 +1,59 @@
+name: Temporary AWS Cleanup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Delete ECR Repositories (Force)
+        run: |
+          aws ecr delete-repository --repository-name macosui-oss --force --region ap-northeast-1 || true
+          aws ecr delete-repository --repository-name macosui-repo --force --region ap-northeast-1 || true
+          
+          REPOS=$(aws ecr describe-repositories --query "repositories[?starts_with(repositoryName, 'macosui-fargate-stack-repository')].repositoryName" --output text --region ap-northeast-1)
+          for REPO in $REPOS; do
+            aws ecr delete-repository --repository-name $REPO --force --region ap-northeast-1 || true
+          done
+
+      - name: Terraform Apply (Sync force_delete)
+        working-directory: terraform
+        run: terraform apply -auto-approve || true
+
+      - name: Terraform Destroy
+        working-directory: terraform
+        run: terraform destroy -auto-approve -lock=false || true
+
+      - name: Delete CloudFormation Stack
+        run: |
+          aws cloudformation delete-stack --stack-name macosui-fargate-stack --region ap-northeast-1 || true
+
+      - name: Delete Terraform Backend (S3 & DynamoDB)
+        run: |
+          aws dynamodb delete-table --table-name macosui-terraform-state-lock --region ap-northeast-1 || true
+          aws s3 rm s3://macosui-terraform-state-bucket --recursive --region ap-northeast-1 || true
+          aws s3api delete-bucket --bucket macosui-terraform-state-bucket --region ap-northeast-1 || true
+
+      - name: Delete old DynamoDB Table (KnowledgeArticles)
+        run: |
+          aws dynamodb delete-table --table-name MacOSUI-KnowledgeArticles --region ap-northeast-1 || true

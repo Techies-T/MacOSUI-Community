@@ -1,0 +1,1776 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini 3 Benchmark Presentation (AI Powered)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        /* 1. BASIC SETUP */
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #020617;
+            /* Very dark background for cinema mode */
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Urbanist', sans-serif;
+            overflow: hidden;
+        }
+
+        /* Stage for the presentation */
+        #stage {
+            position: relative;
+            width: 1280px;
+            height: 720px;
+            box-shadow: 0 0 100px rgba(56, 189, 248, 0.1);
+        }
+
+        /* Slide Container - Transitions */
+        .slide-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.8s ease-in-out, transform 0.8s ease-out;
+            transform: scale(0.95);
+
+            /* Original Slide Styles */
+            align-items: flex-start;
+            background-color: #0f172a;
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 60px;
+            color: #f1f5f9;
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .slide-container.active {
+            opacity: 1;
+            visibility: visible;
+            transform: scale(1);
+            z-index: 10;
+        }
+
+        /* Background Design Elements */
+        .slide-container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.03) 0%, transparent 50%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .slide-container>* {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* 2. TYPOGRAPHY */
+        h1 {
+            font-size: 72px;
+            line-height: 1.1;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+            font-weight: 700;
+        }
+
+        .slide-title {
+            font-size: 48px;
+            margin-bottom: 40px;
+            border-left: 6px solid #38bdf8;
+            padding-left: 24px;
+            width: 100%;
+            text-align: left;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+
+        h3 {
+            font-size: 28px;
+            margin: 0 0 16px 0;
+            color: #38bdf8;
+            font-weight: 700;
+        }
+
+        p,
+        li,
+        td,
+        th {
+            font-size: 20px;
+            line-height: 1.6;
+            color: #cbd5e1;
+        }
+
+        .subtitle {
+            font-size: 24px;
+            color: #94a3b8;
+            margin-top: 20px;
+        }
+
+        /* 3. LAYOUTS */
+        .content-area {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            flex-grow: 1;
+            justify-content: center;
+        }
+
+        .title-layout {
+            text-align: left;
+            max-width: 60%;
+        }
+
+        .title-slide-bg {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            mask-image: linear-gradient(to left, black 60%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to left, black 60%, transparent 100%);
+        }
+
+        /* Highlight Numbers */
+        .highlight-numbers-layout {
+            display: flex;
+            width: 100%;
+            gap: 60px;
+            align-items: center;
+        }
+
+        .highlight-numbers-layout>div:first-child {
+            flex: 0 0 40%;
+            text-align: center;
+        }
+
+        .highlight-numbers-layout .number {
+            font-size: 160px;
+            font-weight: 800;
+            line-height: 1;
+            color: #38bdf8;
+            font-family: 'JetBrains Mono', monospace;
+            text-shadow: 0 0 40px rgba(56, 189, 248, 0.3);
+        }
+
+        .highlight-numbers-layout .number-label {
+            font-size: 24px;
+            color: #f8fafc;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-top: 10px;
+        }
+
+        /* Tables */
+        .table-layout table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 18px;
+        }
+
+        .table-layout th {
+            text-align: left;
+            padding: 20px;
+            border-bottom: 2px solid #334155;
+            color: #38bdf8;
+            font-size: 20px;
+            text-transform: uppercase;
+        }
+
+        .table-layout td {
+            padding: 20px;
+            border-bottom: 1px solid #1e293b;
+            background: rgba(30, 41, 59, 0.3);
+        }
+
+        .table-layout .winner {
+            color: #4ade80;
+            font-weight: 700;
+        }
+
+        /* Charts */
+        .chart-container {
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+            width: 100%;
+            padding: 20px 0;
+        }
+
+        .bar {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .bar .label {
+            flex: 0 0 200px;
+            text-align: right;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        .bar .bar-inner {
+            flex-grow: 1;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px;
+            height: 50px;
+            overflow: hidden;
+        }
+
+        .bar .bar-fill {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 15px;
+            color: #0f172a;
+            font-weight: 700;
+            font-size: 20px;
+            border-radius: 8px;
+            width: 0;
+            /* Animated later */
+            transition: width 1.5s ease-out;
+        }
+
+        .chart-summary {
+            margin-top: 30px;
+            text-align: center;
+            font-style: italic;
+            color: #94a3b8;
+        }
+
+        /* Columns */
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            align-items: center;
+            height: 100%;
+        }
+
+        .image-wrapper {
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            height: 400px;
+            border: 1px solid #334155;
+        }
+
+        .image-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .image-wrapper img.contain-mode {
+            object-fit: contain;
+            background: #000;
+        }
+
+        /* ---- CSS TERMINAL FIX ---- */
+        .terminal-visual {
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.9);
+            display: flex;
+            flex-direction: column;
+            font-family: 'JetBrains Mono', monospace;
+            border: 1px solid #334155;
+            position: relative;
+        }
+
+        /* Glowing effect */
+        .terminal-visual::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            box-shadow: inset 0 0 40px rgba(56, 189, 248, 0.1);
+            pointer-events: none;
+        }
+
+        .terminal-header {
+            background: #1e293b;
+            padding: 15px;
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid #334155;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot.red {
+            background: #ef4444;
+        }
+
+        .dot.yellow {
+            background: #eab308;
+        }
+
+        .dot.green {
+            background: #22c55e;
+        }
+
+        .terminal-body {
+            padding: 20px;
+            color: #38bdf8;
+            font-size: 14px;
+            /* Slightly smaller code font */
+            line-height: 1.6;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .code-line {
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .code-line.comment {
+            color: #64748b;
+            font-style: italic;
+        }
+
+        .code-line.keyword {
+            color: #c084fc;
+        }
+
+        .code-line.string {
+            color: #4ade80;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: #38bdf8;
+            animation: blink 1s infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* Bleed Layout */
+        .slide-container.bleed-image-layout {
+            padding: 0;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0;
+            align-items: start;
+        }
+
+        .slide-container.bleed-image-layout>.content-container {
+            padding: 80px 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+        }
+
+        .slide-container.bleed-image-layout>.image-container {
+            height: 100%;
+            width: 100%;
+            position: relative;
+        }
+
+        .slide-container.bleed-image-layout img.bleed-image-side {
+            width: 100%;
+            height: 100%;
+            max-height: 720px;
+            object-fit: cover;
+            display: block;
+            mask-image: linear-gradient(to right, transparent 0%, black 20%);
+            -webkit-mask-image: linear-gradient(to right, transparent 0%, black 20%);
+        }
+
+        /* Tiles */
+        .tiled-content {
+            display: flex;
+            gap: 30px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .tile {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 30px;
+            flex: 1;
+            text-align: center;
+        }
+
+        .tile .icon {
+            font-size: 40px;
+            color: #38bdf8;
+            margin-bottom: 20px;
+        }
+
+        /* Utility */
+        .grad-gemini {
+            background: linear-gradient(90deg, #38bdf8, #818cf8);
+        }
+
+        .grad-gpt {
+            background: linear-gradient(90deg, #22c55e, #10b981);
+        }
+
+        .grad-claude {
+            background: linear-gradient(90deg, #f472b6, #db2777);
+        }
+
+        /* CONTROLS OVERLAY */
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            transition: opacity 0.5s;
+        }
+
+        #overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 20px;
+        }
+
+        .play-btn,
+        .ai-btn {
+            border: none;
+            padding: 20px 40px;
+            font-size: 20px;
+            font-weight: 700;
+            color: white;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-family: 'Urbanist', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .play-btn {
+            background: linear-gradient(135deg, #38bdf8, #2563eb);
+        }
+
+        .ai-btn {
+            background: linear-gradient(135deg, #c084fc, #7c3aed);
+            box-shadow: 0 0 30px rgba(124, 58, 237, 0.4);
+        }
+
+        .play-btn:hover,
+        .ai-btn:hover {
+            transform: scale(1.05);
+        }
+
+        /* CAPTIONS & AI Status */
+        #captions-container {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            z-index: 50;
+            pointer-events: none;
+        }
+
+        #captions {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 18px;
+            max-width: 80%;
+            text-align: center;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        #captions.visible {
+            display: block;
+            opacity: 1;
+        }
+
+        #ai-status {
+            background: rgba(124, 58, 237, 0.9);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.8;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.8;
+            }
+        }
+
+        /* AI Panel */
+        #ai-panel {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid #475569;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: flex-start;
+            z-index: 101;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            min-width: 450px;
+        }
+
+        #ai-panel.visible {
+            opacity: 1;
+            visibility: visible;
+            bottom: 100px;
+        }
+
+        .ai-controls-row {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            align-items: center;
+        }
+
+        select,
+        input[type="text"] {
+            background: #0f172a;
+            color: white;
+            border: 1px solid #334155;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-family: inherit;
+            flex-grow: 1;
+        }
+
+        .panel-btn {
+            background: #38bdf8;
+            color: #0f172a;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        .panel-btn:hover {
+            background: #7dd3fc;
+        }
+
+        .panel-btn.secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+        }
+
+        .panel-btn.secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .panel-btn.action {
+            background: linear-gradient(135deg, #c084fc, #7c3aed);
+            color: white;
+        }
+
+        .panel-btn.action:hover {
+            transform: scale(1.05);
+        }
+
+        .close-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: transparent;
+            color: #94a3b8;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+        }
+
+        /* AI Response Overlay (Deep Dive / Q&A / Quiz) */
+        #text-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-height: 80%;
+            overflow-y: auto;
+            background: rgba(15, 23, 42, 0.98);
+            border: 1px solid #38bdf8;
+            border-radius: 16px;
+            padding: 40px;
+            color: #f1f5f9;
+            z-index: 102;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s;
+            font-size: 20px;
+            line-height: 1.8;
+        }
+
+        #text-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #text-overlay h2 {
+            color: #38bdf8;
+            margin-top: 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 10px;
+        }
+
+        #text-overlay .close-overlay-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: transparent;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 5px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+
+        #text-overlay-content {
+            white-space: pre-wrap;
+        }
+
+        /* Quiz Specific Styles */
+        .quiz-question {
+            margin-bottom: 30px;
+            background: rgba(30, 41, 59, 0.5);
+            padding: 20px;
+            border-radius: 12px;
+        }
+
+        .quiz-question p {
+            font-weight: 700;
+            margin-top: 0;
+            color: #e2e8f0;
+        }
+
+        .quiz-option {
+            display: block;
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .quiz-option:hover {
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        .quiz-option.correct {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid #22c55e;
+        }
+
+        .quiz-option.incorrect {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid #ef4444;
+        }
+
+        /* Progress Bar */
+        #progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 6px;
+            background: #334155;
+            width: 100%;
+            z-index: 50;
+        }
+
+        #progress-fill {
+            height: 100%;
+            background: #38bdf8;
+            width: 0%;
+            transition: width 0.3s linear;
+        }
+
+        /* Navigation Controls */
+        .nav-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            padding: 20px;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 60;
+            transition: background 0.2s;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        #prev-btn {
+            left: 20px;
+        }
+
+        #next-btn {
+            right: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- STAGE -->
+    <div id="stage">
+
+        <!-- OVERLAY (Intro) -->
+        <div id="overlay">
+            <h1 style="font-size: 40px; margin-bottom: 40px; color: white;">Gemini 3 Benchmark</h1>
+            <div class="btn-group">
+                <button class="play-btn" onclick="startStandardPresentation()">
+                    <i class="fa-solid fa-play"></i> Standard Mode
+                </button>
+                <button class="ai-btn" onclick="toggleAiPanel()">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> AI Presenter
+                </button>
+            </div>
+            <p style="margin-top: 20px; color: #94a3b8;">Turn on sound. Use AI mode for dynamic interactions.</p>
+        </div>
+
+        <!-- AI PANEL -->
+        <div id="ai-panel">
+            <button class="close-panel" onclick="toggleAiPanel()"><i class="fa-solid fa-times"></i></button>
+
+            <!-- Row 1: Presenter Mode (Script & TTS) -->
+            <div class="ai-controls-row">
+                <span style="color: #cbd5e1; font-weight: 600; width: 70px;">Script:</span>
+                <select id="persona-select" onchange="clearAiCache()">
+                    <option value="Professional">Professional</option>
+                    <option value="Hype">Hype Man</option>
+                    <option value="Skeptical">Skeptical Analyst</option>
+                    <option value="ELI5">ELI5 (Simple)</option>
+                </select>
+                <button class="panel-btn" onclick="generateAndSpeakAI()">
+                    <i class="fa-solid fa-microphone-lines"></i> Speak
+                </button>
+                <button class="panel-btn action" onclick="startAiAutoPresentation()">
+                    <i class="fa-solid fa-play"></i> Auto-Present
+                </button>
+            </div>
+
+            <!-- Row 2: Learning Tools (Quiz & Analogy) -->
+            <div class="ai-controls-row">
+                <span style="color: #cbd5e1; font-weight: 600; width: 70px;">Learn:</span>
+                <button class="panel-btn secondary" onclick="generateQuiz()" style="flex-grow: 1;">
+                    <i class="fa-solid fa-puzzle-piece"></i> Quiz Me
+                </button>
+                <select id="analogy-select" style="flex-grow: 1;">
+                    <option value="Cooking">Cooking</option>
+                    <option value="Sports">Sports</option>
+                    <option value="Video Games">Video Games</option>
+                    <option value="Sci-Fi">Sci-Fi</option>
+                </select>
+                <button class="panel-btn secondary" onclick="generateAnalogy()">
+                    <i class="fa-solid fa-lightbulb"></i>
+                </button>
+            </div>
+
+            <!-- Row 3: Deep Dive -->
+            <div class="ai-controls-row">
+                <span style="color: #cbd5e1; font-weight: 600; width: 70px;">Info:</span>
+                <button class="panel-btn secondary" onclick="generateDeepDive()" style="width: 100%;">
+                    <i class="fa-solid fa-magnifying-glass-plus"></i> Deep Dive Analysis
+                </button>
+            </div>
+
+            <!-- Row 4: Q&A -->
+            <div class="ai-controls-row">
+                <input type="text" id="qa-input" placeholder="Ask a question..." onkeypress="handleQAKey(event)">
+                <button class="panel-btn secondary" onclick="askGemini()">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- TEXT OVERLAY (For Results) -->
+        <div id="text-overlay">
+            <button class="close-overlay-btn" onclick="closeTextOverlay()">Close</button>
+            <h2 id="text-overlay-title">Gemini Response</h2>
+            <div id="text-overlay-content"></div>
+        </div>
+
+        <!-- CAPTIONS & STATUS -->
+        <div id="captions-container">
+            <div id="ai-status"><i class="fa-solid fa-circle-notch fa-spin"></i> Gemini is thinking...</div>
+            <div id="captions"></div>
+        </div>
+
+        <!-- PROGRESS -->
+        <div id="progress-bar">
+            <div id="progress-fill"></div>
+        </div>
+
+        <!-- NAV CONTROLS -->
+        <button class="nav-btn" id="prev-btn" onclick="prevSlide()"><i class="fa-solid fa-chevron-left"></i></button>
+        <button class="nav-btn" id="next-btn" onclick="nextSlide()"><i class="fa-solid fa-chevron-right"></i></button>
+
+        <!-- SLIDES -->
+
+        <!-- Slide 1 -->
+        <div class="slide-container active" data-script="Gemini 3 Pro、GPT 5.1、Claude 4.5 Sonnet。最新AIモデルのベンチマーク比較へようこそ。">
+            <img src="http://googleusercontent.com/image_generation_content/0"
+                alt="Abstract futuristic digital landscape" class="title-slide-bg">
+            <div class="title-layout">
+                <h1>Gemini 3 vs. The World</h1>
+                <p class="subtitle">Benchmark Showdown: Gemini 3 Pro, GPT-5.1, and Claude 4.5 Sonnet</p>
+            </div>
+        </div>
+
+        <!-- Slide 2 -->
+        <div class="slide-container"
+            data-script="まずは結論です。Gemini 3 Proが新たな王者となりました。20のベンチマーク中19で勝利し、推論、視覚、コーディングの全方位で圧倒しています。">
+            <h2 class="slide-title">The New King of AI</h2>
+            <div class="content-area">
+                <div class="highlight-numbers-layout">
+                    <div>
+                        <div class="number">19/20</div>
+                        <div class="number-label">Benchmarks Won</div>
+                    </div>
+                    <div>
+                        <h3>A Generational Leap</h3>
+                        <p>Gemini 3 Pro has established a new state-of-the-art across virtually every category. From
+                            complex reasoning to multimodal understanding, it consistently outperforms the competition.
+                        </p>
+                        <ul>
+                            <li><strong>Reasoning:</strong> Significant lead in scientific and academic benchmarks.</li>
+                            <li><strong>Vision:</strong> Massive improvements in abstract visual logic (ARC-AGI).</li>
+                            <li><strong>Coding:</strong> Top-tier raw performance and algorithmic problem solving.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 3 -->
+        <div class="slide-container" data-script="主要スペックの比較です。Gemini 3は200万トークンのコンテキストウィンドウを持ち、推論と視覚能力で特に強みを発揮しています。">
+            <h2 class="slide-title">The Contenders at a Glance</h2>
+            <div class="content-area">
+                <div class="table-layout">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Feature</th>
+                                <th>Gemini 3 Pro</th>
+                                <th>GPT-5.1</th>
+                                <th>Claude 4.5 Sonnet</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Model Type</td>
+                                <td>Multimodal & Reasoning</td>
+                                <td>General Purpose</td>
+                                <td>Agentic & Safe</td>
+                            </tr>
+                            <tr>
+                                <td>Release Context</td>
+                                <td>Nov 2025 (Latest)</td>
+                                <td>Nov 2025</td>
+                                <td>Late 2025</td>
+                            </tr>
+                            <tr>
+                                <td>Key Strength</td>
+                                <td class="winner">Reasoning & Vision</td>
+                                <td>Speed & Maturity</td>
+                                <td>Reliability & Safety</td>
+                            </tr>
+                            <tr>
+                                <td>Context Window</td>
+                                <td class="winner">2M Tokens (Standard)</td>
+                                <td>128k / 400k</td>
+                                <td>200k (Recall Focused)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 4 -->
+        <div class="slide-container" data-script="推論能力の詳細です。GPQAダイアモンドスコアで91.9%を記録。深い思考能力において他社を大きく引き離しました。">
+            <h2 class="slide-title">Reasoning Capabilities</h2>
+            <div class="content-area">
+                <div class="chart-container">
+                    <div class="bar">
+                        <div class="label">GPQA Diamond</div>
+                        <div class="bar-inner">
+                            <div class="bar-fill grad-gemini" data-width="91.9%">Gemini 3: 91.9%</div>
+                        </div>
+                    </div>
+                    <div class="bar">
+                        <div class="label"></div>
+                        <div class="bar-inner">
+                            <div class="bar-fill grad-gpt" data-width="88.1%">GPT-5.1: 88.1%</div>
+                        </div>
+                    </div>
+                    <div class="bar">
+                        <div class="label"></div>
+                        <div class="bar-inner">
+                            <div class="bar-fill grad-claude" data-width="83.4%">Claude 4.5: 83.4%</div>
+                        </div>
+                    </div>
+                    <div style="height: 20px;"></div>
+                    <div class="bar">
+                        <div class="label">Humanity's Exam</div>
+                        <div class="bar-inner">
+                            <div class="bar-fill grad-gemini" data-width="37.5%">Gemini 3: 37.5%</div>
+                        </div>
+                    </div>
+                    <div class="bar">
+                        <div class="label"></div>
+                        <div class="bar-inner">
+                            <div class="bar-fill grad-gpt" data-width="26.5%">GPT-5.1: 26.5%</div>
+                        </div>
+                    </div>
+                </div>
+                <p class="chart-summary">Gemini 3 Pro scores 11 points higher than GPT-5.1 on Humanity's Last Exam.</p>
+            </div>
+        </div>
+
+        <!-- Slide 5 -->
+        <div class="slide-container" data-script="こちらは視覚的推論、ARC AGI 2の結果です。未知の視覚パズルを解くこのテストで、Gemini 3は驚異的なスコアを出しています。">
+            <h2 class="slide-title">Visual Reasoning (ARC-AGI-2)</h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div>
+                        <p>The <strong>ARC-AGI-2</strong> benchmark tests a model's ability to solve novel visual
+                            puzzles without prior training examples.</p>
+                        <p>Gemini 3's score represents a breakthrough in non-verbal logic.</p>
+                    </div>
+                    <div class="chart-container">
+                        <div class="bar">
+                            <div class="label">Gemini 3 Pro</div>
+                            <div class="bar-inner">
+                                <div class="bar-fill grad-gemini" data-width="62%">31.1%</div>
+                            </div>
+                        </div>
+                        <div class="bar">
+                            <div class="label">GPT-5.1</div>
+                            <div class="bar-inner">
+                                <div class="bar-fill grad-gpt" data-width="35%">17.6%</div>
+                            </div>
+                        </div>
+                        <div class="bar">
+                            <div class="label">Claude 4.5</div>
+                            <div class="bar-inner">
+                                <div class="bar-fill grad-claude" data-width="27%">13.6%</div>
+                            </div>
+                        </div>
+                        <p class="chart-summary" style="text-align: left;">*Visual scale adjusted for clarity.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 6: Coding Mastery -->
+        <div class="slide-container" data-script="コーディング性能です。アルゴリズム生成能力において、Gemini 3はGPT 5.1を上回り、最速の開発体験を提供します。">
+            <h2 class="slide-title">Coding Performance</h2>
+            <div class="content-area">
+                <div class="two-column">
+                    <div class="image-wrapper">
+                        <div class="terminal-visual">
+                            <div class="terminal-header">
+                                <span class="dot red"></span><span class="dot yellow"></span><span
+                                    class="dot green"></span>
+                            </div>
+                            <div class="terminal-body">
+                                <span class="code-line comment">// Gemini 3 Pro - Vibe Coding Mode</span>
+                                <span class="code-line"><span class="keyword">const</span> solution = <span
+                                        class="keyword">await</span> gemini.optimize({</span>
+                                <span class="code-line">&nbsp;&nbsp;target: <span class="string">"Maximum
+                                        Efficiency"</span>,</span>
+                                <span class="code-line">&nbsp;&nbsp;context: 2000000</span>
+                                <span class="code-line">});</span>
+                                <span class="code-line"><br></span>
+                                <span class="code-line">> Analyzing dependencies... [OK]</span>
+                                <span class="code-line">> Generating refactor...</span>
+                                <span class="code-line">> Done (0.04s) <span class="cursor"></span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3>LiveCodeBench (Elo)</h3>
+                        <div class="chart-container" style="padding: 0;">
+                            <div class="bar">
+                                <div class="label" style="flex: 0 0 100px; text-align: left;">Gemini 3</div>
+                                <div class="bar-inner">
+                                    <div class="bar-fill grad-gemini" data-width="100%">2,439</div>
+                                </div>
+                            </div>
+                            <div class="bar">
+                                <div class="label" style="flex: 0 0 100px; text-align: left;">GPT-5.1</div>
+                                <div class="bar-inner">
+                                    <div class="bar-fill grad-gpt" data-width="92%">2,243</div>
+                                </div>
+                            </div>
+                            <div class="bar">
+                                <div class="label" style="flex: 0 0 100px; text-align: left;">Claude 4.5</div>
+                                <div class="bar-inner">
+                                    <div class="bar-fill grad-claude" data-width="58%">1,418</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 7 -->
+        <div class="slide-container bleed-image-layout"
+            data-script="マルチモーダル性能です。画像、動画、音声を理解する能力でも、81%のスコアでトップに立ちました。真のオムニモデルと言えます。">
+            <div class="content-container">
+                <h2 class="slide-title">Multimodal Dominance</h2>
+                <div class="content-area">
+                    <p><strong>MMMU-Pro Benchmark</strong></p>
+                    <div class="chart-container" style="margin-bottom: 40px;">
+                        <div class="bar">
+                            <div class="label" style="flex: 0 0 100px; text-align: left;">Gemini 3</div>
+                            <div class="bar-inner">
+                                <div class="bar-fill grad-gemini" data-width="81%">81.0%</div>
+                            </div>
+                        </div>
+                        <div class="bar">
+                            <div class="label" style="flex: 0 0 100px; text-align: left;">GPT-5.1</div>
+                            <div class="bar-inner">
+                                <div class="bar-fill grad-gpt" data-width="76%">76.0%</div>
+                            </div>
+                        </div>
+                    </div>
+                    <p>Gemini 3 processes video, audio, and images with unprecedented accuracy.</p>
+                </div>
+            </div>
+            <div class="image-container">
+                <img class="bleed-image-side"
+                    src="http://googleusercontent.com/image_collection/image_retrieval/9016749747869942781"
+                    alt="Artistic eye processing data streams">
+            </div>
+        </div>
+
+        <!-- Slide 8 -->
+        <div class="slide-container" data-script="価格設定です。Gemini 3は高性能でありながら、GPT 5.1と比べてもバランスの取れた価格設定となっています。">
+            <h2 class="slide-title">Economics & Pricing</h2>
+            <div class="content-area">
+                <div class="tiled-content">
+                    <div class="tile" style="border-color: #38bdf8;">
+                        <div class="icon"><i class="fa-brands fa-google"></i></div>
+                        <h3>Gemini 3 Pro</h3>
+                        <p><strong>$2.00</strong> / 1M Input</p>
+                        <p><strong>$4.00</strong> / 1M Output</p>
+                    </div>
+                    <div class="tile" style="border-color: #22c55e;">
+                        <div class="icon"><i class="fa-solid fa-robot"></i></div>
+                        <h3>GPT-5.1</h3>
+                        <p><strong>$1.25</strong> / 1M Input</p>
+                        <p><strong>$10.00</strong> / 1M Output</p>
+                    </div>
+                    <div class="tile" style="border-color: #f472b6;">
+                        <div class="icon"><i class="fa-solid fa-brain"></i></div>
+                        <h3>Claude 4.5</h3>
+                        <p><strong>$3.00</strong> / 1M Input</p>
+                        <p><strong>$15.00</strong> / 1M Output</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 9 -->
+        <div class="slide-container" data-script="定性的な評価です。Gemini 3は「バイブ・コーディング」と呼ばれる、直感的で高速な開発体験が支持されています。">
+            <h2 class="slide-title">Qualitative Analysis</h2>
+            <div class="content-area">
+                <div class="two-column tiled">
+                    <div>
+                        <h3>Gemini 3 Pro</h3>
+                        <ul style="text-align: left;">
+                            <li><strong>"Vibe Coding":</strong> Generates usable, creative prototypes instantly.</li>
+                            <li><strong>Adaptability:</strong> Handles vague instructions well.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3>Claude 4.5 Sonnet</h3>
+                        <ul style="text-align: left;">
+                            <li><strong>Safety First:</strong> Best for refactoring legacy code.</li>
+                            <li><strong>Rigid:</strong> Extremely precise instruction following.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 10 -->
+        <div class="slide-container" data-script="結論です。Gemini 3は単なるコーダーを超えた、真の推論パートナーです。ご視聴ありがとうございました。">
+            <div class="content-area">
+                <div class="title-layout" style="text-align: center; max-width: 80%; margin: 0 auto;">
+                    <h1 style="font-size: 56px; margin-bottom: 40px;">Verdict: Gemini 3 Wins</h1>
+                    <div class="quote-layout">
+                        <p style="font-size: 32px; font-style: italic; color: #cbd5e1;">"Gemini 3 isn't just an AI coder
+                            — it's a reasoning partner."</p>
+                        <p class="subtitle">— TechRadar Review, Nov 2025</p>
+                    </div>
+                </div>
+                <button class="play-btn" onclick="resetPresentation()"
+                    style="margin-top: 50px; font-size: 18px; padding: 10px 30px;">
+                    <i class="fa-solid fa-rotate-right"></i> Replay
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // GEMINI API INTEGRATION
+        // ==========================================
+        // Note: Gemini API calls now use the backend proxy `/api/gemini/proxy`
+        // and fetch the current model dynamically from `/api/config`.
+        let geminiModel = 'gemini-3.1-flash-lite-preview';
+
+        async function initConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const config = await res.json();
+                if (config.geminiModel) {
+                    geminiModel = config.geminiModel;
+                }
+            } catch (e) {
+                console.error("Failed to fetch config, using default model.", e);
+            }
+        }
+
+        // Initialize config on load
+        initConfig();
+
+        // ==========================================
+        // CACHING & PREFETCH LOGIC
+        // ==========================================
+        // Cache Structure: { index: { script: "text", audioBlobUrl: "blob:..." } }
+        const aiSlideCache = new Map();
+
+        // Generate script + audio for a specific slide and cache it
+        async function prepareSlideAssets(index, persona) {
+            if (aiSlideCache.has(index)) return; // Already cached
+
+            console.log(`Prefetching slide ${index}...`);
+            const slide = slides[index];
+            if (!slide) return;
+
+            const content = slide.innerText.replace(/\n/g, ' ').substring(0, 1000);
+
+            try {
+                // 1. Generate Script
+                const script = await generateScriptWithGemini(content, persona);
+
+                // 2. Generate Audio (returns a Blob URL)
+                const audioUrl = await generateAudioBlobWithGeminiTTS(script);
+
+                // 3. Store
+                aiSlideCache.set(index, { script, audioUrl });
+                console.log(`Slide ${index} ready.`);
+            } catch (e) {
+                console.error(`Failed to prefetch slide ${index}`, e);
+            }
+        }
+
+        // Clear cache when persona changes
+        function clearAiCache() {
+            console.log("Clearing cache due to persona change.");
+            aiSlideCache.clear();
+        }
+
+
+        // Helper: Generic Text Generation
+        async function generateTextWithGemini(prompt) {
+            try {
+                const targetUrl = encodeURIComponent(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`);
+                const response = await fetch(`/api/gemini/proxy?target=${targetUrl}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
+
+                const data = await response.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "Error generating text.";
+            } catch (e) {
+                console.error(e);
+                return "API Error. Please check console.";
+            }
+        }
+
+        // Helper: Structured JSON Generation (For Quiz)
+        async function generateJsonWithGemini(prompt, schema) {
+            try {
+                const targetUrl = encodeURIComponent(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`);
+                const response = await fetch(`/api/gemini/proxy?target=${targetUrl}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: schema
+                        }
+                    })
+                });
+
+                const data = await response.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                return JSON.parse(text);
+            } catch (e) {
+                console.error(e);
+                return null;
+            }
+        }
+
+        // Feature 1: Script Generation
+        async function generateScriptWithGemini(slideContent, persona) {
+            const prompt = `
+    You are a presenter for a tech conference presentation about "Gemini 3 vs GPT-5.1 vs Claude 4.5".
+    Generate a short, engaging spoken script (in Japanese) for the current slide. 
+    The current slide text is: "${slideContent}".
+    Your persona is: ${persona}.
+    Keep it under 30 seconds of speech. Do not include markdown or stage directions. Just the text to be spoken.
+    `;
+            return await generateTextWithGemini(prompt);
+        }
+
+        // Feature 2: Deep Dive (Explain)
+        async function generateDeepDive() {
+            updateAiStatus("Analyzing slide...", true);
+            const activeSlide = slides[currentSlideIndex];
+            const slideContent = activeSlide.innerText.replace(/\n/g, ' ').substring(0, 1000);
+
+            const prompt = `
+    Analyze the following slide content from a presentation about AI Benchmarks (Gemini 3 vs others).
+    Provide a detailed "Deep Dive" explanation (in Japanese).
+    Explain the technical context, why these numbers matter, and implications.
+    Use Markdown formatting (bold, bullets).
+    
+    Slide Content: "${slideContent}"
+    `;
+
+            const text = await generateTextWithGemini(prompt);
+
+            updateAiStatus("", false);
+            showTextOverlay("Deep Dive Analysis", text);
+        }
+
+        // Feature 3: Q&A
+        async function askGemini() {
+            const questionInput = document.getElementById('qa-input');
+            const question = questionInput.value;
+            if (!question) return;
+
+            updateAiStatus("Thinking...", true);
+            const activeSlide = slides[currentSlideIndex];
+            const slideContent = activeSlide.innerText.replace(/\n/g, ' ').substring(0, 1000);
+
+            const prompt = `
+    Context: The user is viewing a presentation slide with the following content: "${slideContent}".
+    User Question: "${question}"
+    
+    Answer the user's question based on the slide context and your general knowledge about AI models (Gemini 3, GPT-5, etc.).
+    Answer in Japanese. Keep it concise but helpful.
+    `;
+
+            const text = await generateTextWithGemini(prompt);
+
+            updateAiStatus("", false);
+            showTextOverlay(`Q: ${question}`, text);
+            questionInput.value = '';
+        }
+
+        // Feature 4: Quiz Generator
+        async function generateQuiz() {
+            updateAiStatus("Generating Quiz...", true);
+            const activeSlide = slides[currentSlideIndex];
+            const slideContent = activeSlide.innerText.replace(/\n/g, ' ').substring(0, 1000);
+
+            const prompt = `
+    Generate 2 multiple-choice questions (in Japanese) based on this slide content: "${slideContent}".
+    Each question should have 3 options and 1 correct answer.
+    `;
+
+            const schema = {
+                type: "ARRAY",
+                items: {
+                    type: "OBJECT",
+                    properties: {
+                        question: { type: "STRING" },
+                        options: { type: "ARRAY", items: { type: "STRING" } },
+                        correctIndex: { type: "INTEGER" }
+                    },
+                    required: ["question", "options", "correctIndex"]
+                }
+            };
+
+            const quizData = await generateJsonWithGemini(prompt, schema);
+            updateAiStatus("", false);
+
+            if (!quizData) {
+                showTextOverlay("Error", "Failed to generate quiz. Please try again.");
+                return;
+            }
+
+            let html = '';
+            quizData.forEach((q, i) => {
+                html += `<div class="quiz-question">
+            <p>Q${i + 1}: ${q.question}</p>`;
+                q.options.forEach((opt, j) => {
+                    html += `<div class="quiz-option" onclick="checkAnswer(this, ${j}, ${q.correctIndex})">${opt}</div>`;
+                });
+                html += `</div>`;
+            });
+
+            showTextOverlay("Quick Quiz", html);
+        }
+
+        function checkAnswer(element, selectedIndex, correctIndex) {
+            if (element.parentElement.classList.contains('answered')) return;
+
+            const options = element.parentElement.querySelectorAll('.quiz-option');
+            element.parentElement.classList.add('answered');
+
+            if (selectedIndex === correctIndex) {
+                element.classList.add('correct');
+            } else {
+                element.classList.add('incorrect');
+                options[correctIndex].classList.add('correct');
+            }
+        }
+
+        // Feature 5: Analogy Generator
+        async function generateAnalogy() {
+            updateAiStatus("Thinking of analogy...", true);
+            const activeSlide = slides[currentSlideIndex];
+            const slideContent = activeSlide.innerText.replace(/\n/g, ' ').substring(0, 1000);
+            const domain = document.getElementById('analogy-select').value;
+
+            const prompt = `
+    Explain the concepts in this slide using a creative analogy/metaphor from the domain of "${domain}".
+    Translate the technical terms into terms from that domain.
+    Language: Japanese.
+    
+    Slide Content: "${slideContent}"
+    `;
+
+            const text = await generateTextWithGemini(prompt);
+            updateAiStatus("", false);
+            showTextOverlay(`${domain} Analogy`, text);
+        }
+
+
+        function handleQAKey(event) {
+            if (event.key === 'Enter') askGemini();
+        }
+
+        // Feature 6: TTS - MODIFIED for Caching (Returns Blob URL)
+        async function generateAudioBlobWithGeminiTTS(text) {
+            const targetUrl = encodeURIComponent(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`);
+            const response = await fetch(`/api/gemini/proxy?target=${targetUrl}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: text }] }],
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: { voiceName: "Kore" }
+                            }
+                        }
+                    }
+                }),
+            });
+
+            const result = await response.json();
+            const base64Audio = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+            if (!base64Audio) throw new Error("No audio data returned");
+
+            const binaryString = window.atob(base64Audio);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) { bytes[i] = binaryString.charCodeAt(i); }
+            const pcmData = bytes.buffer;
+            const wavBuffer = pcmToWav(pcmData, 24000);
+
+            const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+            return URL.createObjectURL(blob);
+        }
+
+        // Speak from Blob URL
+        function playAudioFromUrl(url) {
+            return new Promise((resolve) => {
+                const audio = new Audio(url);
+                audio.onended = () => { resolve(); };
+                audio.play();
+            });
+        }
+
+        // Keep fallback for direct play just in case
+        async function speakWithGeminiTTS(text) {
+            updateAiStatus("Synthesizing...", true);
+            try {
+                const url = await generateAudioBlobWithGeminiTTS(text);
+                updateAiStatus("Playing...", false);
+                await playAudioFromUrl(url);
+            } catch (e) {
+                console.error("TTS Error", e);
+                updateAiStatus("TTS Error", false);
+                // Fallback
+                const u = new SpeechSynthesisUtterance("Audio generation failed.");
+                window.speechSynthesis.speak(u);
+            }
+        }
+
+
+        // Helper: PCM to WAV
+        function pcmToWav(pcmData, sampleRate) {
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+            const blockAlign = (numChannels * bitsPerSample) / 8;
+            const dataSize = pcmData.byteLength;
+            const headerSize = 44;
+            const totalSize = headerSize + dataSize;
+            const buffer = new ArrayBuffer(totalSize);
+            const view = new DataView(buffer);
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            const pcmBytes = new Uint8Array(pcmData);
+            const wavBytes = new Uint8Array(buffer, 44);
+            wavBytes.set(pcmBytes);
+            return buffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        // ==========================================
+        // APP LOGIC
+        // ==========================================
+
+        let currentSlideIndex = 0;
+        const slides = document.querySelectorAll('.slide-container');
+        const overlay = document.getElementById('overlay');
+        const captions = document.getElementById('captions');
+        const aiStatus = document.getElementById('ai-status');
+        const progressFill = document.getElementById('progress-fill');
+        const aiPanel = document.getElementById('ai-panel');
+        const textOverlay = document.getElementById('text-overlay');
+        const textOverlayTitle = document.getElementById('text-overlay-title');
+        const textOverlayContent = document.getElementById('text-overlay-content');
+
+        let synth = window.speechSynthesis;
+        let isAutoPlaying = false;
+        let isAiAutoPlaying = false;
+
+        function startStandardPresentation() {
+            stopAllAutoPlay();
+            overlay.classList.add('hidden');
+            captions.classList.add('visible');
+            aiPanel.classList.remove('visible');
+            isAutoPlaying = true;
+            currentSlideIndex = 0;
+            showSlide(0);
+            playSlideAudioStandard(0);
+        }
+
+        function toggleAiPanel() {
+            overlay.classList.add('hidden');
+            captions.classList.add('visible');
+            aiPanel.classList.toggle('visible');
+            if (currentSlideIndex === 0 && !slides[0].classList.contains('active')) {
+                showSlide(0);
+            }
+        }
+
+        function showTextOverlay(title, content) {
+            textOverlayTitle.textContent = title;
+            textOverlayContent.innerHTML = content; // Allow some HTML/Markdown if parsed
+            textOverlay.classList.add('visible');
+        }
+
+        function closeTextOverlay() {
+            textOverlay.classList.remove('visible');
+        }
+
+        // Main AI Function - Updated for Caching
+        async function generateAndSpeakAI(isAuto = false) {
+            if (isAutoPlaying) { synth.cancel(); isAutoPlaying = false; }
+
+            const persona = document.getElementById('persona-select').value;
+
+            // Check cache first
+            let assets = aiSlideCache.get(currentSlideIndex);
+
+            if (!assets) {
+                updateAiStatus("Generating Live...", true);
+                // If not cached, generate now (blocking)
+                const activeSlide = slides[currentSlideIndex];
+                const content = activeSlide.innerText.replace(/\n/g, ' ').substring(0, 1000);
+                const script = await generateScriptWithGemini(content, persona);
+                const audioUrl = await generateAudioBlobWithGeminiTTS(script);
+                assets = { script, audioUrl };
+                // Cache it for replay
+                aiSlideCache.set(currentSlideIndex, assets);
+            } else {
+                console.log("Playing from cache");
+            }
+
+            captions.textContent = assets.script;
+            captions.classList.add('visible');
+            updateAiStatus("Playing...", true);
+
+            // Play
+            await playAudioFromUrl(assets.audioUrl);
+
+            updateAiStatus("", false);
+        }
+
+        // NEW: AI Auto Presentation Logic with Prefetch
+        async function startAiAutoPresentation() {
+            stopAllAutoPlay();
+            isAiAutoPlaying = true;
+
+            // Ensure AI Panel stays open or provides feedback
+            updateAiStatus("Starting Auto-Presentation...", true);
+
+            await runAiPresentationLoop();
+        }
+
+        async function runAiPresentationLoop() {
+            if (!isAiAutoPlaying) return;
+
+            const persona = document.getElementById('persona-select').value;
+
+            // 1. Start Playing Current
+            const playPromise = generateAndSpeakAI(true);
+
+            // 2. Prefetch Next (Parallel)
+            if (currentSlideIndex < slides.length - 1) {
+                prepareSlideAssets(currentSlideIndex + 1, persona);
+            }
+
+            await playPromise;
+
+            // 3. Wait & Advance
+            if (isAiAutoPlaying) {
+                // Small pause between slides
+                await new Promise(r => setTimeout(r, 1000));
+
+                if (currentSlideIndex < slides.length - 1) {
+                    currentSlideIndex++;
+                    showSlide(currentSlideIndex);
+                    captions.textContent = ""; // Clear old caption
+                    await runAiPresentationLoop(); // Recurse
+                } else {
+                    isAiAutoPlaying = false;
+                    captions.textContent = "Presentation Complete.";
+                }
+            }
+        }
+
+        function stopAllAutoPlay() {
+            synth.cancel();
+            isAutoPlaying = false;
+            isAiAutoPlaying = false;
+        }
+
+        function updateAiStatus(text, isVisible) {
+            aiStatus.style.display = isVisible ? 'flex' : 'none';
+            aiStatus.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> ${text}`;
+        }
+
+        function showSlide(index) {
+            slides.forEach(slide => {
+                slide.classList.remove('active');
+                const bars = slide.querySelectorAll('.bar-fill');
+                bars.forEach(bar => bar.style.width = '0');
+            });
+            const activeSlide = slides[index];
+            activeSlide.classList.add('active');
+            setTimeout(() => {
+                const bars = activeSlide.querySelectorAll('.bar-fill');
+                bars.forEach(bar => { bar.style.width = bar.getAttribute('data-width'); });
+            }, 300);
+            const progress = ((index + 1) / slides.length) * 100;
+            progressFill.style.width = `${progress}%`;
+        }
+
+        function playSlideAudioStandard(index) {
+            if (index >= slides.length || !isAutoPlaying) return;
+            const slide = slides[index];
+            const text = slide.getAttribute('data-script');
+            captions.textContent = text;
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'ja-JP';
+            utterance.rate = 1.1;
+            const voices = synth.getVoices();
+            const jaVoice = voices.find(v => v.lang.includes('ja') || v.name.includes('Google 日本語'));
+            if (jaVoice) utterance.voice = jaVoice;
+            utterance.onend = function () {
+                if (!isAutoPlaying) return;
+                setTimeout(() => { if (isAutoPlaying) nextSlideStandard(); }, 1000);
+            };
+            synth.speak(utterance);
+        }
+
+        function nextSlideStandard() {
+            const nextIndex = currentSlideIndex + 1;
+            if (nextIndex < slides.length) {
+                currentSlideIndex = nextIndex;
+                showSlide(nextIndex);
+                playSlideAudioStandard(nextIndex);
+            } else {
+                captions.textContent = "End of Presentation";
+                isAutoPlaying = false;
+            }
+        }
+
+        function nextSlide() {
+            stopAllAutoPlay();
+            if (currentSlideIndex < slides.length - 1) {
+                currentSlideIndex++;
+                showSlide(currentSlideIndex);
+                captions.textContent = "";
+            }
+        }
+
+        function prevSlide() {
+            stopAllAutoPlay();
+            if (currentSlideIndex > 0) {
+                currentSlideIndex--;
+                showSlide(currentSlideIndex);
+                captions.textContent = "";
+            }
+        }
+
+        function resetPresentation() {
+            stopAllAutoPlay();
+            overlay.classList.remove('hidden');
+            aiPanel.classList.remove('visible');
+            captions.classList.remove('visible');
+            textOverlay.classList.remove('visible');
+            currentSlideIndex = 0;
+            showSlide(0);
+        }
+
+        window.speechSynthesis.getVoices();
+    </script>
+
+</body>
+
+</html>

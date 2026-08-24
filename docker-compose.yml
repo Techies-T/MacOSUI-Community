@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  macosui:
+    build: .
+    container_name: macosui-local
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=8080
+      - DB_TYPE=sqlite
+      # In local development, missing DB_ENCRYPTION_KEY will trigger auto-generation.
+      # If you want a fixed key, uncomment and set the below:
+      # - DB_ENCRYPTION_KEY=your_secure_32_byte_hex_string_here
+    restart: unless-stopped

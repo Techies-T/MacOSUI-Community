@@ -1,0 +1,24 @@
+{
+  "version": "2.2.2",
+  "exported_at": "2026-07-30T09:00:00Z",
+  "articles": [
+    {
+      "title": "🎉 MacOSUI OSS へようこそ！",
+      "content": "# MacOSUI OSS スタートガイド\n\nMacOSUI は、AI エージェントと人間がシームレスに協調作業を行うためのオープンソース (Apache 2.0) OS です。\n\n## 主な機能\n- **RAG (Gemini File Search)**: ファイル高速検索・要約\n- **Deep Research**: 自律型リサーチとレポート自動生成\n- **ナレッジベース**: JSON によるデータインポート・エクスポート\n\nこのサンプルナレッジはインポート機能により復元されました。",
+      "tags": ["ガイド", "OSS", "スタート"],
+      "token_count": 150,
+      "input_tokens": 100,
+      "output_tokens": 50,
+      "pod_id": null
+    },
+    {
+      "title": "🔐 セキュリティとZeroizationメモリ保護について",
+      "content": "## メモリ保護アーキテクチャ\n\n`MacOSUI-oss` では、暗号化キーをアプリのメモリ上に永続保持せず、使用直後に `keyBuffer.fill(0)` で即時抹消 (Zeroization) します。\nまた、AWS ECS (Fargate) 構成をデフォルト標準とすることで、ホスト OS のアクセス権限管理を不要にし、コンテナメモリダンプ等の脅威を根本から解決します。",
+      "tags": ["セキュリティ", "Fargate", "Zeroization"],
+      "token_count": 180,
+      "input_tokens": 120,
+      "output_tokens": 60,
+      "pod_id": null
+    }
+  ]
+}

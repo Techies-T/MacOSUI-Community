@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NVIDIA Financial & Supply Chain Report 2024-2025</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #0F172A;
+            color: #F8FAFC;
+        }
+
+        /* Chart Container Strict Styling */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 700px;
+            /* Constraints width for readability */
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            /* Base height */
+            max-height: 400px;
+        }
+
+        @media (max-width: 640px) {
+            .chart-container {
+                height: 280px;
+            }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0F172A;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
+        .metric-card {
+            transition: transform 0.2s;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+        }
+
+        /* Loading Animation */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #10B981;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body class="antialiased selection:bg-emerald-500 selection:text-white">
+
+    <header class="sticky top-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-700 shadow-lg">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-2xl font-black tracking-tighter text-emerald-400">NVIDIA <span
+                    class="text-white font-light">INSIGHTS</span></h1>
+            <nav class="hidden md:flex gap-6 text-sm font-bold text-slate-300">
+                <a href="#profit" class="hover:text-emerald-400 transition">収益構造</a>
+                <a href="#supply" class="hover:text-emerald-400 transition">サプライチェーン</a>
+                <a href="#yoy-comparison" class="hover:text-emerald-400 transition text-emerald-200">3年比較 ✨</a>
+                <a href="#ai-tools" class="text-emerald-400 hover:text-emerald-200 transition">AI分析ツール</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8 space-y-16">
+
+        <section class="text-center space-y-4 py-10">
+            <h2
+                class="text-4xl md:text-5xl font-black mb-4 bg-gradient-to-r from-emerald-400 to-cyan-500 bg-clip-text text-transparent">
+                AIインフラの覇者：決算分析レポート
+            </h2>
+            <p class="text-lg text-slate-400 max-w-3xl mx-auto">
+                NVIDIAの圧倒的な成長はどこから来ているのか？サプライチェーンのボトルネックは解消されたのか？
+                最新の決算データと市場調査に基づき、3つの重要な疑問を視覚的に解説します。
+            </p>
+        </section>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg metric-card">
+                <div class="text-sm text-slate-400 uppercase font-bold tracking-wider">データセンター売上比率</div>
+                <div class="text-4xl font-black text-emerald-400 mt-2">87% <span class="text-lg text-slate-500">超</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-2">ゲーム事業を遥かに凌駕する主要収益源</p>
+            </div>
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg metric-card">
+                <div class="text-sm text-slate-400 uppercase font-bold tracking-wider">粗利益率 (Gross Margin)</div>
+                <div class="text-4xl font-black text-cyan-400 mt-2">75% <span class="text-lg text-slate-500">前後</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-2">ハードウェアメーカーとしては異例の高水準</p>
+            </div>
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg metric-card">
+                <div class="text-sm text-slate-400 uppercase font-bold tracking-wider">Blackwell需要</div>
+                <div class="text-4xl font-black text-purple-400 mt-2">12<span class="text-lg text-slate-500">ヶ月待ち</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-2">次世代チップは供給制約が継続中</p>
+            </div>
+        </div>
+
+        <section id="profit" class="scroll-mt-24">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-2 h-8 bg-emerald-500 rounded-full"></div>
+                <h3 class="text-3xl font-bold text-white">1. 営業利益の源泉：チップ vs ネットワーク</h3>
+            </div>
+            <div class="bg-slate-800/50 rounded-2xl p-6 md:p-8 border border-slate-700">
+                <p class="text-slate-300 mb-8 leading-relaxed">
+                    NVIDIAの収益構造は劇的に変化しました。かつての主力であったゲーミング（GeForce）は安定していますが、現在の成長エンジンは完全に<strong>「データセンター」</strong>です。
+                    一部で「ネットワーク収入がチップを上回った」という噂がありますが、データを見ると<strong>依然としてGPU（コンピュート）が圧倒的多数</strong>を占めています。
+                    ただし、InfiniBandやSpectrum-Xを含むネットワーク部門も年率換算で数十億ドル規模に急成長しており、単体のネットワーク企業であれば世界トップクラスの規模です。
+                </p>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 shadow-inner">
+                        <h4 class="text-center font-bold text-emerald-400 mb-4">部門別売上構成 (直近四半期概算)</h4>
+                        <div class="chart-container">
+                            <canvas id="revenueSplitChart"></canvas>
+                        </div>
+                        <p class="text-xs text-center text-slate-500 mt-4">データセンター部門が全体の85%以上を占有</p>
+                    </div>
+
+                    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 shadow-inner">
+                        <h4 class="text-center font-bold text-cyan-400 mb-4">データセンター内訳：計算 vs 通信</h4>
+                        <div class="chart-container">
+                            <canvas id="datacenterBreakdownChart"></canvas>
+                        </div>
+                        <p class="text-xs text-center text-slate-500 mt-4">
+                            ネットワークは急成長中だが、GPU（Compute）の売上規模には及ばない。<br>
+                            しかし、AIクラスター構築にはネットワークが不可欠であり、セット販売が加速している。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="supply" class="scroll-mt-24">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-2 h-8 bg-purple-500 rounded-full"></div>
+                <h3 class="text-3xl font-bold text-white">2. サプライチェーン：需要と供給の「2年待ち」の真実</h3>
+            </div>
+            <div class="bg-slate-800/50 rounded-2xl p-6 md:p-8 border border-slate-700">
+                <p class="text-slate-300 mb-8 leading-relaxed">
+                    「納品まで2年」という説は、部分的に真実ですが、文脈が必要です。現行の主力製品である<strong>H100のリードタイム（発注から納品までの期間）は劇的に短縮</strong>され、現在は数ヶ月程度です。
+                    一方で、次世代チップ<strong>「Blackwell (GB200など)」は、今後12ヶ月分以上が完売</strong>しており、今から注文しても納品は来年以降になる可能性があります。
+                    ボトルネックはチップそのものの製造（TSMC）よりも、高度なパッケージング技術（CoWoS）と高帯域メモリ（HBM）の供給にあります。
+                </p>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 shadow-inner">
+                        <h4 class="text-center font-bold text-purple-400 mb-4">GPUリードタイム（納期）の推移</h4>
+                        <div class="chart-container">
+                            <canvas id="leadTimeChart"></canvas>
+                        </div>
+                        <p class="text-xs text-center text-slate-500 mt-4">
+                            H100の供給は正常化。逼迫しているのは「次世代」製品。
+                        </p>
+                    </div>
+
+                    <div
+                        class="bg-slate-900 rounded-xl p-6 border border-slate-800 shadow-inner h-full flex flex-col justify-center">
+                        <h4 class="text-center font-bold text-white mb-6">供給のボトルネック構造</h4>
+
+                        <div class="flex flex-col gap-4 relative">
+                            <div class="flex items-center gap-4">
+                                <div
+                                    class="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center text-2xl">
+                                    🧠</div>
+                                <div class="flex-1 bg-slate-800 p-3 rounded border-l-4 border-green-500">
+                                    <div class="font-bold text-white">シリコンダイ製造 (TSMC)</div>
+                                    <div class="text-xs text-slate-400">比較的順調。生産能力確保済み。</div>
+                                </div>
+                            </div>
+
+                            <div class="pl-5 text-slate-500 text-xl">↓</div>
+
+                            <div class="flex items-center gap-4">
+                                <div
+                                    class="w-12 h-12 rounded-full bg-red-900/50 flex items-center justify-center text-2xl border border-red-500">
+                                    📦</div>
+                                <div
+                                    class="flex-1 bg-slate-800 p-3 rounded border-l-4 border-red-500 relative overflow-hidden">
+                                    <div
+                                        class="absolute right-0 top-0 bg-red-600 text-white text-[10px] px-2 py-0.5 font-bold">
+                                        制約要因</div>
+                                    <div class="font-bold text-white">CoWoS パッケージング</div>
+                                    <div class="text-xs text-slate-400">GPUとメモリを積層する高度工程。ここが最大のボトルネック。</div>
+                                </div>
+                            </div>
+
+                            <div class="pl-5 text-slate-500 text-xl">↓</div>
+
+                            <div class="flex items-center gap-4">
+                                <div
+                                    class="w-12 h-12 rounded-full bg-orange-900/50 flex items-center justify-center text-2xl border border-orange-500">
+                                    💾</div>
+                                <div class="flex-1 bg-slate-800 p-3 rounded border-l-4 border-orange-500">
+                                    <div class="font-bold text-white">HBM (高帯域メモリ)</div>
+                                    <div class="text-xs text-slate-400">HBM3eの歩留まりと供給量が需要に追いついていない。</div>
+                                </div>
+                            </div>
+
+                            <div class="pl-5 text-slate-500 text-xl">↓</div>
+
+                            <div class="flex items-center gap-4">
+                                <div
+                                    class="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center text-2xl">
+                                    🚚</div>
+                                <div class="flex-1 bg-slate-800 p-3 rounded border-l-4 border-blue-500">
+                                    <div class="font-bold text-white">最終組立・納品 (Dell, HP, Supermicro等)</div>
+                                    <div class="text-xs text-slate-400">サーバーラックへの組み込み。Blackwellは液体冷却対応が必要。</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="margins" class="scroll-mt-24">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-2 h-8 bg-cyan-500 rounded-full"></div>
+                <h3 class="text-3xl font-bold text-white">3. 粗利率の構造：ハードウェア vs ソフトウェア</h3>
+            </div>
+            <div class="bg-slate-800/50 rounded-2xl p-6 md:p-8 border border-slate-700">
+                <p class="text-slate-300 mb-8 leading-relaxed">
+                    NVIDIAの粗利率（Gross
+                    Margin）は、製造業としては異例の75%前後に達しました。これは、単なるチップ販売ではなく、CUDAを含むソフトウェアエコシステムの支配力が価格決定権を生んでいるためです。
+                    ハードウェア単体の利益率も極めて高いですが、<strong>ソフトウェア＆サービス（NVIDIA AI Enterpriseなど）の粗利率は90%近い</strong>と推定されます。
+                </p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 shadow-inner">
+                        <h4 class="text-center font-bold text-cyan-400 mb-4">全社粗利益率 (Gross Margin) の推移</h4>
+                        <div class="chart-container">
+                            <canvas id="marginTrendChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800 shadow-inner">
+                        <h4 class="text-center font-bold text-emerald-400 mb-4">ビジネス別 推定粗利率比較</h4>
+                        <div class="chart-container">
+                            <canvas id="marginComparisonChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="yoy-comparison" class="scroll-mt-24 mb-12">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-2 h-8 bg-pink-500 rounded-full"></div>
+                <h3 class="text-3xl font-bold text-white">4. 3年間の軌跡：収益構造の大転換</h3>
+            </div>
+            <div class="bg-slate-800/50 rounded-2xl p-6 md:p-8 border border-slate-700">
+                <p class="text-slate-300 mb-8 leading-relaxed">
+                    過去3年間でNVIDIAは「ゲーミングGPUの会社」から「AIデータセンターの会社」へと完全に変貌しました。
+                    <strong>データセンター比率は55%から約90%へ急上昇</strong>し、ゲーミング部門の存在感は相対的に小さくなっています。
+                    以下のグラフは、FY23（AIブーム前夜）から現在にかけての売上構成比の劇的なシフトを示しています。
+                </p>
+
+                <div class="bg-slate-900 rounded-xl p-6 border border-slate-800 shadow-inner">
+                    <h4 class="text-center font-bold text-white mb-2">売上構成比の推移 (FY23 - FY26 Q3)</h4>
+                    <p class="text-center text-xs text-slate-500 mb-6">※100%積み上げグラフ：全体に占める各事業の割合を表示</p>
+                    <div class="chart-container">
+                        <canvas id="revenueCompositionChart"></canvas>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 mt-6 text-center text-xs md:text-sm text-slate-400">
+                        <div>
+                            <span class="block text-emerald-400 font-bold text-lg">FY23</span>
+                            <span>Gaming/Crypto調整期<br>DC比率: ~55%</span>
+                        </div>
+                        <div>
+                            <span class="block text-emerald-400 font-bold text-lg">FY24</span>
+                            <span>H100立ち上げ・急成長<br>DC比率: ~78%</span>
+                        </div>
+                        <div>
+                            <span class="block text-emerald-400 font-bold text-lg">現在 (FY26 Q3)</span>
+                            <span>AI需要爆発・収益最大化<br>DC比率: ~90%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="ai-tools" class="scroll-mt-24 mb-12">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-2 h-8 bg-gradient-to-b from-blue-400 to-purple-600 rounded-full"></div>
+                <h3
+                    class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+                    AIアナリスト分析ツール (Powered by Gemini)
+                </h3>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div
+                    class="bg-slate-800/80 rounded-2xl p-6 border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.1)]">
+                    <div class="flex items-center gap-2 mb-4">
+                        <span class="text-2xl">🔮</span>
+                        <h4 class="text-xl font-bold text-purple-300">未来シナリオ・シミュレーター</h4>
+                    </div>
+                    <p class="text-slate-400 text-sm mb-4">
+                        「もし〜だったら？」という仮説を入力してください。NVIDIAの業績や市場への影響をAIが予測します。
+                    </p>
+                    <div class="space-y-4">
+                        <textarea id="scenarioInput" rows="3"
+                            class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                            placeholder="例：もしBlackwellの供給が半年遅れたら、競合のAMDのシェアはどうなる？"></textarea>
+
+                        <div class="flex gap-2">
+                            <button onclick="runScenario()"
+                                class="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg flex justify-center items-center gap-2">
+                                シミュレーション実行 ✨
+                            </button>
+                        </div>
+
+                        <div id="scenarioResult"
+                            class="hidden bg-slate-900/50 p-4 rounded-lg border border-purple-500/20 min-h-[100px]">
+                            <div id="scenarioLoader" class="hidden text-center py-4">
+                                <div class="loader"></div>
+                                <p class="text-xs text-slate-500 mt-2">AIが分析中...</p>
+                            </div>
+                            <div id="scenarioText" class="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    class="bg-slate-800/80 rounded-2xl p-6 border border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+                    <div class="flex items-center gap-2 mb-4">
+                        <span class="text-2xl">👨‍💼</span>
+                        <h4 class="text-xl font-bold text-emerald-300">専属AIアナリストに質問</h4>
+                    </div>
+                    <p class="text-slate-400 text-sm mb-4">
+                        このレポートのデータや、用語（CoWoS、HBMなど）について分からないことを聞いてください。
+                    </p>
+                    <div class="space-y-4">
+                        <div class="flex gap-2">
+                            <input id="qaInput" type="text"
+                                class="flex-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                placeholder="例：粗利率がこんなに高いのはなぜ？">
+                            <button onclick="askAnalyst()"
+                                class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg whitespace-nowrap">
+                                質問する ✨
+                            </button>
+                        </div>
+
+                        <div id="qaResult"
+                            class="hidden bg-slate-900/50 p-4 rounded-lg border border-emerald-500/20 min-h-[100px]">
+                            <div id="qaLoader" class="hidden text-center py-4">
+                                <div class="loader !border-t-emerald-500"></div>
+                                <p class="text-xs text-slate-500 mt-2">アナリストが回答を作成中...</p>
+                            </div>
+                            <div id="qaText" class="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer
+            class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-8 border border-slate-700 text-center">
+            <h4 class="text-2xl font-bold text-white mb-4">結論：トレンドの変化</h4>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+                <div class="p-4 bg-slate-950/50 rounded-lg border-l-4 border-emerald-500">
+                    <strong class="block text-emerald-400 mb-2">収益源</strong>
+                    <p class="text-sm text-slate-300">依然としてGPUチップが王様。ネットワークも成長しているが、チップを逆転するには至っていない。</p>
+                </div>
+                <div class="p-4 bg-slate-950/50 rounded-lg border-l-4 border-purple-500">
+                    <strong class="block text-purple-400 mb-2">供給状況</strong>
+                    <p class="text-sm text-slate-300">「H100」は即納に近い。「Blackwell」は完全な供給不足。2年待ちは最先端クラスターの構築期間を含む表現。</p>
+                </div>
+                <div class="p-4 bg-slate-950/50 rounded-lg border-l-4 border-cyan-500">
+                    <strong class="block text-cyan-400 mb-2">利益構造</strong>
+                    <p class="text-sm text-slate-300">粗利75%の高止まり。新製品投入により一時的に数ポイント下落するが、歴史的には極めて高い水準を維持。</p>
+                </div>
+            </div>
+            <p class="text-xs text-slate-500 mt-8">Based on FY24-FY25 Financial Reports & Market Analysis.</p>
+        </footer>
+
+    </main>
+
+    <script>
+        // --- GEMINI API LOGIC ---
+        // Gemini API calls now use the backend proxy `/api/gemini/proxy`
+        // and fetch the current model dynamically from `/api/config`.
+        let geminiModel = 'gemini-3.1-flash-lite-preview';
+
+        async function initConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const config = await res.json();
+                if (config.geminiModel) {
+                    geminiModel = config.geminiModel;
+                }
+            } catch (e) {
+                console.error("Failed to fetch config, using default model.", e);
+            }
+        }
+
+        // Initialize config on load
+        initConfig();
+
+        async function callGemini(prompt, systemInstruction = "") {
+            // REMOVED VALIDATION: Allow execution environment to handle key injection
+
+            const targetUrl = encodeURIComponent(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`);
+            const url = `/api/gemini/proxy?target=${targetUrl}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            // Exponential Backoff Logic
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            let attempt = 0;
+
+            while (attempt <= 5) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API Error: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    return data.candidates?.[0]?.content?.parts?.[0]?.text || "申し訳ありません。回答を生成できませんでした。";
+
+                } catch (error) {
+                    if (attempt === 5) {
+                        console.error("Gemini API Error after retries:", error);
+                        return "申し訳ありません。現在AIサービスへの接続が不安定です。しばらく時間を置いてから再度お試しください。";
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+                    attempt++;
+                }
+            }
+        }
+
+        // Scenario Simulator Function
+        async function runScenario() {
+            const input = document.getElementById('scenarioInput').value;
+            if (!input.trim()) return;
+
+            const resultDiv = document.getElementById('scenarioResult');
+            const loader = document.getElementById('scenarioLoader');
+            const textDiv = document.getElementById('scenarioText');
+
+            resultDiv.classList.remove('hidden');
+            loader.classList.remove('hidden');
+            textDiv.innerText = "";
+
+            const systemPrompt = "あなたはNVIDIA専門の金融アナリストです。ユーザーが入力した「もしも（What-if）」のシナリオに対して、NVIDIAの株価、収益、競争優位性に与える影響を論理的かつ簡潔に予測してください。日本語で回答してください。ネガティブなリスクも公平に指摘してください。";
+
+            const response = await callGemini(input, systemPrompt);
+
+            loader.classList.add('hidden');
+            typeWriter(textDiv, response);
+        }
+
+        // Ask Analyst Function
+        async function askAnalyst() {
+            const input = document.getElementById('qaInput').value;
+            if (!input.trim()) return;
+
+            const resultDiv = document.getElementById('qaResult');
+            const loader = document.getElementById('qaLoader');
+            const textDiv = document.getElementById('qaText');
+
+            resultDiv.classList.remove('hidden');
+            loader.classList.remove('hidden');
+            textDiv.innerText = "";
+
+            const systemPrompt = "あなたはNVIDIAの決算レポートを解説する親切なアシスタントです。ユーザーの質問に対して、CoWoS、HBM、CUDAなどの専門用語を分かりやすく解説しながら答えてください。NVIDIAの強みやリスクについても触れてください。日本語で回答してください。";
+
+            const response = await callGemini(input, systemPrompt);
+
+            loader.classList.add('hidden');
+            typeWriter(textDiv, response);
+        }
+
+        // Typewriter effect for AI text
+        function typeWriter(element, text) {
+            let i = 0;
+            element.innerText = "";
+            const speed = 15; // ms
+            function type() {
+                if (i < text.length) {
+                    element.innerText += text.charAt(i);
+                    i++;
+                    setTimeout(type, speed);
+                }
+            }
+            type();
+        }
+
+
+        // --- CHART JS LOGIC ---
+
+        // Utility for label wrapping (16 chars)
+        function wrapLabel(label) {
+            if (label.length <= 16) return label;
+            const words = label.split('');
+            const chunks = [];
+            let currentChunk = '';
+            let count = 0;
+            for (let i = 0; i < label.length; i++) {
+                currentChunk += label[i];
+                count++;
+                if (count >= 16) {
+                    chunks.push(currentChunk);
+                    currentChunk = '';
+                    count = 0;
+                }
+            }
+            if (currentChunk) chunks.push(currentChunk);
+            return chunks;
+        }
+
+        // Global Chart Defaults
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = "'Noto Sans JP', sans-serif";
+        Chart.defaults.scale.grid.color = '#334155';
+        Chart.register(ChartDataLabels);
+
+        // Common Tooltip Configuration
+        const commonTooltipConfig = {
+            callbacks: {
+                title: function (tooltipItems) {
+                    const item = tooltipItems[0];
+                    let label = item.chart.data.labels[item.dataIndex];
+                    if (Array.isArray(label)) {
+                        return label.join('');
+                    } else {
+                        return label;
+                    }
+                }
+            },
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            borderColor: '#334155',
+            borderWidth: 1
+        };
+
+        // 1. Revenue Split Chart (Donut)
+        const ctxRevenue = document.getElementById('revenueSplitChart').getContext('2d');
+        new Chart(ctxRevenue, {
+            type: 'doughnut',
+            data: {
+                labels: ['データセンター (AI/Cloud)', 'ゲーミング', 'プロフェッショナル映像', '自動車・ロボティクス', 'その他'],
+                datasets: [{
+                    data: [87, 8, 3, 1, 1], // Approx % based on recent Q
+                    backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#94A3B8'],
+                    borderWidth: 0,
+                    hoverOffset: 10
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right', labels: { boxWidth: 12 } },
+                    tooltip: commonTooltipConfig,
+                    datalabels: { display: false }
+                },
+                cutout: '70%'
+            }
+        });
+
+        // 2. Data Center Breakdown (Bar - Stacked or Grouped)
+        const ctxDC = document.getElementById('datacenterBreakdownChart').getContext('2d');
+        new Chart(ctxDC, {
+            type: 'bar',
+            data: {
+                labels: ['FY24 Q1', 'FY24 Q2', 'FY24 Q3', 'FY24 Q4', 'FY25 Q1', 'FY25 Q2', 'FY25 Q3'],
+                datasets: [
+                    {
+                        label: 'Compute (GPU)',
+                        data: [3.0, 8.0, 11.5, 15.0, 19.4, 22.6, 26.3], // Estimated trend billions USD
+                        backgroundColor: '#10B981',
+                        stack: 'Stack 0',
+                    },
+                    {
+                        label: 'Networking (InfiniBand/Ethernet)',
+                        data: [1.2, 2.3, 3.0, 3.4, 3.2, 3.7, 4.5], // Estimated trend billions USD
+                        backgroundColor: '#0EA5E9',
+                        stack: 'Stack 0',
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: true },
+                    y: {
+                        stacked: true,
+                        title: { display: true, text: '売上高 ($ Billion)' }
+                    }
+                },
+                plugins: {
+                    tooltip: commonTooltipConfig,
+                    legend: { position: 'bottom' },
+                    datalabels: { display: false }
+                }
+            }
+        });
+
+        // 3. Lead Time Chart (Line)
+        const ctxLead = document.getElementById('leadTimeChart').getContext('2d');
+        new Chart(ctxLead, {
+            type: 'line',
+            data: {
+                labels: ['2023初頭', '2023中期', '2023年末', '2024初頭', '2024中期', '2024年末 (現在)'],
+                datasets: [
+                    {
+                        label: 'H100 リードタイム (週)',
+                        data: [40, 52, 36, 20, 12, 8],
+                        borderColor: '#10B981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Blackwell (次世代) 予測需要',
+                        data: [null, null, null, null, 40, 52], // Illustrative high demand
+                        borderColor: '#A855F7',
+                        borderDash: [5, 5],
+                        tension: 0.4,
+                        pointStyle: 'rectRot',
+                        pointRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        title: { display: true, text: '納期 (週間)' },
+                        suggestedMax: 60
+                    }
+                },
+                plugins: {
+                    tooltip: commonTooltipConfig,
+                    annotation: {
+                        annotations: {
+                            line1: {
+                                type: 'line',
+                                yMin: 52,
+                                yMax: 52,
+                                borderColor: 'rgba(255, 99, 132, 0.5)',
+                                borderWidth: 1,
+                                label: {
+                                    content: '約1年待ちライン',
+                                    enabled: true,
+                                    position: 'start'
+                                }
+                            }
+                        }
+                    },
+                    datalabels: { display: false }
+                }
+            }
+        });
+
+        // 4. Margin Trend Chart (Line/Area)
+        const ctxMargin = document.getElementById('marginTrendChart').getContext('2d');
+        new Chart(ctxMargin, {
+            type: 'line',
+            data: {
+                labels: ['FY23 Q1', 'FY23 Q3', 'FY24 Q1', 'FY24 Q3', 'FY25 Q1', 'FY25 Q2', 'FY25 Q3'],
+                datasets: [{
+                    label: '粗利益率 (%)',
+                    data: [65.5, 53.6, 64.6, 74.0, 78.4, 75.1, 74.6],
+                    borderColor: '#06B6D4',
+                    backgroundColor: (context) => {
+                        const ctx = context.chart.ctx;
+                        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                        gradient.addColorStop(0, 'rgba(6, 182, 212, 0.5)');
+                        gradient.addColorStop(1, 'rgba(6, 182, 212, 0.0)');
+                        return gradient;
+                    },
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { min: 50, max: 85 }
+                },
+                plugins: {
+                    tooltip: commonTooltipConfig,
+                    legend: { display: false },
+                    datalabels: { display: false }
+                }
+            }
+        });
+
+        // 5. Margin Comparison (Horizontal Bar)
+        const ctxComp = document.getElementById('marginComparisonChart').getContext('2d');
+        new Chart(ctxComp, {
+            type: 'bar',
+            indexAxis: 'y',
+            data: {
+                labels: ['一般PC向けチップ (Gaming)', 'データセンター GPU (H100等)', 'ソフトウェア & サービス'],
+                datasets: [{
+                    label: '推定粗利率',
+                    data: [60, 78, 90],
+                    backgroundColor: ['#3B82F6', '#10B981', '#F472B6'],
+                    barThickness: 30
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { max: 100 }
+                },
+                plugins: {
+                    tooltip: commonTooltipConfig,
+                    legend: { display: false },
+                    datalabels: { display: false }
+                }
+            }
+        });
+
+        // 6. NEW: Revenue Composition Transition Chart (100% Stacked Bar)
+        const ctxRevComp = document.getElementById('revenueCompositionChart').getContext('2d');
+        new Chart(ctxRevComp, {
+            type: 'bar',
+            data: {
+                labels: ['FY23', 'FY24', 'FY25', 'FY26 Q3'],
+                datasets: [
+                    {
+                        label: 'データセンター (AI)',
+                        data: [55.6, 78.0, 88.3, 89.8], // Percentage
+                        backgroundColor: '#10B981', // Emerald
+                        barPercentage: 0.6
+                    },
+                    {
+                        label: 'ゲーミング',
+                        data: [33.6, 17.1, 8.7, 7.5], // Percentage
+                        backgroundColor: '#3B82F6', // Blue
+                        barPercentage: 0.6
+                    },
+                    {
+                        label: 'その他 (ProViz/Auto/OEM)',
+                        data: [10.8, 4.9, 3.0, 2.7], // Percentage
+                        backgroundColor: '#64748B', // Slate
+                        barPercentage: 0.6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: false,
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                return context.dataset.label + ': ' + context.parsed.y + '%';
+                            }
+                        },
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleColor: '#f8fafc',
+                        bodyColor: '#e2e8f0',
+                        borderColor: '#334155',
+                        borderWidth: 1
+                    },
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#94a3b8' }
+                    },
+                    datalabels: {
+                        color: '#fff',
+                        font: { weight: 'bold', size: 11 },
+                        formatter: (value, ctx) => {
+                            return value > 5 ? value + '%' : ''; // Only show if > 5%
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: { display: false }
+                    },
+                    y: {
+                        stacked: true,
+                        min: 0,
+                        max: 100,
+                        title: {
+                            display: true,
+                            text: '売上構成比 (%)'
+                        }
+                    }
+                }
+            }
+        });
+
+    </script>
+</body>
+
+</html>

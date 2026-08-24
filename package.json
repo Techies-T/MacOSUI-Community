@@ -1,0 +1,63 @@
+{
+  "name": "macosui",
+  "private": true,
+  "version": "2.4.2",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"vite\"",
+    "server": "node --watch server/index.cjs",
+    "build": "npm run lint && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1105.0",
+    "@aws-sdk/client-secrets-manager": "^3.731.0",
+    "@aws-sdk/lib-dynamodb": "^3.1105.0",
+    "@google/genai": "^2.8.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@react-oauth/google": "^0.12.2",
+    "@tailwindcss/typography": "^0.5.19",
+    "concurrently": "^9.2.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "diff": "^8.0.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "framer-motion": "^12.23.24",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^166.0.0",
+    "html-to-image": "^1.11.13",
+    "jsonwebtoken": "^9.0.2",
+    "jwt-decode": "^4.0.0",
+    "pg": "^8.22.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-draggable": "^4.5.0",
+    "react-markdown": "^10.1.0",
+    "react-resizable": "^3.0.5",
+    "remark-gfm": "^4.0.1",
+    "sqlite3": "^5.1.7"
+  },
+  "overrides": {
+    "tar": "7.5.20",
+    "minimatch": "^10.2.3",
+    "shell-quote": "^1.8.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.0",
+    "autoprefixer": "^10.4.22",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "vite": "^7.2.2"
+  }
+}

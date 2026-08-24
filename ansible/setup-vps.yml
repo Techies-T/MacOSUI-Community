@@ -1,0 +1,100 @@
+---
+- name: Setup Sakura VPS Staging Environment (Debian 12)
+  hosts: staging
+  become: yes
+  vars:
+    docker_group_user: debian
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install prerequisite packages for Docker and system
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - ufw
+          - git
+          - rsync
+        state: present
+
+    - name: Create directory for Docker keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Remove old Docker GPG key if exists to ensure idempotent update
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        state: absent
+
+    - name: Download Docker official GPG key
+      shell: curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Ensure correct permissions for Docker GPG key
+      file:
+        path: /etc/apt/keyrings/docker.gpg
+        mode: 'a+r'
+
+    - name: Add Docker APT repository
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+
+    - name: Update apt cache again after adding Docker repo
+      apt:
+        update_cache: yes
+
+    - name: Install Docker CE and related tools
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+
+    - name: Add deployment user to docker group
+      user:
+        name: "{{ docker_group_user }}"
+        groups: docker
+        append: yes
+
+    - name: Ensure UFW allows SSH
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Ensure UFW allows HTTP
+      ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+
+    - name: Ensure UFW allows HTTPS
+      ufw:
+        rule: allow
+        port: '443'
+        proto: tcp
+
+    - name: Ensure UFW default deny incoming
+      ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Ensure UFW default allow outgoing
+      ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Ensure UFW is enabled and active
+      ufw:
+        state: enabled
