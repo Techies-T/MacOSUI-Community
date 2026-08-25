@@ -1,0 +1,143 @@
+name: Multi-Environment Deploy (Sakura VPS / AWS EC2)
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'デプロイ先環境の選択 (Select Deployment Target)'
+        required: true
+        default: 'sakura-vps'
+        type: choice
+        options:
+          - 'sakura-vps'
+          - 'aws-ec2'
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.target_env || 'sakura-vps' }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Security Check (Block on CRITICAL vulnerabilities)
+        run: |
+          npm ci
+          npm audit --audit-level=critical
+
+      # ------------------------------------------------------------------------
+      # Environment Target: Sakura VPS
+      # ------------------------------------------------------------------------
+      - name: Setup SSH for Sakura VPS
+        if: ${{ (github.event_name == 'push') || (github.event.inputs.target_env == 'sakura-vps') }}
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+
+      - name: Add Sakura VPS to known_hosts
+        if: ${{ (github.event_name == 'push') || (github.event.inputs.target_env == 'sakura-vps') }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.STAGING_HOST_IP }} >> ~/.ssh/known_hosts
+
+      - name: Sync and Restart on Sakura VPS
+        if: ${{ (github.event_name == 'push') || (github.event.inputs.target_env == 'sakura-vps') }}
+        run: |
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3" \
+                     --exclude 'node_modules' \
+                     --exclude '.git' \
+                     --exclude 'dist' \
+                     --exclude 'data/*.sqlite*' \
+                     --exclude 'data/development.env' \
+                     --exclude 'server/*.sqlite*' \
+                     --exclude 'server/database_backup_*.sqlite' \
+                     ./ ${{ secrets.STAGING_USER || 'debian' }}@${{ secrets.STAGING_HOST_IP }}:~/MacOSUI/
+
+      - name: Rebuild & Restart Container on Sakura VPS
+        if: ${{ (github.event_name == 'push') || (github.event.inputs.target_env == 'sakura-vps') }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST_IP }}
+          username: ${{ secrets.STAGING_USER || 'debian' }}
+          key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/MacOSUI
+            if [ -f server/database.sqlite ]; then
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              cp server/database.sqlite server/database_backup_${TIMESTAMP}.sqlite
+              ls -t server/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs rm -f || true
+            fi
+            docker compose -f docker-compose.staging.yml up -d --build --force-recreate web
+            docker compose -f docker-compose.staging.yml restart nginx || true
+            docker image prune -af 2>/dev/null || true
+            echo "✅ Sakura VPS deployment completed."
+
+      # ------------------------------------------------------------------------
+      # Environment Target: AWS EC2
+      # ------------------------------------------------------------------------
+      - name: Setup SSH for AWS EC2
+        if: ${{ github.event.inputs.target_env == 'aws-ec2' }}
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY || secrets.STAGING_SSH_PRIVATE_KEY }}
+
+      - name: Add AWS EC2 to known_hosts
+        if: ${{ github.event.inputs.target_env == 'aws-ec2' }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.EC2_HOST_IP || secrets.STAGING_HOST_IP }} >> ~/.ssh/known_hosts
+
+      - name: Sync files to AWS EC2
+        if: ${{ github.event.inputs.target_env == 'aws-ec2' }}
+        run: |
+          TARGET_IP="${{ secrets.EC2_HOST_IP || secrets.STAGING_HOST_IP }}"
+          TARGET_USER="${{ secrets.EC2_USER || 'ec2-user' }}"
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no" \
+                     --exclude 'node_modules' \
+                     --exclude '.git' \
+                     --exclude 'dist' \
+                     --exclude 'data/*.sqlite*' \
+                     --exclude 'data/development.env' \
+                     --exclude 'server/*.sqlite*' \
+                     --exclude 'server/database_backup_*.sqlite' \
+                     ./ ${TARGET_USER}@${TARGET_IP}:/opt/macosui/repo/ || \
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no" \
+                     --exclude 'node_modules' \
+                     --exclude '.git' \
+                     --exclude 'dist' \
+                     --exclude 'data/*.sqlite*' \
+                     --exclude 'data/development.env' \
+                     --exclude 'server/*.sqlite*' \
+                     --exclude 'server/database_backup_*.sqlite' \
+                     ./ ${TARGET_USER}@${TARGET_IP}:~/MacOSUI/
+
+      - name: Rebuild & Restart Container on AWS EC2
+        if: ${{ github.event.inputs.target_env == 'aws-ec2' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_IP || secrets.STAGING_HOST_IP }}
+          username: ${{ secrets.EC2_USER || 'ec2-user' }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY || secrets.STAGING_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/macosui/repo 2>/dev/null || cd ~/MacOSUI
+            
+            # Backup Database
+            if [ -f data/database.sqlite ]; then
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite
+              ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs rm -f || true
+            fi
+            
+            # Recreate Web Container
+            docker compose up -d --build --force-recreate --no-deps web
+            docker image prune -af 2>/dev/null || true
+            echo "🚀 [SUCCESS] AWS EC2 upgraded smoothly with zero data loss!"
