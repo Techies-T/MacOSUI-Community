@@ -62,8 +62,8 @@ MacOSUI-oss では、用途や運用環境に合わせて以下のデプロイ�
 お手元の Mac / PC で手軽に起動・検証するための構成です。ローカルのソースコードからビルドされ、DBにはSQLiteが使用されます。
 1. 本リポジトリを Clone します。
    ```bash
-   git clone https://github.com/Techies-T/MacOSUI-oss.git
-   cd MacOSUI-oss
+   git clone https://github.com/Techies-T/MacOSUI-Community.git
+   cd MacOSUI-Community
    ```
 2. コンテナを起動します。
    ```bash
@@ -93,13 +93,13 @@ MacOSUI-oss では、用途や運用環境に合わせて以下のデプロイ�
 1. **リポジトリの Clone**:
    - **パブリックリポジトリの場合**:
      ```bash
-     git clone https://github.com/Techies-T/MacOSUI-oss.git
-     cd MacOSUI-oss/terraform/aws-ec2
+     git clone https://github.com/Techies-T/MacOSUI-Community.git
+     cd MacOSUI-Community/terraform/aws-ec2
      ```
    - **プライベートリポジトリ (Fork 後) の場合**:
      ```bash
-     git clone https://<あなたのGitHubトークン>@github.com/<your-org>/MacOSUI-oss.git
-     cd MacOSUI-oss/terraform/aws-ec2
+     git clone https://<あなたのGitHubトークン>@github.com/<your-org>/MacOSUI-Community.git
+     cd MacOSUI-Community/terraform/aws-ec2
      ```
 
 2. **設定ファイルの作成 (`terraform.tfvars`)**:
