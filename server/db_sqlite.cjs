@@ -707,13 +707,35 @@ async function autoActivate() {
         if (wfCount === 0) {
             console.log('DEBUG: Initializing default Deep Research Workflows...');
             
+            const defaultResearchPrompt = `あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。
+
+【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。`;
+
+            const defaultHtmlPrompt = `以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。
+Tailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。
+
+=== テーマ: {{title}} ===
+
+{{report}}`;
+
+            const defaultNanoPrompt = `以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。
+
+=== レポート内容 ===
+
+{{report}}`;
+
             const researchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'deep-research-pro-preview-12-2025';
-            const researchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
+            const researchPrompt = (await db.getSetting('DEEP_RESEARCH_PROMPT')) || defaultResearchPrompt;
             const nanoModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
-            const nanoPrompt = await db.getSetting('NANO_BANANA_PROMPT') || '';
+            const nanoPrompt = (await db.getSetting('NANO_BANANA_PROMPT')) || defaultNanoPrompt;
             const htmlModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
-            const htmlPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
+            const htmlPrompt = (await db.getSetting('HTML_SVG_PROMPT')) || defaultHtmlPrompt;
             const folderId = await db.getSetting('geminiResearchFolderId') || '';
+
+            // Also persist them to settings if not set
+            if (!await db.getSetting('DEEP_RESEARCH_PROMPT')) await db.setSetting('DEEP_RESEARCH_PROMPT', defaultResearchPrompt);
+            if (!await db.getSetting('HTML_SVG_PROMPT')) await db.setSetting('HTML_SVG_PROMPT', defaultHtmlPrompt);
+            if (!await db.getSetting('NANO_BANANA_PROMPT')) await db.setSetting('NANO_BANANA_PROMPT', defaultNanoPrompt);
 
             const crypto = require('crypto');
             
@@ -749,7 +771,7 @@ async function autoActivate() {
                 ]
             );
             
-            console.log('DEBUG: Default Deep Research Workflows initialized.');
+            console.log('DEBUG: Default Deep Research Workflows initialized with complete prompts.');
         }
 
     } catch (error) {
