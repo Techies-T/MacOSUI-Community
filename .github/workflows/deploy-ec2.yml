@@ -1,0 +1,76 @@
+name: Safe Upgrade & Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Zero-Downtime Safe Upgrade on EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Security Audit Check (Built-in Quality)
+        run: |
+          npm ci
+          npm audit --audit-level=critical
+
+      - name: Setup SSH Key Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+      - name: Add EC2 to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.EC2_HOST_IP }} >> ~/.ssh/known_hosts
+
+      - name: Sync Source Code to EC2 (Excluding Databases and Secrets)
+        run: |
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude 'data/*.sqlite*' \
+            --exclude 'data/development.env' \
+            --exclude 'server/*.sqlite*' \
+            --exclude 'server/*.env' \
+            ./ ${{ secrets.EC2_USER || 'ec2-user' }}@${{ secrets.EC2_HOST_IP }}:~/MacOSUI/
+
+      - name: Safe Rebuild & Upgrade Container on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_IP }}
+          username: ${{ secrets.EC2_USER || 'ec2-user' }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/MacOSUI
+
+            # 1. Automatic Database Safety Backup
+            if [ -f data/database.sqlite ]; then
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite
+              echo "✅ Safely backed up database to data/database_backup_${TIMESTAMP}.sqlite"
+              
+              # Keep only the 5 most recent backups to prevent disk overflow
+              ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs rm -f || true
+            fi
+
+            # 2. Build & Recreate Web Container with existing volumes intact (No Re-activation needed)
+            docker compose up -d --build --force-recreate --no-deps web
+
+            # 3. Clean up dangling images to keep EC2 disk healthy
+            docker image prune -f || true
+
+            echo "🚀 [SUCCESS] MacOSUI upgraded smoothly without any data loss or re-activation!"

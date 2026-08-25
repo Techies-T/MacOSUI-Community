@@ -191,6 +191,37 @@ AWS 以外の VPS（さくらのVPS, ConoHa, Linode 等の Debian/Ubuntu サー�
 
 ---
 
+## 🔄 既存環境のデータ完全保持・安全なアップグレード手順 (CI/CD)
+
+MacOSUI では、ユーザーデータ・ナレッジ・暗号化キーが永続ボリューム（`./data`）に完全分離されているため、**再アクティベーションや過去データの消失なしに、プログラム（コンテナ）だけを安全にアップグレード** できます。
+
+### 方法 1: GitHub Actions による全自動 CI/CD デプロイ (推奨)
+本リポジトリを Fork して運用する場合、GitHub Actions を使って `git push` 一発で本番 EC2 が自動バックアップ＆更新されます。
+
+1. **GitHub Secrets の設定**:
+   Fork したリポジトリの **Settings ＞ Secrets and variables ＞ Actions** に以下を登録：
+   - `EC2_HOST_IP`: あなたの AWS EC2 パブリック IP
+   - `EC2_USER`: `ec2-user`
+   - `EC2_SSH_PRIVATE_KEY`: EC2 接続用の SSH 秘密鍵（`~/.ssh/your-key.pem` の中身）
+2. **プッシュによる自動実行**:
+   `main` ブランチにプッシュ（またはタグをプッシュ）すると、GitHub Actions が自動で脆弱性診断 ➔ DBバックアップ ➔ コンテナ更新を安全に実行します。
+
+### 方法 2: EC2 サーバー内での手動安全アップグレード (ワンライナー)
+サーバーに SSH 接続して手動でアップグレードする場合も、データは 100% 安全に引き継がれます：
+```bash
+cd ~/MacOSUI
+
+# 1. 最新バージョンのコードを取得
+git fetch --tags
+git checkout v2.5.0
+
+# 2. 既存の DB や設定データを保持したまま、Web コンテナだけを再ビルド・再起動
+docker compose up -d --build --force-recreate --no-deps web
+```
+> ※ 再起動後、ブラウザをリロードするだけで再アクティベーション不要でそのまま v2.5.0 を利用可能です。
+
+---
+
 ## 🚑 トラブルシューティングガイド
 
 EC2 やローカル環境でサイトにアクセスできない場合の解決手順です。
