@@ -93,7 +93,10 @@ jobs:
         if: ${{ github.event.inputs.target_env == 'aws-ec2' }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.EC2_HOST_IP || secrets.STAGING_HOST_IP }} >> ~/.ssh/known_hosts
+          TARGET_IP="${{ secrets.EC2_HOST_IP || secrets.STAGING_HOST_IP }}"
+          if [ -n "$TARGET_IP" ]; then
+            ssh-keyscan -H "$TARGET_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
 
       - name: Sync files to AWS EC2
         if: ${{ github.event.inputs.target_env == 'aws-ec2' }}
