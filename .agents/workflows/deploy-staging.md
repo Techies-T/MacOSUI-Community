@@ -7,7 +7,7 @@ description: ステージングへのデプロイ準備から脆弱性チェッ�
 
 > [!IMPORTANT]
 > このワークフローの自動デプロイ機能を利用するには、GitHubのリポジトリに以下のSecretが設定されている必要があります。
-> 1. `STAGING_HOST_IP` (YOUR_SERVER_IP)
+> 1. `STAGING_HOST_IP` (133.167.105.49)
 > 2. `STAGING_USER` (debian)
 > 3. `STAGING_SSH_PRIVATE_KEY` (ローカルのSSH秘密鍵の中身)
 > 4. `GHCR_PAT` (GitHubパッケージへのアクセス権限を持つPersonal Access Token)
@@ -49,10 +49,10 @@ bash scripts/deploy-staging.sh
    ```
 
 #### 3. GitHub Actions による自動デプロイ監視
-3. ブラウザでGitHubのActionsページ（`https://github.com/<your-org>/MacOSUI/actions`）を開き、最新のワークフローがエラーなく完了するかを確認してください。
+3. ブラウザでGitHubのActionsページ（`https://github.com/minoru61/MacOSUI/actions`）を開き、最新のワークフローがエラーなく完了するかを確認してください。
    目安として、完了までに1分〜2分程度かかります。
    ```bash
-   sleep 45 && ssh -i ~/.ssh/id_ed25519_vps -o StrictHostKeyChecking=no debian@${STAGING_HOST_IP:-YOUR_SERVER_IP} "docker ps" && curl -s https://${STAGING_DOMAIN:-macosui-staging.techiespod.co.jp}/api/health
+   sleep 45 && ssh -i ~/.ssh/id_ed25519_vps -o StrictHostKeyChecking=no debian@133.167.105.49 "docker ps" && curl -s https://macosui-staging.techiespod.co.jp/api/health
    ```
 
 ---

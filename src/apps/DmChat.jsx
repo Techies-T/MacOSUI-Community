@@ -248,27 +248,209 @@ const DmChat = ({ targetUser, urgent }) => {
         );
     }
 
+    const LANG_MAP = {
+        ja: { label: '日本語', flag: '🇯🇵' },
+        en: { label: 'English', flag: '🇺🇸' },
+        es: { label: 'Español', flag: '🇪🇸' }
+    };
+    const targetLang = LANG_MAP[user.native_language] || LANG_MAP['ja'];
+    const senderLang = LANG_MAP[currentUser?.native_language] || LANG_MAP['ja'];
+    const isDifferentLang = currentUser?.native_language && user?.native_language && currentUser.native_language !== user.native_language;
+
+    const renderMeetingAction = (text) => {
+        if (!text.includes('➔')) return text;
+        const [beforeArrow] = text.split('➔');
+        return (
+            <>
+                {beforeArrow} ➔ 
+                {(text.includes('💻 ミーティングを仮調整する') || text.includes('💻 時間外でBOSSに確認する')) ? (
+                    <button 
+                        onClick={() => {
+                            const lines = text.split('\n');
+                            let targetSlot = '';
+                            for (const line of lines) {
+                                if (line.trim().startsWith('・')) {
+                                    targetSlot = line.replace('・', '').trim();
+                                    break;
+                                }
+                            }
+                            
+                            let startIso = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+                            let endIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+                            
+                            if (targetSlot) {
+                                const parts = targetSlot.split('〜').map(p => p.trim());
+                                const today = new Date();
+                                if (parts[0]) {
+                                    const [h, m] = parts[0].split(':').map(Number);
+                                    const startD = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m);
+                                    startIso = startD.toISOString();
+                                }
+                                if (parts[1]) {
+                                    const [h, m] = parts[1].split(':').map(Number);
+                                    const endD = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m);
+                                    endIso = endD.toISOString();
+                                }
+                            }
+
+                            let desc = text.includes('💻 時間外でBOSSに確認する') 
+                                ? 'AIアシスタントによる時間外（BOSS確認中）の自動仮調整予定'
+                                : 'AIアシスタントによる自動仮調整予定';
+                            
+                            const travelIndex = text.indexOf('【考慮した移動時間】');
+                            if (travelIndex !== -1) {
+                                const travelPart = text.substring(travelIndex);
+                                const cleanTravelPart = travelPart.split('➔')[0].trim();
+                                desc += '\n\n' + cleanTravelPart;
+                            }
+
+                            fetch('/api/calendar/events', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    summary: text.includes('💻 時間外でBOSSに確認する') 
+                                        ? `【時間外】ミーティング: ${currentUser?.name || ''} & ${user.name}`
+                                        : `ミーティング: ${currentUser?.name || ''} & ${user.name}`,
+                                    description: desc,
+                                    start: startIso,
+                                    end: endIso
+                                })
+                            }).then(res => {
+                                if (res.ok) {
+                                    if (text.includes('💻 時間外でBOSSに確認する')) {
+                                        alert(`時間外のため、カレンダーに仮登録した上で、${user.name}(BOSS)へ確認要求を送信しました！`);
+                                    } else {
+                                        alert(`双方のカレンダーに「${targetSlot || '空き時間'}」で予定を仮登録しました！`);
+                                    }
+                                } else {
+                                    alert('予定の登録に失敗しました。');
+                                }
+                                fetchMessages();
+                            });
+                        }}
+                        className="ml-1 text-cyan-400 font-bold hover:underline cursor-pointer"
+                    >
+                        {text.includes('💻 時間外でBOSSに確認する') ? '💻 時間外でBOSSに確認する' : '💻 ミーティングを仮調整する'}
+                    </button>
+                ) : (
+                    <button 
+                        onClick={handleJoinMeeting}
+                        className="ml-1 text-cyan-400 font-bold hover:underline cursor-pointer"
+                    >
+                        💻 ビデオ会議室へ入る
+                    </button>
+                )}
+            </>
+        );
+    };
+
+    const renderMessageBody = (rawText) => {
+        if (!rawText) return null;
+
+        // 1. Gemma 4 通訳済みメッセージ
+        if (rawText.startsWith('🌐 [Gemma 4 Translated')) {
+            const firstLineEnd = rawText.indexOf('\n');
+            const header = firstLineEnd !== -1 ? rawText.substring(0, firstLineEnd).replace('🌐 [', '').replace(']', '').trim() : 'Gemma 4 Translated';
+            const bodyAndOrig = firstLineEnd !== -1 ? rawText.substring(firstLineEnd + 1).trim() : rawText;
+            
+            let mainTranslated = bodyAndOrig;
+            let origText = '';
+            const origIdx = bodyAndOrig.lastIndexOf('原文:');
+            if (origIdx !== -1) {
+                const openParen = bodyAndOrig.lastIndexOf('(', origIdx);
+                const closeParen = bodyAndOrig.lastIndexOf(')');
+                if (openParen !== -1 && closeParen !== -1 && closeParen > origIdx) {
+                    mainTranslated = bodyAndOrig.substring(0, openParen).trim();
+                    origText = bodyAndOrig.substring(openParen + 1, closeParen).trim();
+                }
+            }
+
+            return (
+                <div className="space-y-1.5">
+                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[10px] font-bold tracking-wide">
+                        <span className="animate-pulse">🌐</span>
+                        <span>{header}</span>
+                    </div>
+                    <div className="text-xs leading-relaxed font-medium whitespace-pre-wrap">
+                        {renderMeetingAction(mainTranslated)}
+                    </div>
+                    {origText && (
+                        <div className="pt-1.5 border-t border-white/10 text-[11px] opacity-75 italic text-gray-300 whitespace-pre-wrap">
+                            ({origText})
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // 2. AI Assistant (Gemma 4) メッセージ
+        if (rawText.startsWith('🤖 [AI Assistant (Gemma 4 🦙)]')) {
+            const body = rawText.replace('🤖 [AI Assistant (Gemma 4 🦙)]', '').trim();
+            return (
+                <div className="space-y-1.5">
+                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-bold tracking-wide">
+                        <span>🦙</span>
+                        <span>Gemma 4 AI Assistant</span>
+                    </div>
+                    <div className="text-xs leading-relaxed whitespace-pre-wrap">
+                        {renderMeetingAction(body)}
+                    </div>
+                </div>
+            );
+        }
+
+        // 3. 通常メッセージ
+        return (
+            <div className="text-xs leading-relaxed whitespace-pre-wrap">
+                {renderMeetingAction(rawText)}
+            </div>
+        );
+    };
+
     return (
         <div className="h-full flex flex-col bg-[#0b0f19] text-[#e2e8f0] overflow-hidden font-sans">
             {/* Header */}
-            <div className="flex items-center space-x-3 px-5 py-3 bg-[#111827]/85 border-b border-gray-800 backdrop-blur-md">
-                <div className="relative">
-                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-900 border border-gray-800">
-                        <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+            <div className="flex items-center justify-between px-5 py-3 bg-[#111827]/85 border-b border-gray-800 backdrop-blur-md">
+                <div className="flex items-center space-x-3">
+                    <div className="relative">
+                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-900 border border-gray-800">
+                            <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#111827] ${
+                            user.current_room === 'focus-zone' ? 'bg-amber-400' :
+                            user.current_room === 'remote' ? 'bg-cyan-400' : 'bg-emerald-400'
+                        }`} />
                     </div>
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#111827] ${
-                        user.current_room === 'focus-zone' ? 'bg-amber-400' :
-                        user.current_room === 'remote' ? 'bg-cyan-400' : 'bg-emerald-400'
-                    }`} />
+                    <div>
+                        <div className="flex items-center gap-1.5">
+                            <h3 className="font-bold text-sm text-gray-100">{user.name}</h3>
+                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-950/60 border border-indigo-500/40 text-[9px] text-indigo-300 font-semibold inline-flex items-center gap-1">
+                                <span>{targetLang.flag}</span>
+                                <span>{targetLang.label}</span>
+                            </span>
+                        </div>
+                        <p className="text-[10px] text-gray-500">
+                            {user.is_remote ? '🏡 Remote Active' : '🏢 Office Active'}
+                            <span className="mx-1.5">•</span>
+                            Status: {user.status_text || 'Active'}
+                        </p>
+                    </div>
                 </div>
-                <div>
-                    <h3 className="font-bold text-sm text-gray-100">{user.name}</h3>
-                    <p className="text-[10px] text-gray-500">
-                        {user.is_remote ? '🏡 Remote Active' : '🏢 Office Active'}
-                        <span className="mx-1.5">•</span>
-                        Status: {user.status_text || 'Active'}
-                    </p>
-                </div>
+
+                {isDifferentLang ? (
+                    <div className="flex items-center gap-1.5 bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-1 rounded-lg">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                        <span className="text-[10px] font-bold text-cyan-300">
+                            🦙 Gemma 4 通訳中 ({senderLang.flag} ➔ {targetLang.flag})
+                        </span>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg">
+                        <span className="text-[10px] font-medium text-gray-400">
+                            💬 ダイレクトチャット ({targetLang.flag})
+                        </span>
+                    </div>
+                )}
             </div>
 
             {/* Message History */}
@@ -300,88 +482,7 @@ const DmChat = ({ targetUser, urgent }) => {
                                             ? 'bg-[#151124]/90 text-indigo-100 border border-indigo-500/30 rounded-bl-none relative pr-4'
                                             : 'bg-gray-900 text-gray-200 border border-gray-800 rounded-bl-none'
                                 }`}>
-                                    {msg.text.includes('➔') ? (
-                                        <>
-                                            {msg.text.split('➔')[0]} ➔ 
-                                            {(msg.text.includes('💻 ミーティングを仮調整する') || msg.text.includes('💻 時間外でBOSSに確認する')) ? (
-                                                <button 
-                                                    onClick={() => {
-                                                        const lines = msg.text.split('\n');
-                                                        let targetSlot = '';
-                                                        for (const line of lines) {
-                                                            if (line.trim().startsWith('・')) {
-                                                                targetSlot = line.replace('・', '').trim();
-                                                                break;
-                                                            }
-                                                        }
-                                                        
-                                                        let startIso = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-                                                        let endIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-                                                        
-                                                        if (targetSlot) {
-                                                            const parts = targetSlot.split('〜').map(p => p.trim());
-                                                            const today = new Date();
-                                                            if (parts[0]) {
-                                                                const [h, m] = parts[0].split(':').map(Number);
-                                                                const startD = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m);
-                                                                startIso = startD.toISOString();
-                                                            }
-                                                            if (parts[1]) {
-                                                                const [h, m] = parts[1].split(':').map(Number);
-                                                                const endD = new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m);
-                                                                endIso = endD.toISOString();
-                                                            }
-                                                        }
-
-                                                        let desc = msg.text.includes('💻 時間外でBOSSに確認する') 
-                                                            ? 'AIアシスタントによる時間外（BOSS確認中）の自動仮調整予定'
-                                                            : 'AIアシスタントによる自動仮調整予定';
-                                                        
-                                                        const travelIndex = msg.text.indexOf('【考慮した移動時間】');
-                                                        if (travelIndex !== -1) {
-                                                            const travelPart = msg.text.substring(travelIndex);
-                                                            const cleanTravelPart = travelPart.split('➔')[0].trim();
-                                                            desc += '\n\n' + cleanTravelPart;
-                                                        }
-
-                                                        fetch('/api/calendar/events', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({
-                                                                summary: msg.text.includes('💻 時間外でBOSSに確認する') 
-                                                                    ? `【時間外】ミーティング: ${currentUser?.name || ''} & ${user.name}`
-                                                                    : `ミーティング: ${currentUser?.name || ''} & ${user.name}`,
-                                                                description: desc,
-                                                                start: startIso,
-                                                                end: endIso
-                                                            })
-                                                        }).then(res => {
-                                                            if (res.ok) {
-                                                                if (msg.text.includes('💻 時間外でBOSSに確認する')) {
-                                                                    alert(`時間外のため、カレンダーに仮登録した上で、${user.name}(BOSS)へ確認要求を送信しました！`);
-                                                                } else {
-                                                                    alert(`双方のカレンダーに「${targetSlot || '空き時間'}」で予定を仮登録しました！`);
-                                                                }
-                                                            } else {
-                                                                alert('予定の登録に失敗しました。');
-                                                            }
-                                                            fetchMessages();
-                                                        });
-                                                    }}
-                                                    className="ml-1 text-cyan-400 font-bold hover:underline"
-                                                >
-                                                    {msg.text.includes('💻 時間外でBOSSに確認する') ? '💻 時間外でBOSSに確認する' : '💻 ミーティングを仮調整する'}
-                                                </button>
-                                            ) : (
-                                                <button 
-                                                    onClick={handleJoinMeeting}
-                                                    className="ml-1 text-cyan-400 font-bold hover:underline"
-                                                >
-                                                    💻 ビデオ会議室へ入る
-                                                </button>
-                                            )}
-                                        </>
-                                    ) : msg.text}
+                                    {renderMessageBody(msg.text)}
                                 </div>
                                 <span className="text-[8px] text-gray-600 mt-1 self-end">{msg.time}</span>
                             </div>

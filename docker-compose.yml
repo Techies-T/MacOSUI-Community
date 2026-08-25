@@ -14,4 +14,6 @@ services:
       # In local development, missing DB_ENCRYPTION_KEY will trigger auto-generation.
       # If you want a fixed key, uncomment and set the below:
       # - DB_ENCRYPTION_KEY=your_secure_32_byte_hex_string_here
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped

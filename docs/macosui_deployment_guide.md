@@ -48,7 +48,7 @@ Expressアプリケーション内の `server/db.cjs` にて、以下のデー�
 # docker-compose.yml の設定例
 services:
   web:
-    image: ghcr.io/<your-org>/macosui-web:latest
+    image: ghcr.io/minoru61/macosui-web:latest
     volumes:
       - /home/debian/MacOSUI/server/database.sqlite:/app/server/database.sqlite
       - /home/debian/MacOSUI/server/audit_database.sqlite:/app/server/audit_database.sqlite

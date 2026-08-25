@@ -42,6 +42,7 @@ function initDb() {
     assistant_break_end TEXT DEFAULT '13:00',
     assistant_meeting_buffer INTEGER DEFAULT 30,
     assistant_prompt TEXT,
+    native_language TEXT DEFAULT 'ja',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -95,6 +96,9 @@ function initDb() {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE users ADD COLUMN assistant_prompt TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN native_language TEXT DEFAULT 'ja'", (err) => {
         // Ignore error if column exists
     });
 
@@ -582,6 +586,41 @@ async function autoActivate() {
             );
         }
 
+        // Auto-register Gemma 4 Local AI MCP Server
+        console.log("DEBUG: Checking gemmaMcpCount...");
+        const gemmaMcpCount = await new Promise((resolve) => {
+            db.get("SELECT COUNT(*) as count FROM mcp_servers WHERE name = 'Gemma 4 Local MCP (Built-in)'", [], (err, row) => {
+                if (err) resolve(-1);
+                else resolve(row ? row.count : 0);
+            });
+        });
+        console.log("DEBUG: gemmaMcpCount fetched:", gemmaMcpCount);
+
+        if (gemmaMcpCount === 0) {
+            console.log('DEBUG: Registering Gemma 4 Local MCP Server with ZTA credentials...');
+            
+            const domain = process.env.DOMAIN_NAME || 'localhost:8080';
+            const isLocalhost = domain.includes('localhost') || domain.includes('127.0.0.1');
+            const protocol = isLocalhost ? 'http' : 'https';
+            
+            const endpointUrl = `${protocol}://${domain}/api/mcp/gemma/sse`;
+            const tokenUrl = `${protocol}://${domain}/api/auth/token-exchange`;
+
+            const clientId = 'macos-ui-internal-client';
+            const rawSecret = process.env.DB_ENCRYPTION_KEY || 'development-encryption-key-123456';
+            
+            const { encrypt } = require('./crypto.cjs');
+            const encryptedSecret = encrypt(rawSecret);
+
+            db.run(`INSERT INTO mcp_servers (name, endpoint_url, token_url, client_id, client_secret) VALUES (?, ?, ?, ?, ?)`,
+                ['Gemma 4 Local MCP (Built-in)', endpointUrl, tokenUrl, clientId, encryptedSecret],
+                (err) => {
+                    if (err) console.error('Failed to register Gemma 4 Local MCP Server', err);
+                    else console.log('DEBUG: Gemma 4 Local MCP Server registered successfully with ZTA A2A Auth.');
+                }
+            );
+        }
+
         // Migrate any existing mcp_servers with https://localhost to http://localhost
         db.run("UPDATE mcp_servers SET endpoint_url = REPLACE(endpoint_url, 'https://localhost', 'http://localhost'), token_url = REPLACE(token_url, 'https://localhost', 'http://localhost') WHERE endpoint_url LIKE 'https://localhost%'");
 
@@ -645,6 +684,17 @@ async function autoActivate() {
             await db.setSetting('COMPANY_WORK_POLICY', defaultPolicy);
         }
 
+        // Auto-register Local AI (Gemma 4) Default Settings
+        const existingLocalAiModel = await db.getSetting('LOCAL_AI_MODEL');
+        if (!existingLocalAiModel) {
+            console.log('DEBUG: Initializing Local AI (Gemma 4) Default Settings...');
+            await db.setSetting('LOCAL_AI_ENABLED', 'true');
+            await db.setSetting('LOCAL_AI_PROVIDER', 'ollama');
+            await db.setSetting('LOCAL_AI_HOST', 'http://localhost:11434');
+            await db.setSetting('LOCAL_AI_MODEL', 'gemma4:26b-mlx');
+            await db.setSetting('LOCAL_AI_TEMPERATURE', '0.7');
+        }
+
         // Auto-Register Default Deep Research Workflows
         const wfCount = await new Promise((resolve) => {
             db.get("SELECT COUNT(*) as count FROM deep_research_workflow_definitions", [], (err, row) => {
@@ -657,13 +707,35 @@ async function autoActivate() {
         if (wfCount === 0) {
             console.log('DEBUG: Initializing default Deep Research Workflows...');
             
+            const defaultResearchPrompt = `あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。
+
+【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。`;
+
+            const defaultHtmlPrompt = `以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。
+Tailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。
+
+=== テーマ: {{title}} ===
+
+{{report}}`;
+
+            const defaultNanoPrompt = `以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。
+
+=== レポート内容 ===
+
+{{report}}`;
+
             const researchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || 'deep-research-pro-preview-12-2025';
-            const researchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
+            const researchPrompt = (await db.getSetting('DEEP_RESEARCH_PROMPT')) || defaultResearchPrompt;
             const nanoModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'gemini-3.1-pro-preview';
-            const nanoPrompt = await db.getSetting('NANO_BANANA_PROMPT') || '';
+            const nanoPrompt = (await db.getSetting('NANO_BANANA_PROMPT')) || defaultNanoPrompt;
             const htmlModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || 'gemini-3.1-flash-lite-preview';
-            const htmlPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
+            const htmlPrompt = (await db.getSetting('HTML_SVG_PROMPT')) || defaultHtmlPrompt;
             const folderId = await db.getSetting('geminiResearchFolderId') || '';
+
+            // Also persist them to settings if not set
+            if (!await db.getSetting('DEEP_RESEARCH_PROMPT')) await db.setSetting('DEEP_RESEARCH_PROMPT', defaultResearchPrompt);
+            if (!await db.getSetting('HTML_SVG_PROMPT')) await db.setSetting('HTML_SVG_PROMPT', defaultHtmlPrompt);
+            if (!await db.getSetting('NANO_BANANA_PROMPT')) await db.setSetting('NANO_BANANA_PROMPT', defaultNanoPrompt);
 
             const crypto = require('crypto');
             
@@ -699,7 +771,7 @@ async function autoActivate() {
                 ]
             );
             
-            console.log('DEBUG: Default Deep Research Workflows initialized.');
+            console.log('DEBUG: Default Deep Research Workflows initialized with complete prompts.');
         }
 
     } catch (error) {

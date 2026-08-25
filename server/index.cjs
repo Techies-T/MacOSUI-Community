@@ -181,6 +181,12 @@ app.get('/api/config', async (req, res) => {
         const antigravityAgentExternalPolicyEnabled = (await db.getSetting('ANTIGRAVITY_AGENT_EXTERNAL_POLICY_ENABLED') || 'true') === 'true';
         const antigravityAgentMcpServers = await db.getSetting('ANTIGRAVITY_AGENT_MCP_SERVERS') || '[]';
 
+        // Local AI / Gemma 4 Settings
+        const localAiEnabled = (await db.getSetting('LOCAL_AI_ENABLED')) || 'true';
+        const localAiHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+        const localAiModel = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
+        const localAiTemperature = (await db.getSetting('LOCAL_AI_TEMPERATURE')) || '0.7';
+
         res.json({
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
@@ -211,7 +217,11 @@ app.get('/api/config', async (req, res) => {
             antigravityAgentInstructions,
             antigravityAgentSafetyPolicy,
             antigravityAgentExternalPolicyEnabled,
-            antigravityAgentMcpServers
+            antigravityAgentMcpServers,
+            localAiEnabled,
+            localAiHost,
+            localAiModel,
+            localAiTemperature
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -236,7 +246,7 @@ async function requireAuthIfConfigured(req, res, next) {
 }
 
 app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature } = req.body;
 
     try {
         const isConfigured = !!(await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID);
@@ -244,6 +254,11 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
         // ZTA Security Boundary Check: Block external domain users
         if (isConfigured && await isExternalUser(req.user)) {
             return res.status(403).json({ error: 'Permission denied. External domain users cannot change system configurations.' });
+        }
+
+        // If this is initial activation (first time setup), set FIRST_ADMIN_PENDING flag
+        if (!isConfigured && googleClientId && googleClientSecret) {
+            await db.setSetting('FIRST_ADMIN_PENDING', 'true');
         }
 
         const allowedActions = req.user?.allowed_actions || [];
@@ -261,8 +276,7 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
         }
 
         // Manage System Settings fields (including Antigravity Agent Settings)
-        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined || antigravityAgentModel !== undefined || antigravityAgentInstructions !== undefined || antigravityAgentSafetyPolicy !== undefined || antigravityAgentExternalPolicyEnabled !== undefined || antigravityAgentMcpServers !== undefined) {
-            if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
+        if (hasSysSettings) {
             if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
             if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
             if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
@@ -274,6 +288,12 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             if (mcpQuickPrompts !== undefined) await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(mcpQuickPrompts));
             if (defaultAssistantPrompt !== undefined) await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultAssistantPrompt);
             
+            // Local AI (Gemma 4) Settings Persistence
+            if (localAiEnabled !== undefined) await db.setSetting('LOCAL_AI_ENABLED', localAiEnabled.toString());
+            if (localAiHost !== undefined) await db.setSetting('LOCAL_AI_HOST', localAiHost);
+            if (localAiModel !== undefined) await db.setSetting('LOCAL_AI_MODEL', localAiModel);
+            if (localAiTemperature !== undefined) await db.setSetting('LOCAL_AI_TEMPERATURE', localAiTemperature.toString());
+
             // Antigravity Agent Parameter Persistence
             if (antigravityAgentModel !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_MODEL', antigravityAgentModel);
             if (antigravityAgentInstructions !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_SYSTEM_INSTRUCTIONS', antigravityAgentInstructions);
@@ -407,6 +427,105 @@ app.use('/api/pods', requireAuth, podsModule.router);
 const knowledgeMcpModule = require('./routes/knowledgeMcp.cjs');
 app.use('/api/mcp/knowledge', knowledgeMcpModule.router);
 
+// Gemma 4 Local AI MCP Server route
+const gemmaMcpRouter = require('./routes/gemmaMcp.cjs');
+app.use('/api/mcp/gemma', gemmaMcpRouter);
+
+function resolveLocalAiHost(configuredHost) {
+    let host = configuredHost || 'http://localhost:11434';
+    if (process.env.DOCKER_CONTAINER || fs.existsSync('/.dockerenv')) {
+        if (host.includes('localhost') || host.includes('127.0.0.1')) {
+            host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
+        }
+    }
+    return host.replace(/\/$/, '');
+}
+
+// Gemma 4 LiveStream & Models API
+app.get('/api/gemma/models', requireAuth, async (req, res) => {
+    try {
+        const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+        const host = resolveLocalAiHost(rawHost);
+        const response = await fetch(`${host}/api/tags`);
+        if (!response.ok) {
+            return res.status(502).json({ error: 'Failed to connect to local Ollama server' });
+        }
+        const data = await response.json();
+        res.json({ models: data.models || [] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/gemma/stream', requireAuth, async (req, res) => {
+    const { prompt, systemInstruction, temperature, model: requestedModel } = req.body;
+    if (!prompt) {
+        return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    try {
+        const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+        const host = resolveLocalAiHost(rawHost);
+        const defaultModel = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
+        const model = requestedModel || defaultModel;
+        const temp = temperature !== undefined ? parseFloat(temperature) : parseFloat((await db.getSetting('LOCAL_AI_TEMPERATURE')) || '0.7');
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+        const ollamaRes = await fetch(`${host}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model,
+                prompt,
+                system: systemInstruction || undefined,
+                stream: true,
+                options: { temperature: temp }
+            })
+        });
+
+        if (!ollamaRes.ok) {
+            const errText = await ollamaRes.text();
+            res.write(`data: ${JSON.stringify({ error: `Ollama error: ${errText}` })}\n\n`);
+            return res.end();
+        }
+
+        const reader = ollamaRes.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n').filter(l => l.trim().length > 0);
+            for (const line of lines) {
+                try {
+                    const json = JSON.parse(line);
+                    res.write(`data: ${JSON.stringify({ 
+                        text: json.response || '', 
+                        done: json.done || false,
+                        prompt_eval_count: json.prompt_eval_count,
+                        eval_count: json.eval_count
+                    })}\n\n`);
+                } catch (e) {}
+            }
+        }
+        res.write('data: [DONE]\n\n');
+        res.end();
+    } catch (err) {
+        console.error('[Gemma Stream Error]', err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        } else {
+            res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+            res.end();
+        }
+    }
+});
+
 // Skill Management Routes
 app.use('/api/skills', requireAuth, require('./routes/skills.cjs'));
 
@@ -421,6 +540,7 @@ app.use('/api/mcp/servers', requireAuth, (req, res, next) => {
 }, require('./routes/mcpServers.cjs'));
 
 app.use('/api/mcp/chat', requireWidgetAccess('app:mcp-chat'), require('./routes/mcpChat.cjs'));
+app.use('/api/local-rag', requireAuth, require('./routes/localRag.cjs'));
 
 // MCP Tool Execution Route
 const { callMcpTool } = require('./mcpClient.cjs');
@@ -585,18 +705,22 @@ app.post('/api/auth/google', async (req, res) => {
             };
 
             if (existingUser) {
-                // User already exists, proceed. Maintain role.
+                // User already exists in database. Maintain their exact assigned role.
+                // Strict Zero Trust: Never auto-promote existing users.
                 proceedWithLogin(existingUser.role || 'user');
             } else {
-                // Check if this is the very first user
-                db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
-                    if (err) return res.status(500).json({ error: 'Database error' });
+                // New user login attempt:
+                // Check if this system was just activated via SetupScreen and is awaiting its 1-time initial admin registration
+                db.getSetting('FIRST_ADMIN_PENDING').then(async (pendingFlag) => {
+                    const isFirstAdminPending = pendingFlag === 'true';
                     
-                    if (Number(result.count) === 0) {
-                        // First user gets admin privileges
+                    if (isFirstAdminPending) {
+                        // Consume the initial activation gate: lock it so no other admin can be auto-created
+                        await db.setSetting('FIRST_ADMIN_PENDING', 'false');
+                        await db.setSetting('ACTIVATION_COMPLETED', 'true');
                         proceedWithLogin('admin');
                     } else {
-                        // Not the first user. Check if they are invited.
+                        // Operational Mode: Strictly require an active invitation from an existing Admin
                         db.get("SELECT email, created_at FROM invitations WHERE email = ?", [email], (err, invite) => {
                             if (err) return res.status(500).json({ error: 'Database error' });
                             
@@ -636,6 +760,9 @@ app.post('/api/auth/google', async (req, res) => {
                             }
                         });
                     }
+                }).catch(err => {
+                    console.error("Error reading FIRST_ADMIN_PENDING setting:", err);
+                    res.status(500).json({ error: 'Internal server error' });
                 });
             }
         });
@@ -966,7 +1093,7 @@ function requireAgentOrUserAuth(req, res, next) {
         if (decoded.type === 'agent_token') {
             // Verify if the token was issued for accessing this specific API resource.
             // Under our model, the audience (aud) for knowledge base MCP can be 'app:knowledge-base' or 'mcp:knowledge'
-            const validAudiences = ['app:knowledge-base', 'mcp:knowledge', '*'];
+            const validAudiences = ['app:knowledge-base', 'mcp:knowledge', 'app:gemma', 'mcp:gemma', '*'];
             if (!validAudiences.includes(decoded.aud)) {
                 return res.status(403).json({ error: 'Access denied. Invalid audience for agent token.' });
             }
@@ -1368,7 +1495,7 @@ app.get('/api/users', requireAuth, (req, res) => {
     if (!allowed.includes('*') && !allowed.includes('action:manage_users') && !allowed.includes('action:invite_users')) {
         return res.status(403).json({ error: 'Permission denied' });
     }
-    db.all("SELECT id, email, name, avatar_url, role, deep_research_enabled, created_at FROM users", (err, rows) => {
+    db.all("SELECT id, email, name, avatar_url, role, native_language, deep_research_enabled, created_at FROM users", (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json(rows);
     });
@@ -1502,11 +1629,38 @@ app.put('/api/users/me/avatar', requireAuth, (req, res) => {
     });
 });
 
+app.put('/api/users/me/language', requireAuth, (req, res) => {
+    const { native_language } = req.body;
+    if (!native_language) return res.status(400).json({ error: 'Language is required' });
+    const lang = ['ja', 'en', 'es'].includes(native_language) ? native_language : 'ja';
+    
+    db.run("UPDATE users SET native_language = ? WHERE id = ?", [lang, req.user.id], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        req.user.native_language = lang;
+        res.json({ success: true, native_language: lang });
+    });
+});
+
+app.put('/api/users/:id/language', requireAuth, (req, res) => {
+    const allowed = req.user.allowed_actions || [];
+    if (!allowed.includes('*') && !allowed.includes('action:manage_users')) {
+        return res.status(403).json({ error: 'Permission denied' });
+    }
+    const { id } = req.params;
+    const { native_language } = req.body;
+    const lang = ['ja', 'en', 'es'].includes(native_language) ? native_language : 'ja';
+    
+    db.run("UPDATE users SET native_language = ? WHERE id = ?", [lang, id], function(err) {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json({ success: true, id, native_language: lang });
+    });
+});
+
 app.get('/api/virtual-office/users', requireAuth, (req, res) => {
     const loginUserId = req.user.id;
     const sql = `
         SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote,
-               u.assistant_work_start, u.assistant_work_end, u.assistant_break_start, u.assistant_break_end, u.assistant_meeting_buffer, u.assistant_prompt,
+               u.assistant_work_start, u.assistant_work_end, u.assistant_break_start, u.assistant_break_end, u.assistant_meeting_buffer, u.assistant_prompt, u.native_language,
                (SELECT COUNT(*) FROM dm_messages m WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0) as unread_count
         FROM users u
     `;
@@ -1520,6 +1674,7 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
                 current_room: user.current_room || 'open-space',
                 status_text: user.status_text || 'Active',
                 unread_count: user.unread_count || 0,
+                native_language: user.native_language || 'ja',
                 assistant_work_start: user.assistant_work_start || '09:00',
                 assistant_work_end: user.assistant_work_end || '17:30',
                 assistant_break_start: user.assistant_break_start || '12:00',
@@ -1691,10 +1846,10 @@ ${newPrompt}`;
 });
 
 app.post('/api/virtual-office/status', requireAuth, (req, res) => {
-    const { current_room, status_text, is_remote } = req.body;
+    const { current_room, status_text, is_remote, native_language } = req.body;
     const userId = req.user.id;
     
-    db.get("SELECT current_room, status_text, is_remote FROM users WHERE id = ?", [userId], (err, user) => {
+    db.get("SELECT current_room, status_text, is_remote, native_language FROM users WHERE id = ?", [userId], (err, user) => {
         if (err) {
             console.error('Error fetching user status:', err);
             return res.status(500).json({ error: 'Database error' });
@@ -1704,10 +1859,11 @@ app.post('/api/virtual-office/status', requireAuth, (req, res) => {
         const nextRoom = current_room !== undefined ? current_room : (user.current_room || 'open-space');
         const nextStatus = status_text !== undefined ? status_text : (user.status_text || 'Active');
         const nextRemote = is_remote !== undefined ? is_remote : (user.is_remote ?? 0);
+        const nextLang = native_language !== undefined ? native_language : (user.native_language || 'ja');
         
         db.run(
-            "UPDATE users SET current_room = ?, status_text = ?, is_remote = ? WHERE id = ?",
-            [nextRoom, nextStatus, nextRemote, userId],
+            "UPDATE users SET current_room = ?, status_text = ?, is_remote = ?, native_language = ? WHERE id = ?",
+            [nextRoom, nextStatus, nextRemote, nextLang, userId],
             function(updateErr) {
                 if (updateErr) {
                     console.error('Error updating user status:', updateErr);
@@ -1718,7 +1874,8 @@ app.post('/api/virtual-office/status', requireAuth, (req, res) => {
                     status: {
                         current_room: nextRoom,
                         status_text: nextStatus,
-                        is_remote: nextRemote
+                        is_remote: nextRemote,
+                        native_language: nextLang
                     }
                 });
             }
@@ -2638,7 +2795,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
             } else {
                 // normal output completion
                 if (responseText) {
-                    const usageMetadata = fullInteraction?.usage || null;
+                    const usageMetadata = fullInteraction?.usage || fullInteraction?.usage_metadata || fullInteraction?.usageMetadata || null;
                     geminiJobs[jobId] = { 
                         ...geminiJobs[jobId], 
                         state: 'completed', 
@@ -4065,19 +4222,65 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
         // 超過していない場合は is_read=0 (未読) で保存。
         const initialIsRead = isSessionLimitExceeded ? 1 : 0;
 
-        db.run(
-            "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text, is_read) VALUES (?, ?, 'user', ?, ?)",
-            [loginUserId, receiverId, text, initialIsRead],
-            async function(err) {
-                if (err) {
-                    return res.status(500).json({ error: 'Failed to send message' });
+        db.get("SELECT * FROM users WHERE id = ?", [receiverId], async (err, targetUser) => {
+            if (err || !targetUser) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
+            const senderLang = req.user.native_language || 'ja';
+            const targetLang = targetUser.native_language || 'ja';
+            const isDifferentLang = senderLang !== targetLang;
+            const targetLangName = targetLang === 'en' ? 'English' : targetLang === 'es' ? 'Spanish' : 'Japanese';
+            const senderLangName = senderLang === 'en' ? 'English' : senderLang === 'es' ? 'Spanish' : 'Japanese';
+            const senderLangFlag = senderLang === 'en' ? '🇺🇸' : senderLang === 'es' ? '🇪🇸' : '🇯🇵';
+            const targetLangFlag = targetLang === 'en' ? '🇺🇸' : targetLang === 'es' ? '🇪🇸' : '🇯🇵';
+
+            let textToSave = text;
+            const localAiEnabled = (await db.getSetting('LOCAL_AI_ENABLED')) === 'true';
+
+            // 1. 言語が異なる場合のみ、Gemma 4 (Local AI) による相手言語への自動翻訳を実行
+            if (isDifferentLang && localAiEnabled) {
+                try {
+                    const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+                    const host = resolveLocalAiHost(rawHost);
+                    const model = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
+
+                    const transRes = await fetch(`${host}/api/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model,
+                            prompt: `You are an expert translator. Translate the following ${senderLangName} message accurately and naturally into ${targetLangName}. Output ONLY the translated text without quotes or explanations:\n\n"${text}"`,
+                            stream: false,
+                            options: { temperature: 0.2 }
+                        })
+                    });
+
+                    if (transRes.ok) {
+                        const tData = await transRes.json();
+                        const translated = (tData.response || '').trim().replace(/^["']|["']$/g, '');
+                        if (translated) {
+                            textToSave = `🌐 [Gemma 4 Translated (${senderLangFlag} ➔ ${targetLangFlag})]\n${translated}\n\n(${senderLangFlag} 原文: ${text})`;
+                        }
+                    }
+                } catch (tErr) {
+                    console.error("Gemma 4 translation failed:", tErr.message);
                 }
+            }
 
-                const insertedId = this.lastID;
+            // 2. メッセージをDBへ保存
+            db.run(
+                "INSERT INTO dm_messages (sender_id, receiver_id, sender_type, text, is_read) VALUES (?, ?, 'user', ?, ?)",
+                [loginUserId, receiverId, textToSave, initialIsRead],
+                async function(insertErr) {
+                    if (insertErr) {
+                        return res.status(500).json({ error: 'Failed to send message' });
+                    }
 
-                // セッション制限超過時の処理
-                if (isSessionLimitExceeded) {
-                    db.get("SELECT name FROM users WHERE id = ?", [receiverId], (err, targetUser) => {
+                    const insertedId = this.lastID;
+
+                    // セッション制限超過時の処理
+                    if (isSessionLimitExceeded) {
                         const targetName = targetUser ? targetUser.name : '相手';
                         const replyText = `ただいま、${targetName} は複数のチャットが立ち上がっているため、対応できません。しばらく経ってから試してください。`;
                         
@@ -4090,22 +4293,15 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                                 }
                             );
                         }, 1000);
-                    });
 
-                    return res.json({ status: 'ok', messageId: insertedId });
-                }
-
-                // セッション制限以下の場合は、通常のステータスに応じた自動返信処理
-                db.get("SELECT * FROM users WHERE id = ?", [receiverId], async (err, targetUser) => {
-                    if (err || !targetUser) {
                         return res.json({ status: 'ok', messageId: insertedId });
                     }
 
+                    // 3. 通常のステータスに応じた自動返信処理
                     let replyText = '';
                     let isAssistant = false;
-                    const userText = text;
 
-                    // 1. カレンダー空きスケジュールと移動時間の算出
+                    // 3-1. カレンダー空きスケジュールと移動時間の算出
                     let freeSlotsText = "なし";
                     let isOvertime = false;
                     let isBufferMitigated = false;
@@ -4140,60 +4336,100 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                         console.error("Failed to fetch slots for AI Assistant context:", slotErr);
                     }
 
-                    // 2. Gemini 3.5 Flash による動的応答生成の試行
-                    const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-                    if (apiKey) {
+                    // 3-2. Local AI (Gemma 4) による自動応答（相手の言語で生成）
+                    if (localAiEnabled) {
                         try {
-                            const { GoogleGenAI } = require("@google/genai");
-                            const client = new GoogleGenAI({ apiKey });
-                            const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+                            const rawHost = (await db.getSetting('LOCAL_AI_HOST')) || 'http://localhost:11434';
+                            const host = resolveLocalAiHost(rawHost);
+                            const model = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
 
-                            // データベースからデフォルトプロンプトを取得
                             const defaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
-
                             const basePrompt = targetUser.assistant_prompt || defaultPrompt;
 
-                            let finalSystemInstruction = basePrompt
-                                .replace(/{name}/g, targetUser.name)
-                                .replace(/{room}/g, targetUser.current_room || 'open-space')
-                                .replace(/{work_start}/g, targetUser.assistant_work_start || '09:00')
-                                .replace(/{work_end}/g, targetUser.assistant_work_end || '17:30')
-                                .replace(/{free_slots}/g, freeSlotsText !== 'なし' ? freeSlotsText : 'なし');
-
-                            // コンテキスト情報の明記
-                            const contextText = `
-【現在のリアルタイム・コンテキスト】
-- 主人の名前: ${targetUser.name}
-- 主人の現在の部屋状態: ${targetUser.current_room || 'open-space'}
-- 主人の就業時間: ${targetUser.assistant_work_start || '09:00'} 〜 ${targetUser.assistant_work_end || '17:30'} (最終受付は終了${targetUser.assistant_meeting_buffer || 30}分前)
-- 本日の双方の共通空き時間帯 (カレンダーから自動算出): 
+                            const systemInstruction = `You are an executive AI Assistant for ${targetUser.name} (${targetUser.role || 'Boss'}).
+- Current Room: ${targetUser.current_room || 'open-space'}
+- Working Hours: ${targetUser.assistant_work_start || '09:00'} - ${targetUser.assistant_work_end || '17:30'}
+- Today's Available Common Free Slots:
 ${freeSlotsText}
-- 移動時間考慮詳細: 
-${travelDetailsText || '特になし'}
-- 就業時間内での空き時間の有無: ${isOvertime ? '就業時間外のみ空きあり' : (freeSlotsText !== 'なし' ? '就業時間内に空きあり' : '空きなし')}
-- バッファ緩和枠の適用有無: ${isBufferMitigated ? '就業時間終了間際のバッファ枠のみ空きあり' : 'なし'}
-`;
+- Sender (${req.user.name})'s Native Language: ${senderLangName}
 
-                            finalSystemInstruction += `\n\n${contextText}\n\n【注意事項】丁寧な日本語で回答してください。返答テキストのみを自然に出力してください。`;
+Instructions:
+1. If the sender is asking for a meeting or chat, suggest the available free slots clearly.
+2. ${isDifferentLang ? `Respond politely and helpfully in ${senderLangName} (the sender's native language) so they can read it directly in ${senderLangName}.` : `Respond politely and naturally in ${senderLangName}.`}
+3. If ${targetUser.name} is in 'focus-zone' or 'meeting-room', state that they are currently unavailable and take a message.
+4. Output only the final assistant chat response without any meta commentary.`;
 
-                            const aiResponse = await client.models.generateContent({
-                                model: modelName,
-                                contents: `ユーザーからのメッセージ: "${text}"`,
-                                config: {
-                                    systemInstruction: finalSystemInstruction,
-                                    temperature: 0.5
-                                }
+                            const ollamaRes = await fetch(`${host}/api/generate`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    model,
+                                    prompt: `Team Member (${req.user.name}) says: "${text}"`,
+                                    system: systemInstruction,
+                                    stream: false,
+                                    options: { temperature: 0.3 }
+                                })
                             });
 
-                            replyText = (aiResponse.text || '').trim();
-                            isAssistant = true;
-
-                        } catch (aiErr) {
-                            console.error("Failed to generate assistant reply using Gemini:", aiErr);
+                            if (ollamaRes.ok) {
+                                const data = await ollamaRes.json();
+                                const rawReply = (data.response || '').trim();
+                                if (rawReply) {
+                                    replyText = isDifferentLang ? `🤖 [AI Assistant (Gemma 4 🦙)]\n${rawReply}` : rawReply;
+                                    isAssistant = true;
+                                }
+                            }
+                        } catch (gemmaErr) {
+                            console.error("Local Gemma 4 assistant reply error:", gemmaErr.message);
                         }
                     }
 
-                    // 3. APIエラーまたはAPIキー未設定時のフォールバック（従来のハードコード分岐）
+                    // 3. Gemini による動的応答生成の試行 (Local AI 未使用または失敗時)
+                    if (!replyText) {
+                        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+                        if (apiKey) {
+                            try {
+                                const { GoogleGenAI } = require("@google/genai");
+                                const client = new GoogleGenAI({ apiKey });
+                                const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
+
+                                const defaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
+                                const basePrompt = targetUser.assistant_prompt || defaultPrompt;
+
+                                let finalSystemInstruction = basePrompt
+                                    .replace(/{name}/g, targetUser.name)
+                                    .replace(/{room}/g, targetUser.current_room || 'open-space')
+                                    .replace(/{work_start}/g, targetUser.assistant_work_start || '09:00')
+                                    .replace(/{work_end}/g, targetUser.assistant_work_end || '17:30')
+                                    .replace(/{free_slots}/g, freeSlotsText !== 'なし' ? freeSlotsText : 'なし');
+
+                                const contextText = `
+【現在のリアルタイム・コンテキスト】
+- 主人の名前: ${targetUser.name}
+- 主人の現在の部屋状態: ${targetUser.current_room || 'open-space'}
+- 本日の双方の共通空き時間帯: 
+${freeSlotsText}
+`;
+                                finalSystemInstruction += `\n\n${contextText}\n\n【注意事項】丁寧な日本語で回答してください。`;
+
+                                const aiResponse = await client.models.generateContent({
+                                    model: modelName,
+                                    contents: `ユーザーからのメッセージ: "${text}"`,
+                                    config: {
+                                        systemInstruction: finalSystemInstruction,
+                                        temperature: 0.5
+                                    }
+                                });
+
+                                replyText = (aiResponse.text || '').trim();
+                                if (replyText) isAssistant = true;
+                            } catch (aiErr) {
+                                console.error("Failed to generate assistant reply using Gemini:", aiErr);
+                            }
+                        }
+                    }
+
+                    // 4. APIエラーまたはAPIキー未設定時のフォールバック（従来のハードコード分岐）
                     if (!replyText) {
                         const isMeetingRequest = userText.includes('打ち合わせ') || 
                                                  userText.includes('会議') || 

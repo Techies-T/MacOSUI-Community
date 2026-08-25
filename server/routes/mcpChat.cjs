@@ -167,9 +167,12 @@ ${toolDescriptions}`;
             }
         }
 
+        const usageMetadata = interaction?.usage || interaction?.usage_metadata || interaction?.usageMetadata || null;
+
         res.json({
             reply: finalResponseText,
             artifacts: artifacts,
+            usageMetadata: usageMetadata,
             interactionId: currentInteractionId,
             environmentId: currentEnvironmentId
         });

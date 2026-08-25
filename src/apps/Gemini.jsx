@@ -1,7 +1,37 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import WeatherForecastMap from './WeatherForecastMap';
 
 const SLASH_COMMANDS = [];
+
+const renderContextUsage = (usage, isDark = true) => {
+    if (!usage) return null;
+    const promptTokens = usage.promptTokenCount ?? usage.prompt_token_count ?? usage.prompt_tokens ?? usage.input_tokens ?? usage.prompt_eval_count ?? 0;
+    const responseTokens = usage.candidatesTokenCount ?? usage.candidates_token_count ?? usage.response_tokens ?? usage.candidates_tokens ?? usage.output_tokens ?? usage.eval_count ?? 0;
+    const totalTokens = usage.totalTokenCount ?? usage.total_token_count ?? usage.total_tokens ?? (promptTokens + responseTokens);
+
+    if (totalTokens === 0) return null;
+
+    const limit = 1000000;
+    const percentage = ((totalTokens / limit) * 100).toFixed(2);
+
+    return (
+        <div className={`mt-2 pt-2 border-t flex flex-wrap items-center justify-between gap-2 text-xs font-sans ${isDark ? 'border-white/10 text-white/80' : 'border-gray-200 text-gray-600'}`}>
+            <span className="font-medium">
+                📊 コンテキスト使用量: <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalTokens.toLocaleString()}</span> / {limit.toLocaleString()} tokens ({percentage}%)
+            </span>
+            {(promptTokens > 0 || responseTokens > 0) && (
+                <span className={`text-[11px] font-mono ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                    [入力: {promptTokens.toLocaleString()} / 出力: {responseTokens.toLocaleString()}]
+                </span>
+            )}
+        </div>
+    );
+};
 
 const Gemini = () => {
     const [mode, setMode] = useState('normal');
@@ -263,6 +293,77 @@ const Gemini = () => {
                     "ユーザーには通常の言葉で天気を解説するテキストを必ず先に書き、その後にこのJSONブロックを記述してください。";
             }
 
+            if (mode === 'gemma4' || mode === 'local_rag') {
+                // Direct LiveStream from Local Gemma 4 (or Local RAG)
+                try {
+                    const endpoint = mode === 'local_rag' ? '/api/local-rag/stream' : '/api/gemma/stream';
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: userMessage.text,
+                            systemInstruction: dynamicSystemInstruction || "You are Gemma 4, a powerful, fast, and secure local AI running on Apple Silicon. Answer helpfully, accurately, and concisely in Japanese or the language requested."
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json().catch(() => ({}));
+                        throw new Error(errData.error || `Server returned ${response.status}`);
+                    }
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let streamText = '';
+
+                    // Add placeholder model message for streaming
+                    setMessages(prev => [...prev, { role: 'model', text: '', isStreaming: true }]);
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n').filter(l => l.trim().length > 0);
+                        for (const line of lines) {
+                            if (line.includes('[DONE]')) continue;
+                            const jsonStr = line.replace(/^data:\s*/, '').trim();
+                            if (!jsonStr) continue;
+                            try {
+                                const json = JSON.parse(jsonStr);
+                                if (json.error) throw new Error(json.error);
+                                if (json.text) {
+                                    streamText += json.text;
+                                    const currentUsage = (json.prompt_eval_count || json.eval_count) ? {
+                                        promptTokenCount: json.prompt_eval_count,
+                                        candidatesTokenCount: json.eval_count,
+                                        totalTokenCount: (json.prompt_eval_count || 0) + (json.eval_count || 0)
+                                    } : null;
+
+                                    setMessages(prev => {
+                                        const updated = [...prev];
+                                        if (updated.length > 0) {
+                                            updated[updated.length - 1] = {
+                                                role: 'model',
+                                                text: streamText,
+                                                isStreaming: !json.done,
+                                                usage: currentUsage || updated[updated.length - 1]?.usage
+                                            };
+                                        }
+                                        return updated;
+                                    });
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                    setIsLoading(false);
+                    return;
+                } catch (gemmaErr) {
+                    console.error("Gemma stream error:", gemmaErr);
+                    setMessages(prev => [...prev, { role: 'model', text: "Error connecting to Local Gemma 4: " + gemmaErr.message + " (Make sure Ollama is running)" }]);
+                    setIsLoading(false);
+                    return;
+                }
+            }
+
             // Start Job
             const requestBody = {
                 message: userMessage.text,
@@ -302,7 +403,7 @@ const Gemini = () => {
 
                     if (jobData.state === 'completed') {
                         clearInterval(pollInterval);
-                        setMessages(prev => [...prev, { role: 'model', text: jobData.reply }]);
+                        setMessages(prev => [...prev, { role: 'model', text: jobData.reply, usage: jobData.usageMetadata }]);
                         if (jobData.interactionId) setPreviousInteractionId(jobData.interactionId);
                         if (jobData.environmentId) setEnvironmentId(jobData.environmentId);
                         setIsLoading(false);
@@ -417,9 +518,11 @@ const Gemini = () => {
                             style={{ backgroundImage: 'none', minWidth: '120px' }}
                         >
                             <option value="normal" className="text-gray-800">💬 Normal Chat</option>
+                            <option value="local_rag" className="text-gray-800">🛡️ Gemma 4 Local RAG (完全社内完結)</option>
                             {ragFolders.map((f, idx) => (
-                                <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 {f.name}</option>
+                                <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 Cloud: {f.name}</option>
                             ))}
+                            <option value="gemma4" className="text-gray-800">🦙 Gemma 4 (Direct)</option>
                             <option value="research" className="text-gray-800">🔍 Deep Research</option>
                             <option value="html_svg" className="text-gray-800">🎨 HTML/SVG Dev</option>
                         </select>
@@ -431,6 +534,18 @@ const Gemini = () => {
                             <div className={`w-8 h-4 rounded-full transition-colors relative ${useGrounding ? 'bg-green-400' : 'bg-white/20'}`}>
                                 <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${useGrounding ? 'translate-x-4' : 'translate-x-0.5'}`}></div>
                             </div>
+                        </div>
+                    )}
+                    {mode === 'local_rag' && (
+                        <div className="ml-3 flex items-center bg-indigo-500/20 backdrop-blur-md rounded-lg px-3 py-1.5 border border-indigo-400/30 shadow-sm">
+                            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mr-2"></span>
+                            <span className="text-xs font-semibold text-indigo-200">🛡️ Zero Data Egress (Air-Gapped)</span>
+                        </div>
+                    )}
+                    {mode === 'gemma4' && (
+                        <div className="ml-3 flex items-center bg-emerald-500/20 backdrop-blur-md rounded-lg px-3 py-1.5 border border-emerald-400/30">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-2"></span>
+                            <span className="text-xs font-semibold text-emerald-200">⚡️ Local MoE (Apple MLX)</span>
                         </div>
                     )}
 
@@ -534,14 +649,65 @@ const Gemini = () => {
                                         if (hasWeatherWords && hasCityNames) {
                                             return (
                                                 <div className="space-y-4 w-full">
-                                                    <p className="whitespace-pre-wrap text-white">{msg.text}</p>
+                                                    <div className="prose prose-invert max-w-none text-white text-[15px] leading-relaxed break-words">
+                                                        <ReactMarkdown
+                                                            remarkPlugins={[remarkGfm, remarkMath]}
+                                                            rehypePlugins={[rehypeKatex]}
+                                                        >
+                                                            {msg.text}
+                                                        </ReactMarkdown>
+                                                    </div>
                                                     <WeatherForecastMap data={null} />
                                                 </div>
                                             );
                                         }
 
-                                        return <p className="whitespace-pre-wrap">{msg.text}</p>;
+                                        return (
+                                            <div className="prose prose-invert max-w-none text-white text-[15px] leading-relaxed break-words">
+                                                <ReactMarkdown
+                                                    remarkPlugins={[remarkGfm, remarkMath]}
+                                                    rehypePlugins={[rehypeKatex]}
+                                                    components={{
+                                                        p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-relaxed">{children}</p>,
+                                                        h1: ({ children }) => <h1 className="text-xl font-bold mt-3.5 mb-2 text-white border-b border-white/10 pb-1">{children}</h1>,
+                                                        h2: ({ children }) => <h2 className="text-lg font-bold mt-3 mb-1.5 text-white">{children}</h2>,
+                                                        h3: ({ children }) => <h3 className="text-base font-semibold mt-2.5 mb-1 text-indigo-200">{children}</h3>,
+                                                        ul: ({ children }) => <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>,
+                                                        ol: ({ children }) => <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>,
+                                                        li: ({ children }) => <li className="my-0.5 leading-relaxed">{children}</li>,
+                                                        strong: ({ children }) => <strong className="font-bold text-white bg-indigo-500/20 px-1 py-0.5 rounded">{children}</strong>,
+                                                        code: ({ inline, className, children, ...props }) => {
+                                                            if (inline) {
+                                                                return (
+                                                                    <code className="bg-black/40 text-cyan-300 px-1.5 py-0.5 rounded text-xs font-mono border border-white/10" {...props}>
+                                                                        {children}
+                                                                    </code>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <div className="my-2.5 rounded-xl bg-black/60 border border-white/10 p-3 overflow-x-auto text-xs font-mono text-gray-200">
+                                                                    <code className={className} {...props}>
+                                                                        {children}
+                                                                    </code>
+                                                                </div>
+                                                            );
+                                                        },
+                                                        table: ({ children }) => (
+                                                            <div className="overflow-x-auto my-3 rounded-lg border border-white/10">
+                                                                <table className="min-w-full text-xs text-left divide-y divide-white/10">{children}</table>
+                                                            </div>
+                                                        ),
+                                                        th: ({ children }) => <th className="px-3 py-2 bg-black/40 font-bold text-white border-b border-white/10">{children}</th>,
+                                                        td: ({ children }) => <td className="px-3 py-2 text-gray-200 border-b border-white/5">{children}</td>,
+                                                        hr: () => <hr className="my-3 border-white/10" />
+                                                    }}
+                                                >
+                                                    {msg.text}
+                                                </ReactMarkdown>
+                                            </div>
+                                        );
                                     })()}
+                                    {msg.role === 'model' && renderContextUsage(msg.usage, true)}
                                 </div>
                                 {/* Actions Area */}
                                 <div className="flex gap-2 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">

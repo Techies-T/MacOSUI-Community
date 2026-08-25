@@ -1,6 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+
+const renderContextUsage = (usage) => {
+    if (!usage) return null;
+    const promptTokens = usage.promptTokenCount ?? usage.prompt_token_count ?? usage.prompt_tokens ?? usage.input_tokens ?? usage.prompt_eval_count ?? 0;
+    const responseTokens = usage.candidatesTokenCount ?? usage.candidates_token_count ?? usage.response_tokens ?? usage.candidates_tokens ?? usage.output_tokens ?? usage.eval_count ?? 0;
+    const totalTokens = usage.totalTokenCount ?? usage.total_token_count ?? usage.total_tokens ?? (promptTokens + responseTokens);
+
+    if (totalTokens === 0) return null;
+
+    const limit = 1000000;
+    const percentage = ((totalTokens / limit) * 100).toFixed(2);
+
+    return (
+        <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs font-sans text-gray-600">
+            <span className="font-medium">
+                📊 コンテキスト使用量: <span className="font-mono font-bold text-gray-900">{totalTokens.toLocaleString()}</span> / {limit.toLocaleString()} tokens ({percentage}%)
+            </span>
+            {(promptTokens > 0 || responseTokens > 0) && (
+                <span className="text-[11px] font-mono text-gray-500">
+                    [入力: {promptTokens.toLocaleString()} / 出力: {responseTokens.toLocaleString()}]
+                </span>
+            )}
+        </div>
+    );
+};
 
 const McpChat = () => {
     const [messages, setMessages] = useState([]);
@@ -80,9 +108,9 @@ const McpChat = () => {
 
             // Append model reply
             if (data.reply) {
-                setMessages(prev => [...prev, { role: 'model', text: data.reply }]);
+                setMessages(prev => [...prev, { role: 'model', text: data.reply, usage: data.usageMetadata }]);
             } else {
-                setMessages(prev => [...prev, { role: 'model', text: "Operation completed." }]);
+                setMessages(prev => [...prev, { role: 'model', text: "Operation completed.", usage: data.usageMetadata }]);
             }
 
             // Process artifacts (tool results)
@@ -271,11 +299,15 @@ const McpChat = () => {
                                         <p className="whitespace-pre-wrap">{msg.text}</p>
                                     ) : (
                                         <div className="prose prose-sm prose-indigo max-w-none prose-p:leading-relaxed prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-th:bg-gray-100 prose-th:px-3 prose-th:py-2 prose-td:border prose-td:border-gray-200 prose-td:px-3 prose-td:py-2 prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-200">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkGfm, remarkMath]}
+                                                rehypePlugins={[rehypeKatex]}
+                                            >
                                                 {msg.text}
                                             </ReactMarkdown>
                                         </div>
                                     )}
+                                    {msg.role === 'model' && renderContextUsage(msg.usage)}
                                 </div>
                             </div>
                         ))}

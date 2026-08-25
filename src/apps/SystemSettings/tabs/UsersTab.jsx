@@ -1,12 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import AvatarCreatorModal from '../../../components/AvatarCreatorModal';
 
+const LANGUAGES = [
+    { code: 'ja', label: '日本語', flag: '🇯🇵' },
+    { code: 'en', label: 'English', flag: '🇺🇸' },
+    { code: 'es', label: 'Español', flag: '🇪🇸' }
+];
+
 const UsersTab = ({ user, rbacPolicies, hasAction }) => {
     const [usersList, setUsersList] = useState([]);
     const [invitations, setInvitations] = useState([]);
     const [inviteEmail, setInviteEmail] = useState('');
     const [selectedRolesToAdd, setSelectedRolesToAdd] = useState({});
     const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+    const [userLang, setUserLang] = useState(user?.native_language || 'ja');
+
+    useEffect(() => {
+        if (user?.native_language) setUserLang(user.native_language);
+    }, [user]);
+
+    const handleUpdateMyLanguage = async (lang) => {
+        setUserLang(lang);
+        try {
+            await fetch('/api/users/me/language', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ native_language: lang })
+            });
+        } catch (e) {
+            console.error("Failed to update language:", e);
+        }
+    };
+
+    const handleUserLanguageChange = async (userId, lang) => {
+        setUsersList(usersList.map(u => u.id === userId ? { ...u, native_language: lang } : u));
+        try {
+            await fetch(`/api/users/${userId}/language`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ native_language: lang })
+            });
+        } catch (e) {
+            console.error("Failed to update member language:", e);
+        }
+    };
 
     console.log("UsersTab render! User:", user);
     console.log("UsersTab hasAction('action:manage_users'):", hasAction ? hasAction('action:manage_users') : 'undefined');
@@ -114,7 +151,7 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
     return (
         <div className="space-y-6">
             {/* Current User Card */}
-            <div className="bg-white/5 p-4 rounded-xl border border-white/10 flex items-center justify-between">
+            <div className="bg-white/5 p-4 rounded-xl border border-white/10 flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-4">
                     <button 
                         onClick={() => setIsAvatarModalOpen(true)}
@@ -137,8 +174,32 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                         <div className="text-sm opacity-60">{user?.email}</div>
                     </div>
                 </div>
-                <div className="px-3 py-1 bg-white/10 rounded-full text-sm">
-                    {user?.role}
+
+                <div className="flex items-center gap-4">
+                    <div className="flex flex-col items-end gap-1">
+                        <span className="text-[10px] font-bold text-indigo-600 uppercase flex items-center gap-1">
+                            <span>🌐</span> 母語 (Native Language)
+                        </span>
+                        <div className="flex gap-1 bg-gray-200/90 p-1 rounded-lg border border-gray-300 shadow-inner">
+                            {LANGUAGES.map(l => (
+                                <button
+                                    key={l.code}
+                                    onClick={() => handleUpdateMyLanguage(l.code)}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                                        (userLang || user?.native_language || 'ja') === l.code
+                                            ? 'bg-indigo-600 text-white shadow-sm font-bold'
+                                            : 'text-gray-700 hover:text-gray-900 hover:bg-white/80'
+                                    }`}
+                                >
+                                    <span>{l.flag}</span>
+                                    <span>{l.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="px-3 py-1 bg-gray-100 border border-gray-200 text-gray-700 rounded-full text-xs font-semibold self-center">
+                        {user?.role}
+                    </div>
                 </div>
             </div>
 
@@ -179,7 +240,27 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                                             </div>
                                         )}
                                         <div>
-                                            <div className="font-medium">{u.name || 'Unknown'}</div>
+                                            <div className="font-medium flex items-center gap-2">
+                                                <span>{u.name || 'Unknown'}</span>
+                                                {hasAction && hasAction('action:manage_users') ? (
+                                                    <select
+                                                        value={u.native_language || 'ja'}
+                                                        onChange={(e) => handleUserLanguageChange(u.id, e.target.value)}
+                                                        className="bg-black/40 text-[11px] font-semibold border border-white/10 rounded px-1.5 py-0.5 text-gray-200 outline-none hover:border-indigo-400 cursor-pointer"
+                                                        title="母語を変更"
+                                                    >
+                                                        {LANGUAGES.map(l => (
+                                                            <option key={l.code} value={l.code} className="bg-gray-800 text-white">
+                                                                {l.flag} {l.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-white/10 border border-white/10 text-gray-300 font-medium inline-flex items-center gap-1">
+                                                        {LANGUAGES.find(l => l.code === (u.native_language || 'ja'))?.flag} {LANGUAGES.find(l => l.code === (u.native_language || 'ja'))?.label}
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="text-sm opacity-60">{u.email}</div>
                                         </div>
                                     </div>

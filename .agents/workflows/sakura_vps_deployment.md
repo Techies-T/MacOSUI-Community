@@ -21,7 +21,7 @@ Ansibleを使って、新しく作成した(または初期化した)何もな�
    brew install ansible
    ```
 
-2. `ansible/inventory.ini` ファイルを開き、ご自身のVPSのIPアドレスが記載されていることを確認します（例: `YOUR_SERVER_IP`）。
+2. `ansible/inventory.ini` ファイルを開き、新しいIPアドレスが記載されていることを確認します（今回は `133.167.105.49` が記載されています）。
 
 3. 以下のAnsibleコマンドを実行するだけで、全ての設定が完了します！
    ```bash
@@ -55,7 +55,7 @@ GitHub ActionsがVPSサーバーに「rsyncでのファイル転送」と「SSH�
 
 #### 登録する値
 1. **`STAGING_HOST_IP`**
-   - 値: `YOUR_SERVER_IP` (さくらのVPSのIPアドレス)
+   - 値: `133.167.105.49` (さくらのVPSのIPアドレス)
 2. **`STAGING_USER`**
    - 値: `debian` (SSH接続ユーザー名)
 3. **`STAGING_SSH_PRIVATE_KEY`**
@@ -78,7 +78,7 @@ GitHub上の `Actions` タブから、ロボットが自動でVPSに接続し、
 
 ステージング環境を `macosui-staging.techiespod.co.jp` として本公開するための設定です。
 
-1. **DNS設定:** ドメイン管理業者のコンソールにて Aレコード（`macosui-staging` -> `YOUR_SERVER_IP`）を登録します。
+1. **DNS設定:** ドメイン管理業者のコンソールにて Aレコード（`macosui-staging` -> `133.167.105.49`）を登録します。
 2. **証明書発行スクリプトの実行:** (サーバー内で1回だけ叩きます)
    ```bash
    cd ~/MacOSUI

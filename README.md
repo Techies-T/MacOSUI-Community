@@ -8,6 +8,8 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 - **AWS EC2 (x86_64 / AMD & Intel) シングルインスタンス設計**: 最小限のインフラコスト（`t3.micro` / `t3.small` 1台）で高速に立ち上げ可能なシンプルかつ堅牢な Docker デプロイアーキテクチャ。
 - **全自動プロビジョニング (Terraform & User Data)**: `terraform apply` 一発で x86_64 サーバーの起動、Docker インストール、メモリ保護（スワップ自動作成）、コンテナビルド・起動までを完全自動化。
+- **🛡️ Gemma 4 Local LLM-RAG (完全社内完結 / ゼロ外部漏洩)**: 外部クラウドへ 1 バイトも機密データを送ることなく、手元の Mac / オンプレミス GPU 上の **Gemma 4 (128K Long Context / KV Cache)** を活用して社内文書や HTML/SVG 構造化ナレッジを高速推論。
+- **🌐 ハイブリッド AI 接続 (AWS ⇄ ローカル Mac / Tailscale VPN)**: AWS 上の MacOSUI から、手元の Apple Silicon Mac 上で動作する Ollama / MLX (Gemma 4) に Tailscale 暗号化トンネル経由でシームレスにアクセス可能。
 - **AWS DynamoDB 超低コストナレッジ分離**: ナレッジデータを AWS DynamoDB (オンデマンド/永久無料枠 25GB) に分離可能。**月額コスト 0円 〜 数十円** で永続データを高速・安全に外部分離保管。
 - **ナレッジベース (Knowledge Base) Import/Export**: JSON パッケージによるナレッジデータのポータブルなインポート・エクスポートを完全サポート。
 - **RAG (Gemini File Search)**: Google Drive やローカルファイルを **Gemini 3.6 Flash** 以上の File Search 機能で高速に検索・要約（安価なトークンコストで非常に高速・高精度な **Gemini 3.6 Flash** の使用を強く推奨します）。
@@ -22,15 +24,16 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 | :--- | :--- | :--- |
 | **デプロイ基盤** | **Single AWS EC2 (x86_64) / VPS** | Single AWS EC2 (`t3.small` / `t3a.small`) + Elastic IP / ALB |
 | **CPU アーキテクチャ** | **x86_64 (AMD / Intel)** | **x86_64 (AMD / Intel)** |
-| **AI モデル** | **Gemini 3.5 Flash 以上** | **Gemini 3.6 Flash (最推奨・低コスト)** / Pro |
+| **クラウド AI モデル** | **Gemini 3.5 Flash 以上** | **Gemini 3.6 Flash (最推奨・低コスト)** / Pro |
+| **ローカル AI モデル** | **Gemma 4 (Ollama / MLX)** | **Gemma 4 (Apple Silicon M2/M3/M4, 128K Context)** |
 | **コンテナ構成** | 1 vCPU / 1 GB RAM (スワップ 2GB) | 2 vCPU / 2 GB RAM 以上 |
 | **ライセンス** | **Apache License 2.0** | オープンソース商用利用・改変・再配布可能 |
 
 ---
 
-## 🏗 本番インフラ・アーキテクチャ図 (Single EC2)
+## 🏗 本番インフラ・アーキテクチャ図 (Single EC2 & ハイブリッド Local AI)
 
-本システムの標準構成（AWS EC2 1台構成 ＋ Docker ＋ 自動プロビジョニング）の構造図です。
+本システムの標準構成（AWS EC2 ＋ Docker ＋ 手元 Mac の Gemma 4 とのハイブリッド連携）の構造図です。
 
 ```mermaid
 graph TD
@@ -48,6 +51,13 @@ graph TD
         Container -->|"機密キー保護"| SecretsManager["AWS Secrets Manager / KMS"]
     end
     
+    subgraph Local_Infrastructure["💻 お手元の Mac / オンプレミス GPU (社内)"]
+        OllamaLocal["Gemma 4 (Ollama: 11434 / MLX)"]
+        LocalKnowledge[("極秘社内文書 / HTML・SVG")]
+        OllamaLocal --- LocalKnowledge
+    end
+    
+    Container -->|"Tailscale 暗号化メッシュトンネル (ゼロ漏洩)"| OllamaLocal
     Container -->|"RAG検索 & レポート保存"| GoogleDrive["Google Drive & Calendar API"]
     Container -->|"AI推論・思考"| GeminiAPI["Google Gemini 3.6 Flash API"]
 ```
@@ -147,6 +157,37 @@ AWS 以外の VPS（さくらのVPS, ConoHa, Linode 等の Debian/Ubuntu サー�
    > ※ Docker、Docker Compose、ファイアウォール（UFW: 22, 80, 443）が完全自動で構築されます。
 3. **コンテナ起動**:
    対象 VPS にログインし、`docker compose up -d --build` を実行します。
+
+---
+
+## 🌐 AWS からローカル Gemma 4 を利用するハイブリッド接続ガイド (Tailscale)
+
+社外に送信できない極秘文書や、手元の Mac (Apple Silicon) 上で稼働している **Gemma 4 (Ollama / MLX)** を、AWS 上の MacOSUI から安全に利用するための手順です。
+グローバル IP の取得やルーターのポート開放は一切不要で、**Tailscale の P2P 暗号化メッシュネットワーク** により安全に直結します。
+
+### ステップ 1: お手元の Mac での準備
+1. **Ollama で Gemma 4 を起動**:
+   ```bash
+   # 全インターフェースからのリクエストを許可して起動
+   OLLAMA_HOST=0.0.0.0:11434 ollama run gemma4:26b-mlx
+   ```
+2. **Tailscale を Mac にインストール & ログイン**:
+   - [Tailscale 公式サイト](https://tailscale.com/) から Mac アプリをダウンロードしてログインします。
+   - 割り当てられた **Mac の Tailscale IP**（例: `100.80.90.100`）を確認します。
+
+### ステップ 2: AWS EC2 サーバーでの接続
+1. EC2 に SSH 接続し、Tailscale をインストールしてログインします：
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   sudo tailscale up
+   ```
+   > ※ 画面に表示される認証 URL をブラウザで開き、Mac と同じアカウントでログインします。
+
+### ステップ 3: MacOSUI での接続設定
+1. ブラウザで AWS 上の MacOSUI にログインします。
+2. **System Settings ＞ System タブ**（または Chat 設定）を開きます。
+3. **Local AI Host URL** に `http://100.80.90.100:11434`（MacのTailscale IP）を指定して保存します。
+4. チャット画面（Gemini）のモード選択で **`🛡️ Gemma 4 Local RAG`** を選択すれば、AWS 経由でも社内文書の推論がすべて手元の Mac 内で完結します！
 
 ---
 
