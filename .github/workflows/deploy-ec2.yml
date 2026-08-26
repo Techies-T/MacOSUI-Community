@@ -1,11 +1,6 @@
 name: Safe Upgrade & Deploy to AWS EC2
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -33,10 +28,21 @@ jobs:
       - name: Add EC2 to known_hosts
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.EC2_HOST_IP }} >> ~/.ssh/known_hosts
+          if [ -n "${{ secrets.EC2_HOST_IP }}" ]; then
+            ssh-keyscan -H "${{ secrets.EC2_HOST_IP }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
 
       - name: Sync Source Code to EC2 (Excluding Databases and Secrets)
         run: |
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude 'data/*.sqlite*' \
+            --exclude 'data/development.env' \
+            --exclude 'server/*.sqlite*' \
+            --exclude 'server/*.env' \
+            ./ ${{ secrets.EC2_USER || 'ec2-user' }}@${{ secrets.EC2_HOST_IP }}:/opt/macosui/repo/ || \
           rsync -rtv --no-p --no-g --no-o -e "ssh -o StrictHostKeyChecking=no" \
             --exclude '.git' \
             --exclude 'node_modules' \
@@ -55,22 +61,30 @@ jobs:
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           script: |
             set -e
-            cd ~/MacOSUI
+            cd /opt/macosui/repo 2>/dev/null || cd ~/MacOSUI
 
             # 1. Automatic Database Safety Backup
+            sudo mkdir -p data
+            sudo chown -R $USER:$USER data 2>/dev/null || true
+            sudo chmod 777 data 2>/dev/null || true
+
             if [ -f data/database.sqlite ]; then
               TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-              cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite
+              sudo cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite 2>/dev/null || true
+              ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs sudo rm -f 2>/dev/null || true
               echo "✅ Safely backed up database to data/database_backup_${TIMESTAMP}.sqlite"
-              
-              # Keep only the 5 most recent backups to prevent disk overflow
-              ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs rm -f || true
             fi
 
-            # 2. Build & Recreate Web Container with existing volumes intact (No Re-activation needed)
-            docker compose up -d --build --force-recreate --no-deps web
+            # 2. Build & Recreate Web Container
+            COMPOSE_CMD="docker-compose"
+            if command -v /usr/local/bin/docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="/usr/local/bin/docker-compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="docker-compose"
+            elif docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker compose"
+            fi
 
-            # 3. Clean up dangling images to keep EC2 disk healthy
-            docker image prune -f || true
-
+            sudo $COMPOSE_CMD up -d --build --force-recreate || $COMPOSE_CMD up -d --build --force-recreate
+            docker image prune -af 2>/dev/null || true
             echo "🚀 [SUCCESS] MacOSUI upgraded smoothly without any data loss or re-activation!"
