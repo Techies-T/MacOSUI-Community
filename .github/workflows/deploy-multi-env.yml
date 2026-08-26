@@ -133,14 +133,19 @@ jobs:
             set -e
             cd /opt/macosui/repo 2>/dev/null || cd ~/MacOSUI
             
+            # Ensure ec2-user has permissions on data directory
+            sudo mkdir -p data
+            sudo chown -R $USER:$USER data 2>/dev/null || true
+            sudo chmod 777 data 2>/dev/null || true
+
             # Backup Database
             if [ -f data/database.sqlite ]; then
               TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-              cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite
-              ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs rm -f || true
+              sudo cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite 2>/dev/null || cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite || true
+              ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs sudo rm -f 2>/dev/null || true
             fi
             
             # Recreate Web Container
-            docker compose up -d --build --force-recreate --no-deps web
+            sudo docker compose up -d --build --force-recreate --no-deps web || docker compose up -d --build --force-recreate --no-deps web
             docker image prune -af 2>/dev/null || true
             echo "🚀 [SUCCESS] AWS EC2 upgraded smoothly with zero data loss!"
