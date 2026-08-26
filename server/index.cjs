@@ -261,11 +261,19 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
         }
 
         // Manage System Settings fields (including Antigravity Agent Settings)
-        if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined || antigravityAgentModel !== undefined || antigravityAgentInstructions !== undefined || antigravityAgentSafetyPolicy !== undefined || antigravityAgentExternalPolicyEnabled !== undefined || antigravityAgentMcpServers !== undefined) {
+if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined || antigravityAgentModel !== undefined || antigravityAgentInstructions !== undefined || antigravityAgentSafetyPolicy !== undefined || antigravityAgentExternalPolicyEnabled !== undefined || antigravityAgentMcpServers !== undefined) {
             if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
-            if (googleClientId && !googleClientId.includes('...')) await db.setSetting('GOOGLE_CLIENT_ID', googleClientId);
-            if (googleClientSecret) await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret);
-            if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
+            if (googleClientId && !googleClientId.includes('...')) {
+                const cleanClientId = googleClientId.trim();
+                const clientIdPattern = /^[0-9]+-[a-zA-Z0-9_]+\.apps\.googleusercontent\.com$/;
+                if (!clientIdPattern.test(cleanClientId)) {
+                    return res.status(400).json({ error: '無効な Google Client ID 形式です。形式をご確認ください。' });
+                }
+                await db.setSetting('GOOGLE_CLIENT_ID', cleanClientId);
+            }
+            if (googleClientSecret) {
+                await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret.trim());
+            }            if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
             if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
             if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
             if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
