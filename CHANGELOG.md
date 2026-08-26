@@ -5,6 +5,19 @@
 
 ---
 
+## [v2.4.3] - 2026-08-27
+
+### 🐛 Google OAuth Validation & Setup Sanitization Patch
+
+#### 🛠️ Fixed (バグ修正・改善)
+- **Google OAuth Client ID / Secret 入力値の自動サニタイズ**:
+  - アクティベーション画面（SetupScreen）での入力時に、コピー＆ペーストで紛れ込む先頭・末尾の半角スペースや改行を自動でトリム（`trim()`）する処理を追加。
+- **Client ID 形式の厳格なリアルタイム・バリデーション**:
+  - Google OAuth Client ID（`*.apps.googleusercontent.com`）の形式チェックをフロントエンドおよびバックエンド API（`/api/config`）の両層に導入。
+  - 不正な形式や入力ミスがある場合、アクティベーション時に明確なエラーメッセージを表示し、Google ログイン時の `401: invalid_client (The OAuth client was not found)` エラーを未然に防止。
+
+---
+
 ## [v2.5.0] - 2026-08-25
 
 ### 🚀 Gemma 4 Local LLM-RAG & Hybrid AI Release
