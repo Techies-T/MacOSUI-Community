@@ -145,7 +145,16 @@ jobs:
               ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs sudo rm -f 2>/dev/null || true
             fi
             
-            # Recreate Web Container
-            sudo docker compose up -d --build --force-recreate --no-deps web || docker compose up -d --build --force-recreate --no-deps web
+            # Recreate Web Container using available compose binary
+            COMPOSE_CMD="docker-compose"
+            if command -v /usr/local/bin/docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="/usr/local/bin/docker-compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="docker-compose"
+            elif docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker compose"
+            fi
+
+            sudo $COMPOSE_CMD up -d --build --force-recreate --no-deps web || $COMPOSE_CMD up -d --build --force-recreate --no-deps web
             docker image prune -af 2>/dev/null || true
             echo "🚀 [SUCCESS] AWS EC2 upgraded smoothly with zero data loss!"
