@@ -20,21 +20,43 @@ const SetupScreen = ({ onActivate }) => {
         setIsLoading(true);
         setError('');
 
+        const cleanedClientId = (formData.googleClientId || '').trim();
+        const cleanedClientSecret = (formData.googleClientSecret || '').trim();
+
+        // 1. Google Client ID Format Validation
+        const clientIdPattern = /^[0-9]+-[a-zA-Z0-9_]+\.apps\.googleusercontent\.com$/;
+        if (!clientIdPattern.test(cleanedClientId)) {
+            setError('無効な Google Client ID 形式です。「123456789-...apps.googleusercontent.com」の形式で入力してください。余計なスペースや文字が含まれていないかご確認ください。');
+            setIsLoading(false);
+            return;
+        }
+
+        // 2. Google Client Secret Validation
+        if (cleanedClientSecret.length < 10) {
+            setError('Google Client Secret が短すぎるか不正です。Google Cloud Console から正確にコピーしてください。');
+            setIsLoading(false);
+            return;
+        }
+
         try {
             const response = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({
+                    googleClientId: cleanedClientId,
+                    googleClientSecret: cleanedClientSecret
+                }),
             });
 
             if (response.ok) {
                 // After saving, we need to tell the parent to reload config
                 onActivate();
             } else {
-                setError('Failed to save settings. Please try again.');
+                const data = await response.json().catch(() => ({}));
+                setError(data.error || '設定の保存に失敗しました。もう一度お試しください。');
             }
         } catch (err) {
-            setError('Network error occurred.');
+            setError('サーバー通信エラーが発生しました。');
         } finally {
             setIsLoading(false);
         }
