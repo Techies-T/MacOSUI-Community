@@ -155,6 +155,6 @@ jobs:
               COMPOSE_CMD="docker compose"
             fi
 
-            sudo $COMPOSE_CMD up -d --build --force-recreate --no-deps web || $COMPOSE_CMD up -d --build --force-recreate --no-deps web
+            sudo $COMPOSE_CMD up -d --build --force-recreate || $COMPOSE_CMD up -d --build --force-recreate
             docker image prune -af 2>/dev/null || true
             echo "🚀 [SUCCESS] AWS EC2 upgraded smoothly with zero data loss!"
