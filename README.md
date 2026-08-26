@@ -196,15 +196,33 @@ AWS 以外の VPS（さくらのVPS, ConoHa, Linode 等の Debian/Ubuntu サー�
 MacOSUI では、ユーザーデータ・ナレッジ・暗号化キーが永続ボリューム（`./data`）に完全分離されているため、**再アクティベーションや過去データの消失なしに、プログラム（コンテナ）だけを安全にアップグレード** できます。
 
 ### 方法 1: GitHub Actions による全自動 CI/CD デプロイ (推奨)
-本リポジトリを Fork して運用する場合、GitHub Actions を使って `git push` 一発で本番 EC2 が自動バックアップ＆更新されます。
+本リポジトリを Fork して運用する場合、GitHub Actions を使って `git push`（または画面上の「Run workflow」ボタン）一発で本番 EC2 が自動バックアップ＆安全に更新されます。
 
-1. **GitHub Secrets の設定**:
-   Fork したリポジトリの **Settings ＞ Secrets and variables ＞ Actions** に以下を登録：
-   - `EC2_HOST_IP`: あなたの AWS EC2 パブリック IP
-   - `EC2_USER`: `ec2-user`
-   - `EC2_SSH_PRIVATE_KEY`: EC2 接続用の SSH 秘密鍵（`~/.ssh/your-key.pem` の中身）
-2. **プッシュによる自動実行**:
-   `main` ブランチにプッシュ（またはタグをプッシュ）すると、GitHub Actions が自動で脆弱性診断 ➔ DBバックアップ ➔ コンテナ更新を安全に実行します。
+#### 🔑 GitHub Secrets の事前設定手順（初回のみ・1分で完了）
+
+1. **EC2 側でワンライナーを実行（鍵ペアの生成と登録）**:
+   AWS マネジメントコンソール（または CloudShell）から対象 EC2 に接続し、以下を実行します：
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/github_actions_ec2 -N ""
+   cat ~/.ssh/github_actions_ec2.pub >> ~/.ssh/authorized_keys
+   chmod 600 ~/.ssh/authorized_keys
+
+   # 画面に表示された秘密鍵をコピー
+   cat ~/.ssh/github_actions_ec2
+   ```
+
+2. **GitHub リポジトリに Secrets を登録**:
+   リポジトリの **Settings ＞ Secrets and variables ＞ Actions** を開き、**「New repository secret」** から以下の **3つ** を登録します：
+
+   | Secret 名 | 設定する値 |
+   | :--- | :--- |
+   | **`EC2_HOST_IP`** | 対象 EC2 インスタンスのパブリック IPv4 アドレス（例: `35.75.2.250`） |
+   | **`EC2_USER`** | `ec2-user` |
+   | **`EC2_SSH_PRIVATE_KEY`** | 上記ステップ1で出力された秘密鍵の全文（`-----BEGIN...` から `-----END...` まで） |
+
+3. **自動デプロイの実行**:
+   - `main` ブランチに Push するか、GitHub の **「Actions」 ＞ 「Multi-Environment Deploy」 ＞ 「Run workflow」** から `aws-ec2` を選択して実行します。
+   - 既存データベースの自動バックアップ ➔ 最新コンテナの再ビルド ➔ 無停止更新が全自動で完了します。
 
 ### 方法 2: EC2 サーバー内での手動安全アップグレード (ワンライナー)
 サーバーに SSH 接続して手動でアップグレードする場合も、データは 100% 安全に引き継がれます：
