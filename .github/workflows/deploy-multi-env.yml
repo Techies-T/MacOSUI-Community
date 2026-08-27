@@ -111,15 +111,6 @@ jobs:
                      --exclude 'data/development.env' \
                      --exclude 'server/*.sqlite*' \
                      --exclude 'server/database_backup_*.sqlite' \
-                     ./ ${TARGET_USER}@${TARGET_IP}:/opt/macosui/repo/ || \
-          rsync -rtv --no-p --no-g --no-o -e "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=no" \
-                     --exclude 'node_modules' \
-                     --exclude '.git' \
-                     --exclude 'dist' \
-                     --exclude 'data/*.sqlite*' \
-                     --exclude 'data/development.env' \
-                     --exclude 'server/*.sqlite*' \
-                     --exclude 'server/database_backup_*.sqlite' \
                      ./ ${TARGET_USER}@${TARGET_IP}:~/MacOSUI/
 
       - name: Rebuild & Restart Container on AWS EC2
@@ -131,7 +122,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY || secrets.STAGING_SSH_PRIVATE_KEY }}
           script: |
             set -e
-            cd /opt/macosui/repo 2>/dev/null || cd ~/MacOSUI
+            cd ~/MacOSUI
             
             # Ensure ec2-user has permissions on data directory
             sudo mkdir -p data
