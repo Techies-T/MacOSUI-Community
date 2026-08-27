@@ -22,3 +22,22 @@
 2. **ZTA/認可判定のハードコード禁止 (PDP準拠の徹底)**:
    - ウィジェットの表示可否（`allowed_widgets`）、利用可能なアクション（`allowed_actions`）、アクセスモデル（`allowed_models`）などの認可判定をコード内でハードコード（特定のアプリIDの無条件注入や、特定のメールアドレス `minoru` による特権付与など）することは厳禁とする。
    - すべての認可判定・UI表示は、データベース（PDP: `RBAC_POLICIES`）に定義されたロールポリシーに従って一元的に動的評価（PEP）されなければならない。
+
+## 📦 OSS コミュニティ公開・リリース標準手順 (Community Release Hard Gate)
+
+外部公開リポジトリ（`MacOSUI-Community`）へのリリース・同期を行う際は、以下の 6 ステップを厳格に遵守すること。
+
+1. **バグ報告 / 機能要望の受領**:
+   - Issue や顧客要望に基づきタスクを定義。
+2. **社内開発 & 動作検証 (`MacOSUI-oss`)**:
+   - 作業ブランチで改修を行い、ローカルおよびステージング環境で E2E 動作検証を実施。
+3. **組み込み品質チェック (Built-in Quality)**:
+   - `npm audit --audit-level=critical`（CRITICAL 0件）
+   - `npm run build` & `node -c server/index.cjs`（構文・ビルドエラー 0件）
+4. **機密・個人情報の完全サニタイズスキャン (Sanitization Check)**:
+   - 公開前に、社内/VPSの固定IP（`133.167...` 等）、個人メールアドレス（`minoru.inui@...` 等）、テスト用 DB（`*.sqlite`）、機密ログがコードおよびドキュメントに含まれていないことを Grep 検査・完全排除すること。
+5. **バージョンアップ (VUP) & CHANGELOG 更新**:
+   - セマンティックバージョニング（例: `v2.4.3`）に従い、`CHANGELOG.md` を更新。
+   - PR（Pull Request）を作成して `main` にマージし、バージョンタグを発行。
+6. **公開リポジトリ (`MacOSUI-Community`) への同期**:
+   - サニタイズ済みのクリーンなコードを `MacOSUI-Community` へ反映し、Release を公開。
