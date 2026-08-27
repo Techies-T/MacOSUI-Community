@@ -166,27 +166,25 @@ AWS 以外の VPS（さくらのVPS, ConoHa, Linode 等の Debian/Ubuntu サー�
 外部 SaaS を一切介さず、**AWS 公式の「AWS Client VPN」** を用いて AWS VPC と社内 Mac を相互 TLS 認証（ACM）による完全閉域網で直結します。
 
 ### ステップ 1: 相互 TLS 証明書の生成とお手元 Mac での準備
-手元の Mac のターミナルで `easy-rsa` を使ってサーバーおよびクライアント証明書を生成します：
+手元の Mac のターミナルで標準の `openssl` コマンドを実行し、VPN 接続用の相互 TLS 証明書（CA・サーバー・クライアント）を一括生成します：
 
 ```bash
-# 1. 証明書生成作業ディレクトリ
-mkdir -p ~/aws-vpn-pki && cd ~/aws-vpn-pki
-git clone https://github.com/OpenVPN/easy-rsa.git
-cd easy-rsa/easyrsa3
+# 1. 証明書出力ディレクトリの作成
+mkdir -p ~/aws-vpn-certs && cd ~/aws-vpn-certs
 
-# 2. 認証局 (CA) と証明書の作成
-./easyrsa init-pki
-./easyrsa --batch build-ca nopass
-./easyrsa --batch build-server-full server nopass
-./easyrsa --batch build-client-full client1.domain.tld nopass
+# 2. 認証局 (CA) の作成
+openssl genrsa -out ca.key 2048
+openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -out ca.crt -subj "/CN=AWS-VPN-CA"
 
-# 3. 証明書ファイルを一箇所に退避
-mkdir -p ~/aws-vpn-certs
-cp pki/ca.crt ~/aws-vpn-certs/
-cp pki/issued/server.crt ~/aws-vpn-certs/
-cp pki/private/server.key ~/aws-vpn-certs/
-cp pki/issued/client1.domain.tld.crt ~/aws-vpn-certs/
-cp pki/private/client1.domain.tld.key ~/aws-vpn-certs/
+# 3. サーバー証明書の作成
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -out server.csr -subj "/CN=server"
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 3650 -sha256
+
+# 4. クライアント (Mac用) 証明書の作成
+openssl genrsa -out client1.domain.tld.key 2048
+openssl req -new -key client1.domain.tld.key -out client1.domain.tld.csr -subj "/CN=client1.domain.tld"
+openssl x509 -req -in client1.domain.tld.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client1.domain.tld.crt -days 3650 -sha256
 ```
 
 ### ステップ 2: AWS Certificate Manager (ACM) への証明書インポート
