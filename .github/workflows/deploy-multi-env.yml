@@ -146,6 +146,10 @@ jobs:
               COMPOSE_CMD="docker compose"
             fi
 
-            sudo $COMPOSE_CMD up -d --build --force-recreate || $COMPOSE_CMD up -d --build --force-recreate
+            # Stop and remove existing container cleanly before recreating
+            sudo docker stop macosui-local 2>/dev/null || true
+            sudo docker rm -f macosui-local 2>/dev/null || true
+
+            sudo $COMPOSE_CMD up -d --build || $COMPOSE_CMD up -d --build
             docker image prune -af 2>/dev/null || true
             echo "🚀 [SUCCESS] AWS EC2 upgraded smoothly with zero data loss!"
