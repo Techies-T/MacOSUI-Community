@@ -57,7 +57,7 @@ graph TD
         OllamaLocal --- LocalKnowledge
     end
     
-    Container -->|"Tailscale 暗号化メッシュトンネル (ゼロ漏洩)"| OllamaLocal
+    Container -->|"AWS Client VPN / TLS 相互認証 閉域網 (ゼロ外部漏洩)"| OllamaLocal
     Container -->|"RAG検索 & レポート保存"| GoogleDrive["Google Drive & Calendar API"]
     Container -->|"AI推論・思考"| GeminiAPI["Google Gemini 3.6 Flash API"]
 ```
@@ -160,34 +160,90 @@ AWS 以外の VPS（さくらのVPS, ConoHa, Linode 等の Debian/Ubuntu サー�
 
 ---
 
-## 🌐 AWS からローカル Gemma 4 を利用するハイブリッド接続ガイド (Tailscale)
+## 🌐 AWS からローカル Gemma 4 を利用するハイブリッド接続ガイド (AWS Client VPN / エンタープライズ標準)
 
 社外に送信できない極秘文書や、手元の Mac (Apple Silicon) 上で稼働している **Gemma 4 (Ollama / MLX)** を、AWS 上の MacOSUI から安全に利用するための手順です。
-グローバル IP の取得やルーターのポート開放は一切不要で、**Tailscale の P2P 暗号化メッシュネットワーク** により安全に直結します。
+外部 SaaS を一切介さず、**AWS 公式の「AWS Client VPN」** を用いて AWS VPC と社内 Mac を相互 TLS 認証（ACM）による完全閉域網で直結します。
 
-### ステップ 1: お手元の Mac での準備
-1. **Ollama で Gemma 4 を起動**:
+### ステップ 1: 相互 TLS 証明書の生成とお手元 Mac での準備
+手元の Mac のターミナルで `easy-rsa` を使ってサーバーおよびクライアント証明書を生成します：
+
+```bash
+# 1. 証明書生成作業ディレクトリ
+mkdir -p ~/aws-vpn-pki && cd ~/aws-vpn-pki
+git clone https://github.com/OpenVPN/easy-rsa.git
+cd easy-rsa/easyrsa3
+
+# 2. 認証局 (CA) と証明書の作成
+./easyrsa init-pki
+./easyrsa --batch build-ca nopass
+./easyrsa --batch build-server-full server nopass
+./easyrsa --batch build-client-full client1.domain.tld nopass
+
+# 3. 証明書ファイルを一箇所に退避
+mkdir -p ~/aws-vpn-certs
+cp pki/ca.crt ~/aws-vpn-certs/
+cp pki/issued/server.crt ~/aws-vpn-certs/
+cp pki/private/server.key ~/aws-vpn-certs/
+cp pki/issued/client1.domain.tld.crt ~/aws-vpn-certs/
+cp pki/private/client1.domain.tld.key ~/aws-vpn-certs/
+```
+
+### ステップ 2: AWS Certificate Manager (ACM) への証明書インポート
+AWS CLI または AWS マネジメントコンソールで、サーバー証明書とクライアント証明書を ACM にインポートします：
+
+```bash
+# サーバー証明書のインポート
+aws acm import-certificate \
+  --certificate fileb://~/aws-vpn-certs/server.crt \
+  --private-key fileb://~/aws-vpn-certs/server.key \
+  --certificate-chain fileb://~/aws-vpn-certs/ca.crt \
+  --region ap-northeast-1
+
+# クライアント証明書のインポート
+aws acm import-certificate \
+  --certificate fileb://~/aws-vpn-certs/client1.domain.tld.crt \
+  --private-key fileb://~/aws-vpn-certs/client1.domain.tld.key \
+  --certificate-chain fileb://~/aws-vpn-certs/ca.crt \
+  --region ap-northeast-1
+```
+
+### ステップ 3: AWS Client VPN エンドポイントの作成
+1. **AWS コンソール ＞ VPC ＞ Client VPN エンドポイント** を開きます。
+2. **「Client VPN エンドポイントを作成」** をクリック：
+   - **クライアント IPv4 CIDR**: `10.100.0.0/22`（VPC と重複しない CIDR）
+   - **サーバー証明書 ARN**: 上記でインポートしたサーバー証明書を選択
+   - **認証オプション**: 「相互認証を使用」➔ クライアント証明書 ARN を選択
+   - **接続ログ**: 無効（または CloudWatch Logs を指定）
+   - **VPC ID**: EC2 が存在する VPC を選択
+3. 作成後、**「ターゲットネットワークの関連付け」** で EC2 のサブネットを関連付けます。
+4. **「認証ルール」** で `0.0.0.0/0`（または VPC CIDR）へのアクセスを「すべてのユーザーに許可」します。
+5. **「クライアント設定をダウンロード」** から `.ovpn` ファイルを取得します。
+
+### ステップ 4: Mac 側で AWS VPN Client から接続
+1. 公式の **[AWS Client VPN アプリ (macOS版)](https://aws.amazon.com/vpn/client-vpn-download/)** をダウンロード・インストールします。
+2. ダウンロードした `.ovpn` ファイルの末尾に、Mac のクライアント証明書と秘密鍵を埋め込みます：
+   ```text
+   <cert>
+   （~/aws-vpn-certs/client1.domain.tld.crt の中身）
+   </cert>
+   <key>
+   （~/aws-vpn-certs/client1.domain.tld.key の中身）
+   </key>
+   ```
+3. AWS VPN Client アプリでプロファイルを追加し、**「接続」** をクリックします。
+4. これでお手元の Mac が AWS VPC 内の IP（例: `10.100.0.x`）を取得し、完全な閉域網で直結されます！
+
+### ステップ 5: Ollama の起動と MacOSUI での接続設定
+1. **Mac 側で Gemma 4 を起動**:
    ```bash
-   # 全インターフェースからのリクエストを許可して起動
    OLLAMA_HOST=0.0.0.0:11434 ollama run gemma4:26b-mlx
    ```
-2. **Tailscale を Mac にインストール & ログイン**:
-   - [Tailscale 公式サイト](https://tailscale.com/) から Mac アプリをダウンロードしてログインします。
-   - 割り当てられた **Mac の Tailscale IP**（例: `100.80.90.100`）を確認します。
-
-### ステップ 2: AWS EC2 サーバーでの接続
-1. EC2 に SSH 接続し、Tailscale をインストールしてログインします：
-   ```bash
-   curl -fsSL https://tailscale.com/install.sh | sh
-   sudo tailscale up
-   ```
-   > ※ 画面に表示される認証 URL をブラウザで開き、Mac と同じアカウントでログインします。
-
-### ステップ 3: MacOSUI での接続設定
-1. ブラウザで AWS 上の MacOSUI にログインします。
-2. **System Settings ＞ System タブ**（または Chat 設定）を開きます。
-3. **Local AI Host URL** に `http://100.80.90.100:11434`（MacのTailscale IP）を指定して保存します。
-4. チャット画面（Gemini）のモード選択で **`🛡️ Gemma 4 Local RAG`** を選択すれば、AWS 経由でも社内文書の推論がすべて手元の Mac 内で完結します！
+2. **MacOSUI 画面での設定**:
+   - ブラウザで AWS 上の MacOSUI（CloudFront または ALB）にアクセス。
+   - **System Settings ＞ System タブ** を開く。
+   - **Local AI Host URL** に `http://10.100.0.x:11434`（MacのVPN接続IP）を指定して保存。
+   - チャット画面で **`🛡️ Gemma 4 Local RAG`** を選択すれば、社内文書が一切クラウドに出ることなく安全に推論されます！
 
 ---
 
