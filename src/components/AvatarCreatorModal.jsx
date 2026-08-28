@@ -113,7 +113,7 @@ const AvatarCreatorModal = ({ onClose, onAvatarUpdate }) => {
                 body: JSON.stringify({
                     message: "この人物の特徴（髪型、髪の色、目の特徴、表情、服装、アクセサリーなど）を詳細に描写してください。性別や年齢の推定も含めてください。アバター生成のプロンプトとして利用します。",
                     images: [{ data: base64Data, mimeType: 'image/png' }],
-                    config: { mode: 'normal' }
+                    config: { mode: 'normal', isAvatarGeneration: true }
                 })
             });
             const descData = await descReq.json();
@@ -127,7 +127,7 @@ const AvatarCreatorModal = ({ onClose, onAvatarUpdate }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: `以下の人物の特徴を元に、高品質で魅力的なアニメ調（Anime style）のアバター画像を1枚生成してください。背景はシンプルにしてください。\n\n【人物の特徴】\n${description}`,
-                    config: { mode: 'nanobanana', aspectRatio: '1:1' }
+                    config: { mode: 'nanobanana', aspectRatio: '1:1', isAvatarGeneration: true }
                 })
             });
             const genData = await genReq.json();

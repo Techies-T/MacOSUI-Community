@@ -389,21 +389,21 @@ async function autoActivate() {
                 },
                 "manager": {
                     "name": "Manager",
-                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["*"],
-                    "allowed_actions": ["action:manage_assistant_rules"]
+                    "allowed_actions": ["action:manage_assistant_rules", "action:use_mcp_tools"]
                 },
                 "hr": {
                     "name": "HR (Human Resources)",
-                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["*"],
-                    "allowed_actions": ["action:manage_work_policy"]
+                    "allowed_actions": ["action:manage_work_policy", "action:use_mcp_tools"]
                 },
                 "user": {
                     "name": "General User",
-                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["model:gemini-flash"],
-                    "allowed_actions": []
+                    "allowed_actions": ["action:use_mcp_tools"]
                 },
                 "guest": {
                     "name": "External Guest",
@@ -422,9 +422,9 @@ async function autoActivate() {
                 if (!policies.manager) {
                     policies.manager = {
                         "name": "Manager",
-                        "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                         "allowed_models": ["*"],
-                        "allowed_actions": ["action:manage_assistant_rules"]
+                        "allowed_actions": ["action:manage_assistant_rules", "action:use_mcp_tools"]
                     };
                     updated = true;
                 }
@@ -433,9 +433,9 @@ async function autoActivate() {
                 if (!policies.hr) {
                     policies.hr = {
                         "name": "HR (Human Resources)",
-                        "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                         "allowed_models": ["*"],
-                        "allowed_actions": ["action:manage_work_policy"]
+                        "allowed_actions": ["action:manage_work_policy", "action:use_mcp_tools"]
                     };
                     updated = true;
                 }
@@ -461,6 +461,22 @@ async function autoActivate() {
                         if (!widgets.includes('app:dm-chat')) {
                             widgets.push('app:dm-chat');
                             updated = true;
+                        }
+                    }
+                });
+
+                // Migrate: user, manager, hr ロールに app:gemini が欠落している場合は追加
+                ['user', 'manager', 'hr'].forEach(roleKey => {
+                    if (policies[roleKey]) {
+                        if (policies[roleKey].allowed_widgets && !policies[roleKey].allowed_widgets.includes('*') && !policies[roleKey].allowed_widgets.includes('app:gemini')) {
+                            policies[roleKey].allowed_widgets.push('app:gemini');
+                            updated = true;
+                            console.log(`DEBUG: Migrated ${roleKey} role - added app:gemini to allowed_widgets`);
+                        }
+                        if (policies[roleKey].allowed_actions && !policies[roleKey].allowed_actions.includes('*') && !policies[roleKey].allowed_actions.includes('action:use_mcp_tools')) {
+                            policies[roleKey].allowed_actions.push('action:use_mcp_tools');
+                            updated = true;
+                            console.log(`DEBUG: Migrated ${roleKey} role - added action:use_mcp_tools to allowed_actions`);
                         }
                     }
                 });

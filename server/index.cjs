@@ -2141,11 +2141,20 @@ const geminiJobs = {};
 
 // Background Gemini Job Processor
 
-app.get('/api/gemini/job/:jobId', requireAuth, requireWidgetAccess('app:gemini'), (req, res) => {
+app.get('/api/gemini/job/:jobId', requireAuth, (req, res) => {
     const { jobId } = req.params;
     const job = geminiJobs[jobId];
     if (!job) {
         return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Avatar creation jobs or users with app:gemini access can check their own jobs
+    const isAvatarJob = job.isAvatarGeneration || job.mode === 'nanobanana' || (job.googleId && job.googleId === req.user.googleId);
+    const allowedWidgets = req.user.allowed_widgets || [];
+    const hasWidgetAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:gemini');
+
+    if (!isAvatarJob && !hasWidgetAccess) {
+        return res.status(403).json({ error: 'Access denied. Requires widget access: app:gemini' });
     }
     // ZTAジョブ盗み見防止: ジョブの所有者であることを検証
     if (job.googleId && job.googleId !== req.user.googleId) {
@@ -2243,9 +2252,26 @@ app.post('/api/gemini/proxy', requireWidgetAccess('app:gemini'), async (req, res
 // Retrieving 'google' from googleapis is needed for Drive API usage inside the job.
 // Google Drive API endpoints (google import moved to top)
 
-app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
+app.post('/api/gemini', requireAuth, async (req, res) => {
     const { message, history, config, images, previous_interaction_id, environment_id, workflowDefinitionId } = req.body;
     try {
+        const allowedWidgets = req.user.allowed_widgets || [];
+        const isAvatarCreation = config?.isAvatarGeneration === true || config?.mode === 'nanobanana' || (Array.isArray(images) && images.length > 0 && typeof message === 'string' && message.includes('アバター'));
+        const hasGeminiAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:gemini');
+
+        if (!hasGeminiAccess && !isAvatarCreation) {
+            auditDb.logEvent({
+                userId: req.user.id,
+                userEmail: req.user.email,
+                eventType: 'permission_denied',
+                action: `${req.method} ${req.originalUrl}`,
+                status: 'blocked',
+                req: req,
+                details: { requiredWidget: 'app:gemini' }
+            });
+            return res.status(403).json({ error: 'Access denied. Requires widget access: app:gemini' });
+        }
+
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.1-flash-lite-preview';
 
