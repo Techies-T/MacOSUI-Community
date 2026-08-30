@@ -64,26 +64,51 @@ const SystemTab = ({
                         />
                     </div>
                     <div className="pt-2 border-t border-gray-100">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Image Generation Model (Avatar / Nano Banana)</label>
-                        <input
-                            type="text"
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="block text-xs font-medium text-gray-700">Image Generation Model (Avatar / Nano Banana)</label>
+                            {currentNanoBananaModel && (
+                                <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                    {currentNanoBananaModel}
+                                </span>
+                            )}
+                        </div>
+                        <select
                             value={currentNanoBananaModel || ''}
                             onChange={(e) => handleNanoBananaModelChange(e.target.value)}
-                            placeholder="e.g. gemini-3.1-flash-lite-image"
-                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                        />
-                        <p className="text-[10px] text-gray-400 mt-1">Recommended: <span className="font-mono text-blue-600 font-medium">gemini-3.1-flash-lite-image</span> (Fast) or <span className="font-mono text-blue-600 font-medium">gemini-3.1-flash-image</span> (High Quality)</p>
+                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
+                        >
+                            <option value="">-- モデルを選択してください --</option>
+                            {/* Filter models or show all available Gemini models */}
+                            {filteredModels.map(model => (
+                                <option key={model.name} value={model.name.replace(/^models\//, '')}>
+                                    {model.displayName} ({model.name.replace(/^models\//, '')})
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1">※ 一覧から画像生成（アバター / Nano Banana）に使用するモデルを選択してください。</p>
                     </div>
                     <div className="pt-2 border-t border-gray-100">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">HTML/SVG Generation Model</label>
-                        <input
-                            type="text"
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="block text-xs font-medium text-gray-700">HTML/SVG Generation Model</label>
+                            {currentHtmlSvgModel && (
+                                <span className="text-[10px] font-mono text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                                    {currentHtmlSvgModel}
+                                </span>
+                            )}
+                        </div>
+                        <select
                             value={currentHtmlSvgModel || ''}
                             onChange={(e) => handleHtmlSvgModelChange(e.target.value)}
-                            placeholder="e.g. gemini-3.1-flash-lite-preview"
-                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
-                        />
-                        <p className="text-[10px] text-gray-400 mt-1">Leave empty to use the default lightweight text model (Flash Lite).</p>
+                            className="w-full px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 font-mono"
+                        >
+                            <option value="">-- 基本モデルを使用 (Default) --</option>
+                            {filteredModels.map(model => (
+                                <option key={model.name} value={model.name.replace(/^models\//, '')}>
+                                    {model.displayName} ({model.name.replace(/^models\//, '')})
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1">※ HTML/SVGレポート生成に使用するモデルを選択してください（未選択時は基本モデル）。</p>
                     </div>
                     <button
                         onClick={handleSaveSettings}

@@ -2303,8 +2303,20 @@ app.post('/api/gemini', requireAuth, async (req, res) => {
         }
 
         const allowedModels = req.user.allowed_models || [];
-        const hasModelAccess = allowedModels.includes('*') || allowedModels.includes(`model:${requestedModel}`);
-        if (!hasModelAccess) {
+        const cleanRequestedModel = requestedModel.replace(/^models\//, '');
+        const hasDirectModelAccess = allowedModels.includes('*') || 
+            allowedModels.includes(`model:${requestedModel}`) || 
+            allowedModels.includes(`model:${cleanRequestedModel}`) ||
+            (allowedModels.includes('model:gemini-flash') && (cleanRequestedModel.includes('flash') || requestedModel === globalGeminiModel));
+            
+        const isAvatarCreationModel = isAvatarCreation && (
+            requestedModel === globalGeminiModel || 
+            cleanRequestedModel === globalGeminiModel.replace(/^models\//, '') ||
+            requestedModel === (await db.getSetting('GEMINI_NANO_BANANA_MODEL')) ||
+            cleanRequestedModel === (await db.getSetting('GEMINI_NANO_BANANA_MODEL'))?.replace(/^models\//, '')
+        );
+
+        if (!hasDirectModelAccess && !isAvatarCreationModel) {
             return res.status(403).json({ error: `Access denied. Requires model access: ${requestedModel}` });
         }
 
