@@ -4536,10 +4536,11 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
 - Today's Available Common Free Slots:
 ${freeSlotsText}
 - Sender (${req.user.name})'s Native Language: ${senderLangName}
+- Target (${targetUser.name})'s Native Language: ${targetLangName}
 
 Instructions:
 1. If the sender is asking for a meeting or chat, suggest the available free slots clearly.
-2. ${isDifferentLang ? `Respond politely and helpfully in ${senderLangName} (the sender's native language) so they can read it directly in ${senderLangName}.` : `Respond politely and naturally in ${senderLangName}.`}
+2. ${isDifferentLang ? `Generate a bilingual response. First, write the response in ${targetLangName} (${targetUser.name}'s language). Then, provide the translation in ${senderLangName} (the sender's language) so both parties can read it.` : `Respond politely and naturally in ${senderLangName}.`}
 3. If ${targetUser.name} is in 'focus-zone' or 'meeting-room', state that they are currently unavailable and take a message.
 4. Output only the final assistant chat response without any meta commentary.`;
 
@@ -4593,8 +4594,14 @@ Instructions:
 - 主人の現在の部屋状態: ${targetUser.current_room || 'open-space'}
 - 本日の双方の共通空き時間帯: 
 ${freeSlotsText}
+- 送信者 (${req.user.name}) の母国語: ${senderLangName}
+- 主人 (${targetUser.name}) の母国語: ${targetLangName}
 `;
-                                finalSystemInstruction += `\n\n${contextText}\n\n【注意事項】丁寧な日本語で回答してください。`;
+                                const langInstruction = isDifferentLang 
+                                    ? `【注意事項】必ずバイリンガルで回答してください。まず主人が読めるように ${targetLangName} で書き、その後に送信者が読めるように ${senderLangName} で翻訳を添えてください。` 
+                                    : `【注意事項】自然な ${senderLangName} で丁寧に回答してください。`;
+                                
+                                finalSystemInstruction += `\n\n${contextText}\n\n${langInstruction}`;
 
                                 const aiResponse = await client.models.generateContent({
                                     model: modelName,
