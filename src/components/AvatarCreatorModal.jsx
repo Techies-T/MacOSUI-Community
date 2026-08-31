@@ -74,81 +74,27 @@ const AvatarCreatorModal = ({ onClose, onAvatarUpdate }) => {
         startCamera();
     };
 
-    const pollGeminiJob = (jobId) => {
-        return new Promise((resolve, reject) => {
-            let attempts = 0;
-            const pollInterval = setInterval(async () => {
-                attempts++;
-                try {
-                    const res = await fetch(`/api/gemini/job/${jobId}`);
-                    const data = await res.json();
-                    if (data.state === 'completed') {
-                        clearInterval(pollInterval);
-                        resolve(data.reply);
-                    } else if (data.state === 'error') {
-                        clearInterval(pollInterval);
-                        reject(new Error(data.error));
-                    } else if (attempts >= 120) { // 2 mins timeout
-                        clearInterval(pollInterval);
-                        reject(new Error("Generation timed out."));
-                    }
-                } catch (err) {
-                    clearInterval(pollInterval);
-                    reject(new Error("Network error during polling."));
-                }
-            }, 1000);
-        });
-    };
-
     const generateAvatar = async () => {
         setStage('generating');
         try {
             // Extract pure base64 data without data URL prefix
             const base64Data = capturedImage.split(',')[1];
             
-            // Step 1: Describe the image using default RAG mode (or normal mode)
-            const descReq = await fetch('/api/gemini', {
+            // Call dedicated avatar generation endpoint
+            const res = await fetch('/api/avatar/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: "この人物の特徴（髪型、髪の色、目の特徴、表情、服装、アクセサリーなど）を詳細に描写してください。性別や年齢の推定も含めてください。アバター生成のプロンプトとして利用します。",
-                    images: [{ data: base64Data, mimeType: 'image/png' }],
-                    config: { mode: 'normal', isAvatarGeneration: true }
-                })
+                body: JSON.stringify({ imageBase64: base64Data })
             });
-            const descData = await descReq.json();
-            if (!descReq.ok) throw new Error(descData.error || "Failed to analyze image");
-            
-            const description = await pollGeminiJob(descData.jobId);
-            
-            // Step 2: Generate the avatar using nanobanana mode
-            const genReq = await fetch('/api/gemini', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: `以下の人物の特徴を元に、高品質で魅力的なアニメ調（Anime style）のアバター画像を1枚生成してください。背景はシンプルにしてください。\n\n【人物の特徴】\n${description}`,
-                    config: { mode: 'nanobanana', aspectRatio: '1:1', isAvatarGeneration: true }
-                })
-            });
-            const genData = await genReq.json();
-            if (!genReq.ok) throw new Error(genData.error || "Failed to generate avatar");
-            
-            const finalImageJson = await pollGeminiJob(genData.jobId);
-            const imgData = JSON.parse(finalImageJson);
-            const newAvatarUrl = `data:${imgData.mimeType};base64,${imgData.data}`;
-            
-            // Step 3: Save to user profile
-            const saveReq = await fetch('/api/users/me/avatar', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ avatar_url: newAvatarUrl })
-            });
-            
-            if (!saveReq.ok) throw new Error("Failed to save avatar to profile");
-            
+
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "アバターの生成に失敗しました。");
+            }
+
             setStage('success');
             setTimeout(() => {
-                onAvatarUpdate(newAvatarUrl);
+                onAvatarUpdate(data.avatarUrl);
                 onClose();
             }, 1500);
             
