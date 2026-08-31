@@ -2248,6 +2248,134 @@ app.post('/api/gemini/proxy', requireWidgetAccess('app:gemini'), async (req, res
     }
 });
 
+// Dedicated AI Avatar Generation Endpoint with ZTA Security Audit Logging
+app.post('/api/avatar/generate', requireAuth, async (req, res) => {
+    const userId = req.user?.id;
+    const userEmail = req.user?.email;
+    const googleId = req.user?.googleId;
+    const { imageBase64 } = req.body;
+
+    if (!imageBase64) {
+        return res.status(400).json({ error: 'imageBase64 is required' });
+    }
+
+    try {
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ error: 'Gemini API Key not configured' });
+        }
+
+        const client = new GoogleGenAI({ apiKey });
+        const globalModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+        const rawAvatarModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
+        const cleanGlobalModel = globalModel.replace(/^models\//, '');
+        const cleanAvatarModel = rawAvatarModel.replace(/^models\//, '');
+
+        console.log(`[AvatarGenerator] Processing avatar for user ${userEmail} using textModel=${cleanGlobalModel}, imageModel=${cleanAvatarModel}`);
+
+        // Step 1: Extract facial features using Stateless generateContent
+        const analysisPrompt = "この人物の特徴（髪型、髪の色、目の特徴、表情、服装、アクセサリーなど）を詳細に描写してください。性別や年齢の推定も含めてください。アバター生成のプロンプトとして利用します。";
+        const analysisRes = await client.models.generateContent({
+            model: cleanGlobalModel,
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { inlineData: { data: imageBase64, mimeType: 'image/png' } },
+                        { text: analysisPrompt }
+                    ]
+                }
+            ]
+        });
+
+        const description = analysisRes.candidates?.[0]?.content?.parts?.[0]?.text || "Friendly anime character";
+        console.log(`[AvatarGenerator] Facial description generated: ${description.substring(0, 80)}...`);
+
+        // Step 2: Generate anime avatar image
+        const imagePrompt = `以下の人物の特徴を元に、高品質で魅力的なアニメ調（Anime style）のアバター画像を1枚生成してください。背景はシンプルにしてください。\n\n【人物の特徴】\n${description}`;
+        let generatedBase64 = null;
+
+        // Try Strategy A: generateImages if model is imagen
+        if (cleanAvatarModel.includes('imagen')) {
+            try {
+                const imgRes = await client.models.generateImages({
+                    model: cleanAvatarModel,
+                    prompt: imagePrompt,
+                    config: {
+                        numberOfImages: 1,
+                        outputMimeType: "image/png",
+                        aspectRatio: "1:1"
+                    }
+                });
+                const imgBytes = imgRes.generatedImages?.[0]?.image?.imageBytes;
+                if (imgBytes) generatedBase64 = imgBytes;
+            } catch (err) {
+                console.warn(`[AvatarGenerator] generateImages failed for ${cleanAvatarModel}: ${err.message}. Falling back to generateContent...`);
+            }
+        }
+
+        // Try Strategy B: multimodal generateContent with responseModalities
+        if (!generatedBase64) {
+            const targetModel = cleanAvatarModel.includes('imagen') ? cleanGlobalModel : cleanAvatarModel;
+            const imgRes = await client.models.generateContent({
+                model: targetModel,
+                contents: imagePrompt,
+                config: {
+                    responseModalities: ['IMAGE']
+                }
+            });
+            const parts = imgRes.candidates?.[0]?.content?.parts || [];
+            const imagePart = parts.find(p => p.inlineData && p.inlineData.data);
+            if (imagePart) {
+                generatedBase64 = imagePart.inlineData.data;
+            }
+        }
+
+        if (!generatedBase64) {
+            throw new Error("No image data returned from image generation model.");
+        }
+
+        const avatarUrl = `data:image/png;base64,${generatedBase64}`;
+
+        // Step 3: Save to user profile in DB
+        await new Promise((resolve, reject) => {
+            db.run("UPDATE users SET avatar_url = ? WHERE google_id = ?", [avatarUrl, googleId], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+
+        // Step 4: Record Security Audit Log
+        auditDb.logEvent({
+            userId: userId,
+            userEmail: userEmail,
+            eventType: 'avatar_generation',
+            action: 'POST /api/avatar/generate',
+            status: 'success',
+            req: req,
+            details: { textModel: cleanGlobalModel, imageModel: cleanAvatarModel }
+        });
+
+        console.log(`[AvatarGenerator] Successfully generated and updated avatar for ${userEmail}`);
+        res.json({ success: true, avatarUrl });
+
+    } catch (err) {
+        console.error("[AvatarGenerator] Error generating avatar:", err);
+        auditDb.logEvent({
+            userId: userId,
+            userEmail: userEmail,
+            eventType: 'avatar_generation',
+            action: 'POST /api/avatar/generate',
+            status: 'failure',
+            req: req,
+            details: { error: err.message }
+        });
+        res.status(500).json({ error: err.message || 'Failed to generate avatar' });
+    }
+});
+
+
+
 // ... (Top of file needs googleapis import if not present, but it is likely there or we use raw fetch)
 // Retrieving 'google' from googleapis is needed for Drive API usage inside the job.
 // Google Drive API endpoints (google import moved to top)
