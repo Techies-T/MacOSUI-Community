@@ -3,14 +3,19 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const db = require('../db.cjs');
+const fs = require('fs');
 
 const router = express.Router();
 
 function resolveLocalAiHost(configuredHost) {
     let host = configuredHost || 'http://localhost:11434';
-    if (process.env.DOCKER_CONTAINER || require('fs').existsSync('/.dockerenv')) {
+    if (process.env.DOCKER_CONTAINER || fs.existsSync('/.dockerenv')) {
         if (host.includes('localhost') || host.includes('127.0.0.1')) {
             host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
+        }
+    } else {
+        if (host.includes('localhost')) {
+            host = host.replace('localhost', '127.0.0.1');
         }
     }
     return host.replace(/\/$/, '');

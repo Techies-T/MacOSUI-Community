@@ -446,6 +446,11 @@ function resolveLocalAiHost(configuredHost) {
         if (host.includes('localhost') || host.includes('127.0.0.1')) {
             host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
         }
+    } else {
+        // Fix for Node 18+ native fetch IPv6 issue with localhost
+        if (host.includes('localhost')) {
+            host = host.replace('localhost', '127.0.0.1');
+        }
     }
     return host.replace(/\/$/, '');
 }
@@ -1010,7 +1015,7 @@ app.post('/api/auth/token-exchange', express.json(), express.urlencoded({ extend
         }
 
         // Check DB to make sure user still exists and get latest details
-        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (dbErr, row) => {
+        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (dbErr, row) => {
             if (dbErr || !row) {
                 return res.status(401).json({ error: 'unauthorized', error_description: 'User not found' });
             }
@@ -1138,11 +1143,12 @@ function requireAgentOrUserAuth(req, res, next) {
         }
 
         // RBAC dynamic policy lookup for user
-        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (err, row) => {
             if (err || !row) return res.status(401).json({ error: 'User not found in database' });
             
             req.user = decoded;
             req.user.role = row.role;
+            req.user.native_language = row.native_language;
             
             let rbacPolicies;
             try {
@@ -1214,11 +1220,12 @@ function requireAuth(req, res, next) {
         }
 
         // ZTA Real-time PDP check: Always fetch the latest roles and policies from the database
-        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (err, row) => {
             if (err || !row) return res.status(401).json({ error: 'User not found in database' });
             
             req.user = decoded;
             req.user.role = row.role;
+            req.user.native_language = row.native_language;
             
             let rbacPolicies;
             try {
@@ -4437,6 +4444,8 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                         if (translated) {
                             textToSave = `🌐 [Gemma 4 Translated (${senderLangFlag} ➔ ${targetLangFlag})]\n${translated}\n\n(${senderLangFlag} 原文: ${text})`;
                         }
+                    } else {
+                        console.error("Gemma 4 translation returned error status:", transRes.status, await transRes.text());
                     }
                 } catch (tErr) {
                     console.error("Gemma 4 translation failed:", tErr.message);
