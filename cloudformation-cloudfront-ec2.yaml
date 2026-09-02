@@ -2,6 +2,10 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'MacOSUI Infrastructure - EC2 with CloudFront HTTPS Distribution and Elastic IP for Automated HTTPS Testing'
 
 Parameters:
+  DataVolumeSize:
+    Type: Number
+    Default: 10
+    Description: 'Size of the permanent data volume (EBS) in GB'
   InstanceType:
     Type: String
     Default: t3.micro
@@ -120,6 +124,25 @@ Resources:
       Roles:
         - !Ref EC2InstanceRole
 
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Size: !Ref DataVolumeSize
+      VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: MacOSUI-Data-Volume
+
+  DataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref EC2Instance
+      VolumeId: !Ref DataVolume
+      Device: /dev/sdf
+
   # EC2 Instance
   EC2Instance:
     Type: AWS::EC2::Instance
@@ -139,6 +162,32 @@ Resources:
           # System updates
           dnf update -y
           
+          # --- Setup Persistent Data Volume ---
+          # Wait for the attached volume (Nitro instances usually map /dev/sdf to /dev/nvme1n1)
+          DEVICE_NAME=""
+          for i in {1..12}; do
+            DEVICE=$(lsblk -np | grep -v 'nvme0' | grep -v 'xvda' | awk 'NR==1{print $1}')
+            if [ -n "$DEVICE" ]; then
+              DEVICE_NAME=$DEVICE
+              break
+            fi
+            sleep 5
+          done
+
+          if [ -n "$DEVICE_NAME" ]; then
+            FS_TYPE=$(blkid -o value -s TYPE $DEVICE_NAME || true)
+            if [ -z "$FS_TYPE" ]; then
+              mkfs.ext4 $DEVICE_NAME
+            fi
+            mkdir -p /app/data
+            mount $DEVICE_NAME /app/data
+            if ! grep -q "/app/data" /etc/fstab; then
+              echo "$DEVICE_NAME /app/data ext4 defaults,nofail 0 2" >> /etc/fstab
+            fi
+            chown -R ec2-user:ec2-user /app/data
+          fi
+          # ------------------------------------
+
           # Install Docker and Git
           dnf install -y docker git
           
@@ -176,7 +225,7 @@ Resources:
         Comment: 'Automated HTTPS Distribution for MacOSUI-oss Test'
         Origins:
           - Id: EC2Origin
-            DomainName: !Sub 'ec2-${ElasticIP}.ap-northeast-1.compute.amazonaws.com'
+            DomainName: !Sub 'ec2-${ElasticIP}.${AWS::Region}.compute.amazonaws.com'
             CustomOriginConfig:
               HTTPPort: 80
               HTTPSPort: 443
