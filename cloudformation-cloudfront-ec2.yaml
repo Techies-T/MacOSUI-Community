@@ -219,13 +219,14 @@ Resources:
   # CloudFront Distribution for Automated HTTPS
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
+    DependsOn: ElasticIP
     Properties:
       DistributionConfig:
         Enabled: true
         Comment: 'Automated HTTPS Distribution for MacOSUI-oss Test'
         Origins:
           - Id: EC2Origin
-            DomainName: !Sub 'ec2-${ElasticIP}.${AWS::Region}.compute.amazonaws.com'
+            DomainName: !GetAtt EC2Instance.PublicDnsName
             CustomOriginConfig:
               HTTPPort: 80
               HTTPSPort: 443
