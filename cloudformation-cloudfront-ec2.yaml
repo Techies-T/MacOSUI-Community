@@ -206,6 +206,31 @@ Resources:
           # Create symlink for docker-compose compatibility
           ln -s /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
 
+          # Create a 2GB swap file using dd (required for npm build on t3.micro)
+          if [ ! -f /swapfile ]; then
+              dd if=/dev/zero of=/swapfile bs=1M count=2048
+              chmod 600 /swapfile
+              mkswap /swapfile
+              swapon /swapfile
+              echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+          fi
+
+          # Clone the repository
+          mkdir -p /opt/macosui
+          git clone "https://github.com/Techies-T/MacOSUI-Community.git" /opt/macosui/repo
+          cd /opt/macosui/repo
+
+          # Link the persistent data volume
+          rm -rf data
+          ln -s /app/data ./data
+          
+          # Initialize database file to ensure correct permissions
+          touch /app/data/database.sqlite
+          chmod 666 /app/data/database.sqlite
+
+          # Build and start the application
+          /usr/local/bin/docker-compose up -d --build
+
   # Elastic IP (Static IP)
   ElasticIP:
     Type: AWS::EC2::EIP
