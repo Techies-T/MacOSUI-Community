@@ -228,7 +228,7 @@ Resources:
           - Id: EC2Origin
             DomainName: !GetAtt EC2Instance.PublicDnsName
             CustomOriginConfig:
-              HTTPPort: 80
+              HTTPPort: 8080
               HTTPSPort: 443
               OriginProtocolPolicy: http-only
               OriginReadTimeout: 60
