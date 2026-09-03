@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 const SetupScreen = ({ onActivate }) => {
     const [formData, setFormData] = useState({
         googleClientId: '',
-        googleClientSecret: ''
+        googleClientSecret: '',
+        geminiApiKey: ''
     });
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -22,6 +23,7 @@ const SetupScreen = ({ onActivate }) => {
 
         const cleanedClientId = (formData.googleClientId || '').trim();
         const cleanedClientSecret = (formData.googleClientSecret || '').trim();
+        const cleanedGeminiApiKey = (formData.geminiApiKey || '').trim();
 
         // 1. Google Client ID Format Validation
         const clientIdPattern = /^[0-9]+-[a-zA-Z0-9_]+\.apps\.googleusercontent\.com$/;
@@ -39,13 +41,18 @@ const SetupScreen = ({ onActivate }) => {
         }
 
         try {
+            const payload = {
+                googleClientId: cleanedClientId,
+                googleClientSecret: cleanedClientSecret
+            };
+            if (cleanedGeminiApiKey) {
+                payload.geminiApiKey = cleanedGeminiApiKey;
+            }
+
             const response = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    googleClientId: cleanedClientId,
-                    googleClientSecret: cleanedClientSecret
-                }),
+                body: JSON.stringify(payload),
             });
 
             if (response.ok) {
@@ -129,6 +136,24 @@ const SetupScreen = ({ onActivate }) => {
                                     !isSecure ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed placeholder-gray-300' : 'border-gray-300 placeholder-gray-400'
                                 }`}
                                 required
+                                disabled={!isSecure}
+                            />
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className={`block text-xs font-medium ${!isSecure ? 'text-gray-400' : 'text-gray-500'}`}>Gemini API Key</label>
+                                <span className="text-[10px] text-gray-400">（後からシステム設定でも変更可能）</span>
+                            </div>
+                            <input
+                                type="password"
+                                name="geminiApiKey"
+                                value={formData.geminiApiKey}
+                                onChange={handleChange}
+                                placeholder="AIzaSy..."
+                                className={`w-full px-3 py-2 bg-white text-gray-900 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm ${
+                                    !isSecure ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed placeholder-gray-300' : 'border-gray-300 placeholder-gray-400'
+                                }`}
                                 disabled={!isSecure}
                             />
                         </div>
