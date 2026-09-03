@@ -264,16 +264,22 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
 if (googleClientId || googleClientSecret || geminiApiKey || mcpServerEndpoint || mcpTokenUrl || mcpClientId || mcpClientSecret || googleDriveRootId || defaultAssistantPrompt !== undefined || antigravityAgentModel !== undefined || antigravityAgentInstructions !== undefined || antigravityAgentSafetyPolicy !== undefined || antigravityAgentExternalPolicyEnabled !== undefined || antigravityAgentMcpServers !== undefined) {
             if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
             if (googleClientId && !googleClientId.includes('...')) {
+                const currentClientId = await db.getSetting('GOOGLE_CLIENT_ID');
                 const cleanClientId = googleClientId.trim();
-                const clientIdPattern = /^[0-9]+-[a-zA-Z0-9_]+\.apps\.googleusercontent\.com$/;
-                if (!clientIdPattern.test(cleanClientId)) {
-                    return res.status(400).json({ error: '無効な Google Client ID 形式です。形式をご確認ください。' });
+                if (cleanClientId !== currentClientId) {
+                    const clientIdPattern = /^[0-9]+-[a-zA-Z0-9_]+\.apps\.googleusercontent\.com$/;
+                    if (!clientIdPattern.test(cleanClientId)) {
+                        return res.status(400).json({ error: '無効な Google Client ID 形式です。形式をご確認ください。' });
+                    }
+                    await db.setSetting('GOOGLE_CLIENT_ID', cleanClientId);
                 }
-                await db.setSetting('GOOGLE_CLIENT_ID', cleanClientId);
             }
             if (googleClientSecret) {
                 await db.setSetting('GOOGLE_CLIENT_SECRET', googleClientSecret.trim());
-            }            if (geminiApiKey) await db.setSetting('GEMINI_API_KEY', geminiApiKey);
+            }
+            if (geminiApiKey) {
+                await db.setSetting('GEMINI_API_KEY', geminiApiKey.trim());
+            }
             if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
             if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
             if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
@@ -592,19 +598,24 @@ app.post('/api/auth/google', async (req, res) => {
                 );
             };
 
-            if (existingUser) {
-                // User already exists, proceed. Maintain role.
-                proceedWithLogin(existingUser.role || 'user');
-            } else {
-                // Check if this is the very first user
-                db.get("SELECT COUNT(*) as count FROM users", [], (err, result) => {
-                    if (err) return res.status(500).json({ error: 'Database error' });
-                    
-                    if (Number(result.count) === 0) {
-                        // First user gets admin privileges
+            // Check if there are any active admin users in the system
+            db.get("SELECT COUNT(*) as adminCount FROM users WHERE role LIKE '%admin%'", [], (adminErr, adminResult) => {
+                if (adminErr) return res.status(500).json({ error: 'Database error' });
+                const hasAdmin = Number(adminResult?.adminCount || 0) > 0;
+
+                if (existingUser) {
+                    // If no admin exists in the system yet, promote this existing user to admin
+                    if (!hasAdmin) {
                         proceedWithLogin('admin');
                     } else {
-                        // Not the first user. Check if they are invited.
+                        proceedWithLogin(existingUser.role || 'user');
+                    }
+                } else {
+                    // If no admin exists in the system, the very first user MUST be admin
+                    if (!hasAdmin) {
+                        proceedWithLogin('admin');
+                    } else {
+                        // Not the first admin. Check if they are invited.
                         db.get("SELECT email, created_at FROM invitations WHERE email = ?", [email], (err, invite) => {
                             if (err) return res.status(500).json({ error: 'Database error' });
                             
@@ -640,12 +651,12 @@ app.post('/api/auth/google', async (req, res) => {
                                     req: req,
                                     details: { error: 'Not invited' }
                                 });
-                                res.status(403).json({ error: 'You are not invited to use this system.' });
+                                res.status(403).json({ error: 'Access denied. You need an invitation from an administrator to access this workspace.' });
                             }
                         });
                     }
-                });
-            }
+                }
+            });
         });
     } catch (error) {
         console.error('Auth Error:', error);
@@ -1938,43 +1949,91 @@ app.get('/api/security-logs', requireAuth, requirePermission('action:manage_syst
 });
 
 
-// Gemini API endpoint
-// Gemini API endpoint
-// Gemini API endpoint
-// Gemini API endpoint
+// Default standard Gemini models fallback
+const DEFAULT_GEMINI_MODELS = [
+    {
+        name: 'models/gemini-3.1-flash-lite-preview',
+        displayName: 'Gemini 3.1 Flash Lite Preview',
+        description: 'High-speed, cost-efficient model for lightweight reasoning and high-throughput tasks.',
+        inputTokenLimit: 1048576,
+        outputTokenLimit: 8192
+    },
+    {
+        name: 'models/gemini-3.1-pro-preview',
+        displayName: 'Gemini 3.1 Pro Preview',
+        description: 'Advanced intelligence for complex reasoning, analysis, and multimodal problem solving.',
+        inputTokenLimit: 2097152,
+        outputTokenLimit: 8192
+    },
+    {
+        name: 'models/gemini-2.5-flash',
+        displayName: 'Gemini 2.5 Flash',
+        description: 'Next-generation multimodal model optimized for speed and high volume.',
+        inputTokenLimit: 1048576,
+        outputTokenLimit: 8192
+    },
+    {
+        name: 'models/gemini-2.5-pro',
+        displayName: 'Gemini 2.5 Pro',
+        description: 'Capable model for complex reasoning tasks.',
+        inputTokenLimit: 2097152,
+        outputTokenLimit: 8192
+    },
+    {
+        name: 'models/gemini-3.1-flash-image',
+        displayName: 'Gemini 3.1 Flash Image',
+        description: 'Dedicated multimodal model for image and avatar generation.',
+        inputTokenLimit: 32768,
+        outputTokenLimit: 8192
+    }
+];
+
 app.get('/api/gemini/models', requireAuth, requireWidgetAccess('app:gemini'), async (req, res) => {
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        console.log("Using API Key:", apiKey ? apiKey.substring(0, 5) + "..." : "None");
 
         if (!apiKey) {
-            return res.status(500).json({ error: "GEMINI_API_KEY is not set on server" });
+            return res.json({ models: DEFAULT_GEMINI_MODELS, isConfigured: false });
         }
 
         const client = new GoogleGenAI({ apiKey });
         const response = await client.models.list();
 
-        // The SDK response object is complex, but stringifying it reveals the 'models' array.
-        // Using this as a robust fallback to access the data.
-        const jsonResponse = JSON.parse(JSON.stringify(response));
-        // Check for 'models' or 'pageInternal' (which seems to be where models are stored in some SDK versions)
-        const modelsList = jsonResponse.models || jsonResponse.pageInternal || [];
+        let modelsList = [];
+        try {
+            if (response && response.page && Array.isArray(response.page)) {
+                modelsList = response.page;
+            } else if (response && typeof response[Symbol.asyncIterator] === 'function') {
+                for await (const m of response) {
+                    modelsList.push(m);
+                }
+            } else {
+                const jsonResponse = JSON.parse(JSON.stringify(response));
+                modelsList = jsonResponse.models || jsonResponse.pageInternal || [];
+            }
+        } catch (iterErr) {
+            console.warn("Could not iterate model pager, using fallback list:", iterErr.message);
+        }
 
         // Filter and format models
-        const models = modelsList.filter(m =>
-            m.supportedActions && m.supportedActions.includes('generateContent')
+        let models = modelsList.filter(m =>
+            !m.supportedActions || m.supportedActions.includes('generateContent')
         ).map(m => ({
             name: m.name,
-            displayName: m.displayName,
-            description: m.description,
-            inputTokenLimit: m.inputTokenLimit,
-            outputTokenLimit: m.outputTokenLimit
+            displayName: m.displayName || m.name,
+            description: m.description || '',
+            inputTokenLimit: m.inputTokenLimit || 1048576,
+            outputTokenLimit: m.outputTokenLimit || 8192
         }));
 
-        res.json({ models });
+        if (models.length === 0) {
+            models = DEFAULT_GEMINI_MODELS;
+        }
+
+        res.json({ models, isConfigured: true });
     } catch (error) {
-        console.error("Error listing models:", error);
-        res.status(500).json({ error: "Failed to list models" });
+        console.error("Error listing models, returning default models:", error);
+        res.json({ models: DEFAULT_GEMINI_MODELS, isConfigured: false, warning: "Using fallback model list" });
     }
 });
 
