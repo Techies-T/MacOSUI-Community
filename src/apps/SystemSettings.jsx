@@ -312,12 +312,16 @@ const SystemSettings = ({ user }) => {
             });
             if (res.ok) {
                 alert('Settings saved successfully!');
+                if (geminiApiKey) {
+                    setIsGeminiConfigured(true);
+                }
             } else {
-                alert('Failed to save settings.');
+                const errData = await res.json().catch(() => ({}));
+                alert(`Failed to save settings: ${errData.error || 'Server error'}`);
             }
         } catch (err) {
             console.error(err);
-            alert('Failed to save settings.');
+            alert(`Failed to save settings: ${err.message || 'Network error'}`);
         }
     };
 
