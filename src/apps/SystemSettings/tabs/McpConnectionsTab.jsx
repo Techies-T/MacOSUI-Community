@@ -103,12 +103,13 @@ const McpConnectionsTab = ({
             const data = await res.json();
             
             if (res.ok && data.success) {
-                setTestResult({ success: true, message: `Connected successfully! Loaded ${data.toolCount} tool(s).` });
+                const toolsText = data.tools && data.tools.length > 0 ? ` (${data.tools.join(', ')})` : '';
+                setTestResult({ success: true, message: `✅ 接続成功！ ${data.toolCount} 個のツールを認識しました${toolsText}` });
             } else {
-                setTestResult({ success: false, message: data.error || 'Failed to connect.' });
+                setTestResult({ success: false, message: data.error || '接続に失敗しました。' });
             }
         } catch (e) {
-            setTestResult({ success: false, message: 'Network error or connection refused.' });
+            setTestResult({ success: false, message: 'ネットワークエラーまたは接続が拒否されました。' });
         } finally {
             setIsTesting(false);
         }
@@ -120,12 +121,13 @@ const McpConnectionsTab = ({
             const res = await fetch(`/api/mcp/servers/${id}/test`, { method: 'POST' });
             const data = await res.json();
             if (res.ok && data.success) {
-                alert(`✅ Connected successfully!\nLoaded ${data.toolCount} tool(s).`);
+                const toolList = data.tools && data.tools.length > 0 ? `\n\n【利用可能ツール一覧】\n・${data.tools.join('\n・')}` : '';
+                alert(`✅ 接続成功！\n${data.toolCount} 個のツールを正常に認識しました。${toolList}`);
             } else {
-                alert(`❌ Connection failed:\n${data.error || 'Unknown error'}`);
+                alert(`❌ 接続失敗:\n${data.error || 'エラーが発生しました'}`);
             }
         } catch (e) {
-            alert('❌ Network error or connection refused.');
+            alert('❌ ネットワークエラーまたは接続が拒否されました。');
         } finally {
             setTestingServerId(null);
         }

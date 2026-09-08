@@ -570,6 +570,22 @@ app.post('/api/mcp/tool', requireWidgetAccess('app:mcp-chat'), requirePermission
     if (serverId) {
         const allowedWidgets = req.user.allowed_widgets || [];
         if (!allowedWidgets.includes('*') && !allowedWidgets.includes(`mcp:${serverId}`)) {
+            console.warn(`[SECURITY AUDIT] 🚨 DOUBLE-CHECK BLOCKED: User '${req.user?.email}' attempted access to unauthorized MCP server '${serverId}'`);
+            await auditDb.logEvent({
+                userId: req.user?.id || null,
+                userEmail: req.user?.email || null,
+                eventType: 'mcp_tool_access_blocked',
+                action: `BLOCKED_UNAUTHORIZED_SERVER_ACCESS: ${serverId}`,
+                status: 'blocked',
+                req: req,
+                details: {
+                    serverId,
+                    toolName: name,
+                    arguments: args,
+                    reason: `Requires widget access: mcp:${serverId}`,
+                    doubleCheckEnforced: true
+                }
+            });
             return res.status(403).json({ error: `Access denied. Requires widget access: mcp:${serverId}` });
         }
     }
@@ -578,8 +594,8 @@ app.post('/api/mcp/tool', requireWidgetAccess('app:mcp-chat'), requirePermission
         const result = await callMcpTool(name, args, req.user.allowed_widgets || [], req.user, req);
         res.json(result);
     } catch (error) {
-        console.error(`MCP Proxy Error for tool ${name}:`, error);
-        res.status(500).json({ error: error.message || 'Failed to execute MCP tool' });
+        console.error(`MCP Proxy Error for tool ${name}:`, error.message);
+        res.status(error.message.includes('Access denied') ? 403 : 500).json({ error: error.message || 'Failed to execute MCP tool' });
     }
 });
 

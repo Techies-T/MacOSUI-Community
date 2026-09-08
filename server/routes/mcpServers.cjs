@@ -15,8 +15,11 @@ function validateZtaUrls(endpointUrl, tokenUrl) {
             if (parsed.protocol === 'https:') {
                 return true;
             }
-            // Only allow non-secure http on localhost/127.0.0.1 in development environment
-            if (isDev && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
+            // Allow non-secure http on loopback and Docker host in local environments
+            const isLocal = parsed.hostname === 'localhost' || 
+                            parsed.hostname === '127.0.0.1' || 
+                            parsed.hostname === 'host.docker.internal';
+            if (isLocal) {
                 return true;
             }
             return false;
