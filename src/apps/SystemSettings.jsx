@@ -84,11 +84,14 @@ const SystemSettings = ({ user }) => {
             .then(data => setChatPresets(data))
             .catch(err => console.error("Failed to fetch presets", err));
 
-        // Fetch FAQ
-        fetch('/api/rag/popular-queries/all')
-            .then(res => res.json())
-            .then(data => setRagFaqs(data))
-            .catch(err => console.error("Failed to fetch FAQs", err));
+        // Fetch FAQ (Only for users with manage_system_settings permission)
+        const canManageSettings = user?.allowed_actions?.includes('*') || user?.allowed_actions?.includes('action:manage_system_settings');
+        if (canManageSettings) {
+            fetch('/api/rag/popular-queries/all')
+                .then(res => res.json())
+                .then(data => setRagFaqs(data))
+                .catch(err => console.error("Failed to fetch FAQs", err));
+        }
 
         // Fetch models
         fetch('/api/gemini/models')
