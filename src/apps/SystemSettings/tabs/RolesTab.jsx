@@ -210,6 +210,7 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
                                     { id: 'workflow:deepresearch_infographic', label: 'Deep Research (with Infographic)' },
                                     { id: 'workflow:deepresearch_full', label: 'Deep Research (Full Features)' },
                                     { id: 'app:knowledge-base', label: 'Knowledge Base' },
+                                    { id: 'app:mcp-chat', label: 'MCP Chat Client' },
                                     { id: 'app:virtual-office', label: 'Virtual Office' },
                                     ...mcpServers.map(s => ({ id: `mcp:${s.id}`, label: `MCP Tool: ${s.name}` })),
                                     ...skills.map(s => ({ id: `skill:${s.id}`, label: `Skill: ${s.name}` }))

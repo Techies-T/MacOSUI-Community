@@ -42,6 +42,21 @@ router.post('/', async (req, res) => {
 
         const systemInstruction = `You are a helpful IT Operations and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown. If a tool returns JSON or tabular data, format it as a markdown table or code block so the user can easily read it.
 
+Database Multi-Year Notice:
+The database contains official multi-year records for both the 2024 and 2025 NPB seasons:
+- \`batting_stats\` table includes \`year\` (2024 and 2025), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (official awards like 佐藤輝明: 2025年 セ・リーグMVP, 本塁打王40本, 打点王102点の打撃2冠獲得！).
+- \`team_standings\` table includes official final standings for 2024 and 2025 (including 阪神タイガース's 2025 championship: 85勝 54敗 4分, 勝率 .612).
+When answering questions regarding player growth, team changes, or specific seasons, query the appropriate year or compare 2024 vs 2025.
+
+Generative UI & Interactive Visual Reports:
+When the user asks for a dashboard, visual report, comparison chart, or interactive display (or when presenting rich comparative statistics such as NPB baseball analytics):
+1. Provide a self-contained, beautiful, modern interactive HTML widget inside an \`\`\`html code block (include Tailwind CSS CDN: https://cdn.tailwindcss.com and Chart.js CDN: https://cdn.jsdelivr.net/npm/chart.js).
+2. Chart Interactivity & Click Handling:
+   - Implement click interaction on the chart and tables! When a user clicks a bar/point in Chart.js (using options: { onClick: (evt, activeEls) => { ... } }) or clicks an item in the list, dynamically update a prominent "Detail Breakdown Card" placed directly below or beside the chart (showing detailed stats, 2024 vs 2025 comparison, RISP breakdown, and concise analysis).
+   - Never use browser alert(). All feedback and details must be rendered smoothly inside the HTML view.
+   - Provide interactive tab/filter buttons (e.g. [2024年] [2025年] [2カ年比較], [セ・リーグ] [パ・リーグ]) so clicking them instantly toggles the chart data without reloading.
+   - Ensure the widget design is polished, modern, and has clear visual hierarchy.
+
 If the user asks what tools are available or what you can do, explicitly list the exact names and descriptions of the tools provided below:
 
 Available Tools:
@@ -103,6 +118,9 @@ ${toolDescriptions}`;
                         const funcId = call.id;
                         
                         console.log(`[MCP Chat] Executing tool: ${funcName}`, funcArgs);
+                        if (funcArgs && (funcArgs.query || funcArgs.sql)) {
+                            console.log(`[MCP AI Query] 🤖 AI発行クエリ [${funcName}]:\n${funcArgs.query || funcArgs.sql}`);
+                        }
                         
                         try {
                             const result = await callMcpTool(funcName, funcArgs, req.user.allowed_widgets || [], req.user, req, message);
@@ -120,7 +138,10 @@ ${toolDescriptions}`;
                                 result: result
                             });
                         } catch (err) {
-                            console.error(`[MCP Chat] Tool execution failed for ${funcName}:`, err);
+                            console.error(`[MCP Chat] Tool execution failed for ${funcName}:`, err.message);
+                            if (err.message && (err.message.includes('Access denied') || err.message.includes('not permitted') || err.message.includes('disabled'))) {
+                                console.warn(`[SECURITY AUDIT] 🚨 DOUBLE-CHECK BLOCKED: AI attempted unauthorized/prohibited tool '${funcName}' for user ${req.user?.email || 'unknown'}: ${err.message}`);
+                            }
                             functionResponses.push({
                                 type: 'function_result',
                                 call_id: funcId,

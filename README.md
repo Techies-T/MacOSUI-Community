@@ -7,7 +7,7 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 ## 🚀 主な機能とエンタープライズ特長
 
 - **AWS EC2 (x86_64 / AMD & Intel) シングルインスタンス設計**: 最小限のインフラコスト（`t3.micro` / `t3.small` 1台）で高速に立ち上げ可能なシンプルかつ堅牢な Docker デプロイアーキテクチャ。
-- **全自動プロビジョニング (Terraform & User Data)**: `terraform apply` 一発で x86_64 サーバーの起動、Docker インストール、メモリ保護（スワップ自動作成）、コンテナビルド・起動までを完全自動化。
+- **全自動プロビジョニング (CloudFormation & User Data)**: `cloudformation-cloudfront-ec2.yaml` をデプロイするだけで、VPC・EC2・HTTPS (CloudFront) 環境と、データ保護用の**外付けEBSボリューム**の構成・マウントまでを完全自動化。
 - **🛡️ Gemma 4 Local LLM-RAG (完全社内完結 / ゼロ外部漏洩)**: 外部クラウドへ 1 バイトも機密データを送ることなく、手元の Mac / オンプレミス GPU 上の **Gemma 4 (128K Long Context / KV Cache)** を活用して社内文書や HTML/SVG 構造化ナレッジを高速推論。
 - **🌐 ハイブリッド AI 接続 (AWS ⇄ ローカル Mac / Tailscale VPN)**: AWS 上の MacOSUI から、手元の Apple Silicon Mac 上で動作する Ollama / MLX (Gemma 4) に Tailscale 暗号化トンネル経由でシームレスにアクセス可能。
 - **AWS DynamoDB 超低コストナレッジ分離**: ナレッジデータを AWS DynamoDB (オンデマンド/永久無料枠 25GB) に分離可能。**月額コスト 0円 〜 数十円** で永続データを高速・安全に外部分離保管。
@@ -83,57 +83,31 @@ MacOSUI-oss では、用途や運用環境に合わせて以下のデプロイ�
 
 ---
 
-### Pattern B: AWS EC2 (x86_64 AMD/Intel) 1台構成 (Terraform)
-最小限のコストでインターネット上に本番環境を公開・運用する推奨構成です。
-情報漏洩防止および Google OAuth / ZTA 規定に準拠するため、**HTTPS 通信が必須** となっています。
+### Pattern B: AWS EC2 (x86_64 AMD/Intel) 1台構成 (CloudFormation)
+最小限のコストでインターネット上に安全な本番環境を公開・運用する推奨構成です。
+情報漏洩防止および Google OAuth / ZTA 規定に準拠するため、アクティベーション（初期設定）には **HTTPS 通信が必須** となっています。また、EC2の再作成時にもデータを失わないよう、**データベース（SQLite）は分離された専用のEBSボリューム**に保存されます。
 
-| `https_mode` の値 | コスト目安 | 特徴と推奨ユースケース |
+以下の2つのテンプレートを用途に合わせて使い分けます。
+
+| テンプレートファイル | HTTPS対応 | 特徴と推奨ユースケース |
 | :--- | :--- | :--- |
-| **`"cloudfront"` (デフォルト)** | **月額 0円〜数十円** | **低コスト・即時利用**。ドメイン取得なしでも AWS が提供する `https://xxxx.cloudfront.net` で即座に HTTPS 通信・アクティベーションが可能。 |
-| **`"alb"` (本番推奨)** | **月額 約2,000円〜** | **本番推奨・高安定性**。WebSocket やリアルタイム SSE 通信に最適。AWS ACM による無料 SSL 証明書の自動発行・更新に対応。 |
+| **`cloudformation-cloudfront-ec2.yaml`** (推奨) | ◯ (必須) | **一般ユーザー・本番推奨**。AWS が提供する `https://xxxx.cloudfront.net` で即座に HTTPS 通信・アクティベーションが可能。通信は暗号化され、セキュアに利用できます。 |
+| **`cloudformation-ec2.yaml`** (非推奨) | ✕ (HTTPのみ) | **開発者・社内検証専用**。アクティベーション機能は HTTP ではブロックされるため、ソースコードを自己改変してテストするエンジニア以外は使用しないでください。 |
 
-#### 💡 実行環境の選び方（CloudShell vs ローカルPC）
-- **🥇 AWS CloudShell（最もおすすめ・ブラウザ完結）**:
-  手元の PC に Terraform や AWS CLI をインストールする必要がなく、AWS コンソール右上の `>_` アイコンから 1 クリックで実行できます。
-- **🥈 お手元の ローカル PC**:
-  手元に `aws-cli` と `terraform` がインストールされており、`aws configure` が設定済みの場合に利用します。
+#### 🚀 デプロイ手順 (AWS マネジメントコンソール)
 
-#### 🚀 デプロイ手順 (AWS CloudShell または ローカルPC)
+1. AWSコンソールにログインし、**CloudFormation** の画面を開きます。
+2. **「スタックの作成」** ＞ 「新しいリソースを使用（標準）」をクリックします。
+3. **「テンプレートファイルのアップロード」** を選び、本リポジトリ内の `cloudformation-cloudfront-ec2.yaml` をアップロードします。
+4. パラメータを入力します：
+   - `InstanceType`: `t3.small` などを推奨（無料枠の場合は `t3.micro`）
+   - `DataVolumeSize`: データベース保存用の外付けEBS容量（デフォルト 10GB）
+5. デプロイ（作成）を実行し、完了まで待機します。
+6. スタックの「出力」タブに表示される `CloudFrontURL` (例: `https://d123456.cloudfront.net`) にアクセスし、アクティベーション画面から初期設定を行います。
 
-1. **リポジトリの Clone**:
-   - **パブリックリポジトリの場合**:
-     ```bash
-     git clone https://github.com/Techies-T/MacOSUI-Community.git
-     cd MacOSUI-Community/terraform/aws-ec2
-     ```
-   - **プライベートリポジトリ (Fork 後) の場合**:
-     ```bash
-     git clone https://<あなたのGitHubトークン>@github.com/<your-org>/MacOSUI-Community.git
-     cd MacOSUI-Community/terraform/aws-ec2
-     ```
-
-2. **設定ファイルの作成 (`terraform.tfvars`)**:
-   `terraform.tfvars` ファイルを新規作成し、以下の設定を記述します：
-   ```hcl
-   # HTTPS 方式の選択 ("cloudfront" または "alb")
-   https_mode = "cloudfront"
-
-   # プライベートリポジトリを EC2 内でクローンする場合のみ指定 (Public の場合は不要)
-   # github_token = "ghp_xxxxxxxxxxxxxxxxxxxx"
-
-   # ALB + 独自ドメインを利用する場合のみ指定
-   # domain_name = "macosui.your-domain.com"
-   ```
-
-3. **初期化とプロビジョニング**:
-   ```bash
-   terraform init
-   terraform apply
-   ```
-   > ※ プロンプトが表示されたら `yes` と入力して Enter を押します。
-
-4. **アクセス確認**:
-   完了時に出力される `app_https_url` (**`https://xxxx.cloudfront.net`**) にブラウザでアクセスし、アクティベーション画面を開きます。
+> [!TIP]
+> **データ保護（EBS分離）アーキテクチャについて**
+> このCloudFormationで作成される `MacOSUI-Data-Volume` (EBS) には削除保護（`DeletionPolicy: Retain`）がかかっています。EC2インスタンスを再作成・終了してもデータはAWS上に安全に残り続けます。
 
 ---
 

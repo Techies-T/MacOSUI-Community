@@ -201,6 +201,28 @@ async function ensureConnection(connState, user = null, req = null) {
         } catch (e) {
             console.error(`[MCP ${connState.name}] Failed to list tools:`, e.message);
         }
+    } else if (!connState.tools || connState.tools.length === 0) {
+        // If client exists but tools list is empty (e.g. upstream was down during init), retry fetching tools
+        try {
+            const toolsList = await connState.mcpClientInstance.listTools();
+            if (toolsList && toolsList.tools && toolsList.tools.length > 0) {
+                connState.tools = toolsList.tools;
+                console.log(`[MCP Router] Server ${connState.name} successfully reloaded ${toolsList.tools.length} tools.`);
+            }
+        } catch (e) {
+            console.warn(`[MCP ${connState.name}] Retry listTools failed, resetting stale connection:`, e.message);
+            if (connState.mcpTransport) {
+                try { await connState.mcpTransport.close(); } catch(err) {}
+                connState.mcpTransport = null;
+            }
+            connState.mcpClientInstance = null;
+            // Retry fresh connection once
+            try {
+                return await ensureConnection(connState, user, req);
+            } catch (retryErr) {
+                console.error(`[MCP ${connState.name}] Reconnection attempt failed:`, retryErr.message);
+            }
+        }
     }
 
     return connState.mcpClientInstance;
@@ -233,22 +255,34 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
     }
 
     if (!targetConnState) {
-        // アクセス拒否ログを記録
+        // ダブルチェック: 禁止ツールや未認可ツールへのアクセス試行を検知し、セキュリティ監査ログに記録
+        const userIdentifier = user?.email || (user ? `ID:${user.id}` : 'anonymous');
+        console.warn(`[SECURITY AUDIT] 🚨 DOUBLE-CHECK BLOCKED: Unauthorized or disabled tool '${name}' requested by user '${userIdentifier}'`);
+
         await auditDb.logEvent({
             userId: user ? user.id : null,
             userEmail: user ? user.email : null,
-            eventType: 'mcp_tool_execution',
-            action: `Call MCP Tool: ${name}`,
+            eventType: 'mcp_tool_access_blocked',
+            action: `BLOCKED_UNAUTHORIZED_TOOL_ACCESS: ${name}`,
             status: 'blocked',
             req: req,
             details: {
                 toolName: name,
                 arguments: args,
+                sqlQuery: args?.query || args?.sql || null,
                 aiPrompt: prompt,
-                error: `Access denied or Tool '${name}' is not registered by any accessible MCP Server.`
+                reason: `Tool '${name}' is not permitted or disabled for this user/role.`,
+                doubleCheckEnforced: true
             }
         });
-        throw new Error(`Access denied or Tool '${name}' is not registered by any accessible MCP Server.`);
+        throw new Error(`Access denied: Tool '${name}' is disabled or not permitted.`);
+    }
+
+    const sqlQuery = args?.query || args?.sql || null;
+    if (sqlQuery) {
+        console.log(`[MCP DB Query] 🔍 実行クエリ [Server: ${targetConnState.name} | Tool: ${name}]:\n${sqlQuery}`);
+    } else {
+        console.log(`[MCP Tool Call] ⚙️ ツール実行 [Server: ${targetConnState.name} | Tool: ${name}] Args:`, args);
     }
 
     try {
@@ -257,6 +291,8 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
             name: name,
             arguments: args || {}
         });
+
+        console.log(`[MCP Exec] ✅ Tool '${name}' completed successfully.`);
 
         // 成功ログを記録
         await auditDb.logEvent({
@@ -271,6 +307,7 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
                 serverName: targetConnState.name,
                 toolName: name,
                 arguments: args,
+                sqlQuery: sqlQuery,
                 aiPrompt: prompt
             }
         });
@@ -336,6 +373,15 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
     for (const [id, conn] of serverConnections.entries()) {
         if (!hasWildcard && !allowedWidgets.includes(`mcp:${id}`)) {
             continue; // Skip tools from this server if user doesn't have permission
+        }
+
+        // Self-healing: If tools list is empty, attempt to fetch/reconnect
+        if (!conn.tools || conn.tools.length === 0 || !conn.mcpClientInstance) {
+            try {
+                await ensureConnection(conn);
+            } catch (e) {
+                console.warn(`[MCP Router] Auto-heal tools fetch failed for server ${conn.name}:`, e.message);
+            }
         }
 
         if (conn.tools) {
@@ -443,7 +489,8 @@ async function testMcpConnection(config, user = null, req = null) {
         
         // 3. Fetch tools to verify functionality
         const toolsList = await mcpClientInstance.listTools();
-        const toolCount = toolsList?.tools?.length || 0;
+        const toolNames = toolsList?.tools?.map(t => t.name) || [];
+        const toolCount = toolNames.length;
 
         // 成功ログを記録
         await auditDb.logEvent({
@@ -453,10 +500,10 @@ async function testMcpConnection(config, user = null, req = null) {
             action: `Test MCP Connection: ${endpoint_url}`,
             status: 'success',
             req: req,
-            details: { endpointUrl: endpoint_url, tokenUrl: token_url, toolCount }
+            details: { endpointUrl: endpoint_url, tokenUrl: token_url, toolCount, tools: toolNames }
         });
 
-        return { success: true, toolCount };
+        return { success: true, toolCount, tools: toolNames };
 
     } catch (error) {
         // 失敗ログを記録
