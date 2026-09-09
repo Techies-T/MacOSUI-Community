@@ -19,6 +19,37 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
         if (user?.native_language) setUserLang(user.native_language);
     }, [user]);
 
+    const handleDownloadAvatar = async (targetUrl, targetName) => {
+        const avatarUrl = targetUrl || user?.avatar_url || user?.avatarUrl;
+        if (!avatarUrl) return;
+
+        try {
+            if (avatarUrl.startsWith('data:')) {
+                const a = document.createElement('a');
+                a.href = avatarUrl;
+                const isJpeg = avatarUrl.startsWith('data:image/jpeg');
+                a.download = `avatar-${(targetName || user?.name || 'user').replace(/\s+/g, '_')}.${isJpeg ? 'jpg' : 'png'}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } else {
+                const res = await fetch(avatarUrl);
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = `avatar-${(targetName || user?.name || 'user').replace(/\s+/g, '_')}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+            }
+        } catch (e) {
+            console.error("Failed to download avatar:", e);
+            window.open(avatarUrl, '_blank');
+        }
+    };
+
     const handleUpdateMyLanguage = async (lang) => {
         setUserLang(lang);
         try {
@@ -172,6 +203,26 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                     <div>
                         <div className="font-medium">{user?.name}</div>
                         <div className="text-sm opacity-60">{user?.email}</div>
+                        {(user?.avatar_url || user?.avatarUrl) && (
+                            <div className="mt-1.5 flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAvatarModalOpen(true)}
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 font-medium hover:underline flex items-center gap-1 cursor-pointer"
+                                >
+                                    <span>🔄</span> アバター変更
+                                </button>
+                                <span className="text-gray-300 dark:text-gray-600 text-xs">|</span>
+                                <button
+                                    type="button"
+                                    onClick={() => handleDownloadAvatar(user?.avatar_url || user?.avatarUrl, user?.name)}
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 font-medium hover:underline flex items-center gap-1 cursor-pointer"
+                                    title="アバター画像をダウンロード"
+                                >
+                                    <span>📥</span> ダウンロード
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -233,9 +284,18 @@ const UsersTab = ({ user, rbacPolicies, hasAction }) => {
                                 <div key={u.id} className="p-4 border-b border-white/10 flex items-center justify-between last:border-0">
                                     <div className="flex items-center gap-3">
                                         {u.avatar_url ? (
-                                            <img src={u.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
+                                            <div 
+                                                className="relative w-8 h-8 rounded-full overflow-hidden group/avatar cursor-pointer flex-shrink-0" 
+                                                onClick={() => handleDownloadAvatar(u.avatar_url, u.name || u.email)} 
+                                                title="クリックしてアバター画像をダウンロード"
+                                            >
+                                                <img src={u.avatar_url} alt="" className="w-full h-full object-cover group-hover/avatar:opacity-75 transition-opacity" referrerPolicy="no-referrer" />
+                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/avatar:opacity-100 flex items-center justify-center transition-opacity text-[10px] text-white font-bold">
+                                                    📥
+                                                </div>
+                                            </div>
                                         ) : (
-                                            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                                            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
                                                 {u.name?.charAt(0) || u.email.charAt(0)}
                                             </div>
                                         )}
