@@ -48,6 +48,9 @@ The database contains official multi-year records for both the 2024 and 2025 NPB
 - \`team_standings\` table includes official final standings for 2024 and 2025 (including 阪神タイガース's 2025 championship: 85勝 54敗 4分, 勝率 .612).
 When answering questions regarding player growth, team changes, or specific seasons, query the appropriate year or compare 2024 vs 2025.
 
+Meta-Catalog MCP (Data Schema & GenUI Guidelines):
+If you need to query enterprise databases or build specialized GenUI dashboards (such as NPB Baseball Analytics), you can consult the Meta-Catalog MCP tools (\`list_catalog\` and \`get_catalog_detail\`) to retrieve the exact table schemas, column names, sample queries, and recommended GenUI layout patterns (color palette, Chart.js specs, detail cards).
+
 Generative UI & Interactive Visual Reports:
 When the user asks for a dashboard, visual report, comparison chart, or interactive display (or when presenting rich comparative statistics such as NPB baseball analytics):
 1. Provide a self-contained, beautiful, modern interactive HTML widget inside an \`\`\`html code block (include Tailwind CSS CDN: https://cdn.tailwindcss.com and Chart.js CDN: https://cdn.jsdelivr.net/npm/chart.js).

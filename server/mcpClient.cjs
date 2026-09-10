@@ -285,63 +285,84 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
         console.log(`[MCP Tool Call] ⚙️ ツール実行 [Server: ${targetConnState.name} | Tool: ${name}] Args:`, args);
     }
 
-    try {
-        const client = await ensureConnection(targetConnState, user, req);
-        const result = await client.callTool({
-            name: name,
-            arguments: args || {}
-        });
+    let isRetry = false;
 
-        console.log(`[MCP Exec] ✅ Tool '${name}' completed successfully.`);
+    const executeWithRetry = async () => {
+        try {
+            const client = await ensureConnection(targetConnState, user, req);
+            const result = await client.callTool({
+                name: name,
+                arguments: args || {}
+            });
 
-        // 成功ログを記録
-        await auditDb.logEvent({
-            userId: user ? user.id : null,
-            userEmail: user ? user.email : null,
-            eventType: 'mcp_tool_execution',
-            action: `Call MCP Tool: ${name}`,
-            status: 'success',
-            req: req,
-            details: {
-                serverId: targetConnState.id,
-                serverName: targetConnState.name,
-                toolName: name,
-                arguments: args,
-                sqlQuery: sqlQuery,
-                aiPrompt: prompt
+            console.log(`[MCP Exec] ✅ Tool '${name}' completed successfully.`);
+
+            // 成功ログを記録
+            await auditDb.logEvent({
+                userId: user ? user.id : null,
+                userEmail: user ? user.email : null,
+                eventType: 'mcp_tool_execution',
+                action: `Call MCP Tool: ${name}`,
+                status: 'success',
+                req: req,
+                details: {
+                    serverId: targetConnState.id,
+                    serverName: targetConnState.name,
+                    toolName: name,
+                    arguments: args,
+                    sqlQuery: sqlQuery,
+                    aiPrompt: prompt
+                }
+            });
+
+            return result;
+        } catch (error) {
+            const errMsg = error.message || String(error);
+            const isSessionExpired = errMsg.includes("SSE session not found") || 
+                                     errMsg.includes("expired") || 
+                                     errMsg.includes("ECONNRESET") || 
+                                     errMsg.includes("fetch failed") ||
+                                     errMsg.includes("closed");
+
+            // 古いコネクションを確実にクリーンアップ
+            if (targetConnState.mcpTransport) {
+                try { await targetConnState.mcpTransport.close(); } catch(e) {}
+                targetConnState.mcpTransport = null;
             }
-        });
+            targetConnState.mcpClientInstance = null;
 
-        return result;
-    } catch (error) {
-        console.error(`[MCP ${targetConnState.name}] Error calling Tool ${name}:`, error);
-        
-        // 失敗ログを記録
-        await auditDb.logEvent({
-            userId: user ? user.id : null,
-            userEmail: user ? user.email : null,
-            eventType: 'mcp_tool_execution',
-            action: `Call MCP Tool: ${name}`,
-            status: 'failure',
-            req: req,
-            details: {
-                serverId: targetConnState.id,
-                serverName: targetConnState.name,
-                toolName: name,
-                arguments: args,
-                aiPrompt: prompt,
-                error: error.message || String(error)
+            // アイドル切断等の場合は透過的に1度だけサイレントリトライ
+            if (!isRetry && isSessionExpired) {
+                console.warn(`[MCP ${targetConnState.name}] Session expired or connection lost (${errMsg}). Auto-reconnecting and retrying tool '${name}'...`);
+                isRetry = true;
+                return await executeWithRetry();
             }
-        });
 
-        if (targetConnState.mcpTransport) {
-             try { await targetConnState.mcpTransport.close(); } catch(e) {}
-             targetConnState.mcpTransport = null;
+            console.error(`[MCP ${targetConnState.name}] Error calling Tool ${name}:`, error);
+            
+            // 失敗ログを記録
+            await auditDb.logEvent({
+                userId: user ? user.id : null,
+                userEmail: user ? user.email : null,
+                eventType: 'mcp_tool_execution',
+                action: `Call MCP Tool: ${name}`,
+                status: 'failure',
+                req: req,
+                details: {
+                    serverId: targetConnState.id,
+                    serverName: targetConnState.name,
+                    toolName: name,
+                    arguments: args,
+                    aiPrompt: prompt,
+                    error: errMsg
+                }
+            });
+
+            throw error;
         }
-        targetConnState.mcpClientInstance = null;
-        
-        throw error;
-    }
+    };
+
+    return await executeWithRetry();
 }
 
 /**
