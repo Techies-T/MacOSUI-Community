@@ -135,9 +135,39 @@ const McpChat = () => {
     const [activeArtifact, setActiveArtifact] = useState(null); // The artifact to display on the right pane
     const [allArtifacts, setAllArtifacts] = useState([]);
     const [quickPrompts, setQuickPrompts] = useState([]);
+    const [copiedId, setCopiedId] = useState(null);
 
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+
+    const handleCopy = async (text, id) => {
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+            }
+            setCopiedId(id);
+            setTimeout(() => setCopiedId(null), 2000);
+        } catch (err) {
+            console.error('Failed to copy text:', err);
+        }
+    };
+
+    const handleReusePrompt = (text) => {
+        setInput(text);
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -382,15 +412,49 @@ const McpChat = () => {
                                 <div className={`group relative ${msg.role === 'user' ? 'max-w-[85%] sm:max-w-[75%] bg-indigo-600 text-white rounded-2xl rounded-tr-none px-4 py-3' : 'w-full bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none p-5 sm:p-6'} text-[15px] leading-relaxed shadow-sm overflow-x-auto`}>
                                     {msg.role === 'model' && (
                                         <button 
-                                            onClick={() => navigator.clipboard.writeText(msg.text)}
-                                            className="absolute top-3 right-3 p-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10"
-                                            title="Copy message"
+                                            onClick={() => handleCopy(msg.text, `model-${index}`)}
+                                            className="absolute top-3 right-3 p-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10 flex items-center justify-center"
+                                            title="回答をコピー"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                                            {copiedId === `model-${index}` ? (
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
+                                                    <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                                </svg>
+                                            ) : (
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                                            )}
                                         </button>
                                     )}
+                                    {msg.role === 'user' && (
+                                        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                            <button 
+                                                onClick={() => handleCopy(msg.text, `user-${index}`)}
+                                                className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
+                                                title="プロンプトをクリップボードにコピー"
+                                            >
+                                                {copiedId === `user-${index}` ? (
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-emerald-300">
+                                                        <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                                    </svg>
+                                                ) : (
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                            <button 
+                                                onClick={() => handleReusePrompt(msg.text)}
+                                                className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
+                                                title="入力欄に再セットして編集"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    )}
                                     {msg.role === 'user' ? (
-                                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                                        <p className="whitespace-pre-wrap pr-16">{msg.text}</p>
                                     ) : (
                                         <div className="prose prose-indigo max-w-none prose-p:leading-relaxed prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-th:bg-gray-100 prose-th:px-4 prose-th:py-2.5 prose-th:whitespace-nowrap prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2.5 prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-200">
                                             <ReactMarkdown
