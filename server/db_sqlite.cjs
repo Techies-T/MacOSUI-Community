@@ -389,21 +389,21 @@ async function autoActivate() {
                 },
                 "manager": {
                     "name": "Manager",
-                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["*"],
-                    "allowed_actions": ["action:manage_assistant_rules"]
+                    "allowed_actions": ["action:manage_assistant_rules", "action:use_mcp_tools"]
                 },
                 "hr": {
                     "name": "HR (Human Resources)",
-                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["*"],
-                    "allowed_actions": ["action:manage_work_policy"]
+                    "allowed_actions": ["action:manage_work_policy", "action:use_mcp_tools"]
                 },
                 "user": {
                     "name": "General User",
-                    "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["model:gemini-flash"],
-                    "allowed_actions": []
+                    "allowed_actions": ["action:use_mcp_tools"]
                 },
                 "guest": {
                     "name": "External Guest",
@@ -422,9 +422,9 @@ async function autoActivate() {
                 if (!policies.manager) {
                     policies.manager = {
                         "name": "Manager",
-                        "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                         "allowed_models": ["*"],
-                        "allowed_actions": ["action:manage_assistant_rules"]
+                        "allowed_actions": ["action:manage_assistant_rules", "action:use_mcp_tools"]
                     };
                     updated = true;
                 }
@@ -433,9 +433,9 @@ async function autoActivate() {
                 if (!policies.hr) {
                     policies.hr = {
                         "name": "HR (Human Resources)",
-                        "allowed_widgets": ["app:knowledge-base", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_widgets": ["app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
                         "allowed_models": ["*"],
-                        "allowed_actions": ["action:manage_work_policy"]
+                        "allowed_actions": ["action:manage_work_policy", "action:use_mcp_tools"]
                     };
                     updated = true;
                 }
@@ -461,6 +461,22 @@ async function autoActivate() {
                         if (!widgets.includes('app:dm-chat')) {
                             widgets.push('app:dm-chat');
                             updated = true;
+                        }
+                    }
+                });
+
+                // Migrate: user, manager, hr ロールに app:gemini が欠落している場合は追加
+                ['user', 'manager', 'hr'].forEach(roleKey => {
+                    if (policies[roleKey]) {
+                        if (policies[roleKey].allowed_widgets && !policies[roleKey].allowed_widgets.includes('*') && !policies[roleKey].allowed_widgets.includes('app:gemini')) {
+                            policies[roleKey].allowed_widgets.push('app:gemini');
+                            updated = true;
+                            console.log(`DEBUG: Migrated ${roleKey} role - added app:gemini to allowed_widgets`);
+                        }
+                        if (policies[roleKey].allowed_actions && !policies[roleKey].allowed_actions.includes('*') && !policies[roleKey].allowed_actions.includes('action:use_mcp_tools')) {
+                            policies[roleKey].allowed_actions.push('action:use_mcp_tools');
+                            updated = true;
+                            console.log(`DEBUG: Migrated ${roleKey} role - added action:use_mcp_tools to allowed_actions`);
                         }
                     }
                 });
@@ -621,24 +637,105 @@ async function autoActivate() {
             );
         }
 
+        // Auto-register ZTA MCP Gateway Servers (Meta-Catalog, Digital Agency, NPB)
+        const ztaGatewayHost = process.env.ZTA_GATEWAY_HOST || 'http://host.docker.internal:8085';
+        const { encrypt } = require('./crypto.cjs');
+        const analystSecretEncrypted = encrypt('analyst-secret-2026');
+
+        const ztaServers = [
+            {
+                name: 'デジタル庁 行政手続分析 MCP (ZTA保護)',
+                endpoint_url: `${ztaGatewayHost}/mcp/admin-procedures/sse`,
+                token_url: `${ztaGatewayHost}/oauth/token`,
+                client_id: 'macosui-analyst',
+                client_secret: analystSecretEncrypted
+            },
+            {
+                name: 'Meta-Catalog MCP (企業システム＆GenUIメタ情報)',
+                endpoint_url: `${ztaGatewayHost}/mcp/catalog/sse`,
+                token_url: `${ztaGatewayHost}/oauth/token`,
+                client_id: 'macosui-analyst',
+                client_secret: analystSecretEncrypted
+            },
+            {
+                name: 'NPB Baseball (参照専用)',
+                endpoint_url: `${ztaGatewayHost}/mcp/mariadb/sse`,
+                token_url: `${ztaGatewayHost}/oauth/token`,
+                client_id: 'macosui-analyst',
+                client_secret: analystSecretEncrypted
+            }
+        ];
+
+        for (const s of ztaServers) {
+            const count = await new Promise((resolve) => {
+                db.get("SELECT COUNT(*) as count FROM mcp_servers WHERE name = ?", [s.name], (err, row) => {
+                    if (err) resolve(-1);
+                    else resolve(row ? row.count : 0);
+                });
+            });
+            if (count === 0) {
+                console.log(`DEBUG: Registering ${s.name}...`);
+                db.run(
+                    `INSERT INTO mcp_servers (name, endpoint_url, token_url, client_id, client_secret) VALUES (?, ?, ?, ?, ?)`,
+                    [s.name, s.endpoint_url, s.token_url, s.client_id, s.client_secret],
+                    (err) => {
+                        if (err) console.error(`Failed to register ${s.name}`, err);
+                        else console.log(`DEBUG: ${s.name} registered successfully.`);
+                    }
+                );
+            }
+        }
+
         // Migrate any existing mcp_servers with https://localhost to http://localhost
         db.run("UPDATE mcp_servers SET endpoint_url = REPLACE(endpoint_url, 'https://localhost', 'http://localhost'), token_url = REPLACE(token_url, 'https://localhost', 'http://localhost') WHERE endpoint_url LIKE 'https://localhost%'");
 
-        // Auto-register Default MCP Quick Prompts
+        // Auto-register / Merge Default MCP Quick Prompts
         console.log("DEBUG: Checking existingPrompts...");
-        const existingPrompts = await db.getSetting('MCP_QUICK_PROMPTS');
-        console.log("DEBUG: existingPrompts fetched:", existingPrompts ? "yes" : "no");
-        if (!existingPrompts) {
-            console.log('DEBUG: Initializing default MCP Quick Prompts...');
-            const defaultPrompts = JSON.stringify([
-                { label: "利用可能なツール", prompt: "利用可能なツール一覧を表示してください。" },
-                { label: "Authorごとの月別投稿数", prompt: "ナレッジベースのAuthorごとの月別投稿数を教えてください" },
-                { label: "記事トークン数", prompt: "ナレッジベースの記事ごとのトークン数を教えてください" },
-                { label: "トークン数のクロス集計", prompt: "月別と著者別のインプットトークンとアウトプットトークンをクロス集計して表にして" },
-                { label: "AppRunnerメトリクス", prompt: "AppRunnerの最新メトリクスを教えてください" },
-                { label: "Docker一覧", prompt: "Dockerのコンテナ一覧を取得して表にまとめてください" }
-            ]);
-            await db.setSetting('MCP_QUICK_PROMPTS', defaultPrompts);
+        const rawPrompts = await db.getSetting('MCP_QUICK_PROMPTS');
+        let currentPrompts = [];
+        try {
+            if (rawPrompts) currentPrompts = JSON.parse(rawPrompts);
+        } catch (e) {
+            currentPrompts = [];
+        }
+
+        const requiredPrompts = [
+            { label: "利用可能なツール", prompt: "利用可能なツール一覧を表示してください。" },
+            { label: "Authorごとの月別投稿数", prompt: "ナレッジベースのAuthorごとの月別投稿数を教えてください" },
+            { label: "記事トークン数", prompt: "ナレッジベースの記事ごとのトークン数を教えてください" },
+            { label: "トークン数のクロス集計", prompt: "月別と著者別のインプットトークンとアウトプットトークンをクロス集計して表にして" },
+            { label: "AppRunnerメトリクス", prompt: "AppRunnerの最新メトリクスを教えてください" },
+            { label: "Docker一覧", prompt: "Dockerのコンテナ一覧を取得して表にまとめてください" },
+            {
+                label: "行政手続・ライフイベント別デジタル化ダッシュボード",
+                prompt: "デジタル庁の行政手続等の棚卸調査データ（procedures-survey-r7）を分析し、国民の生活に直結する【行政手続 ライフイベント別デジタル化＆行政改革ダッシュボード】を作成してください。\n\nまずは Meta-Catalog（get_catalog_detail または list_catalog）で推奨設計図を確認し、summarize_records ツールを用いて以下のデータを集計してください：\n1. 国民ライフイベント（「死亡・相続」「引越し」「医療・健康」「税金」「出生・こども」など）別の手続種類数の集計（explode: \"手続が行われるイベント(個人)\"）\n2. 提出が義務付けられている添付書類（「住民票」「戸籍」「登記事項証明書」「印鑑登録証明書」など）の提出要求件数の集計（explode: \"申請時に添付させる書類\"）\n\n集計結果に基づき、以下のGenUI設計要件を満たす洗練されたインタラクティブダッシュボード（TailwindCSS + Chart.js）を出力してください：\n1. 【最上部サマリーカード（3列）】：\n   - ①「調査対象手続総数」: 76,275件（全国法令手続全数調査）\n   - ②「重点ライフイベント」: 14分野（死亡・相続、引越し、出生など）\n   - ③「最大ボトルネック」: 紙原本の提出義務（戸籍・住民票・印鑑証明等の撤廃進捗）\n2. 【ライフイベント別 手続数ランキング横棒グラフ（Chart.js）】：\n   - 各ライフイベントの手続件数を可視化し、国民の負担が大きい領域を一目で把握可能にする\n3. 【申請時に求められる添付書類の構成比（ドーナツチャート）】：\n   - 住民票・戸籍・印鑑証明・登記事項証明書などの割合を色分け表示\n4. 【行政改革・重点ターゲット一覧テーブル】：\n   - イベント名、手続件数、代表的な添付書類、改革優先度（「最優先」「重要」「要検討」）のバッジ表示\n5. 【AIアナリスト改革提言バナー】：\n   - 「書かない窓口」やマイナンバー連携・ベースレジストリ連携による添付書類撤廃のボトルネックと提言"
+            },
+            {
+                label: "紙原本（戸籍・住民票）添付義務の手続き分析",
+                prompt: "デジタル庁の行政手続棚卸調査（procedures-survey-r7）から、国民や企業が申請する際に「住民票」「戸籍」「印鑑登録証明書」などの紙原本の添付をいまだに義務付けている手続きを分析してください。\n\nsummarize_records や query_records を用いて、添付書類の撤廃状況（添付書類等提出の撤廃/省略状況）や所管府省庁別の傾向を集計し、わかりやすいGenUIレポートとして可視化してください。"
+            },
+            {
+                label: "2025年阪神タイガース優勝の立役者",
+                prompt: "MariaDBの「打者成績（batting_stats）」および「投手成績（pitching_stats）」から、2024年と2025年の2カ年データを比較し、セ・パ両リーグの他球団ライバルを含めた【2024 vs 2025 NPB 投打総合・戦力進化ダッシュボード】を作成してください。\n\n情報量が多くてもUIがビジー（過密）にならず、直感的に戦力UPがわかる以下のGenUI設計要件を満たしてください：\n\n1. 【最上部：2024 ➔ 2025 戦力UP・最大跳躍サマリー（3分割カード）】：\n   - ①「最大跳躍スラッガー」：前年から最もWAR・本塁打を伸ばした野手（例: 佐藤輝明 +3.4 WAR、森下翔太など）\n   - ②「最大跳躍エース」：前年から防御率・投球回・WARを劇的に改善した先発投手（例: 才木浩人など）\n   - ③「鉄壁リリーフ進化」：セーブ・ホールド数を大幅に上積みした守護神・セットアッパー（岩崎優、桐敷拓馬、R.マルティネスなど）\n\n2. 【タブ切り替え（Tabs）によるスッキリした画面構成】：\n   画面が混雑しないよう、以下の3つのタブで整理して表示してください：\n   - [⚾ 野手編 (2カ年比較)]\n   - [🎯 先発投手編 (2カ年比較)]\n   - [🛡️ 救援投手編 (クローザー＆中継ぎ)]\n\n3. 【各タブ内の構成（グラフ ＋ 前年比バッジ ＋ クリック連動カード）】：\n   - 【Chart.js 2カ年グループ棒グラフ】：\n     2024年（グレー） vs 2025年（鮮やかなブルー）を選手ごとに2本並べて表示し、一目で伸び代がわかるようにする\n   - 【前年比増減バッジ】：\n     数字の横に「+3.4 ▲（緑色）」や「-0.3 ▼（赤色）」のコンパクトなピルバッジを配置し、戦力増減を瞬時に判別可能にする\n   - 【クリック連動・選手詳細カード】：\n     グラフのバーや一覧の行をクリックすると、下部または右側のカードにその選手の2カ年全スタッツ（打率・本塁打・打点・OPS・タイトル / 防御率・WHIP・K数・S・H）が切り替わって深掘り表示される仕組み\n\n4. 【投手支配力マトリックスと見方ガイド（投手タブ内）】：\n   - WHIP（横軸） vs 防御率（縦軸）の散布図\n   - ★必須：グラフ直下に「※左下（WHIP 1.00未満・防御率1点台）が絶対的守護神・エースの領域」という解説注記を配置\n\n5. 【AIアナリスト戦力分析講評】：\n   - 2024年から2025年にかけて、他球団（ソフトバンク・巨人・中日など）と阪神タイガースのどちらがより戦力を底上げできたかの総合考察"
+            }
+        ];
+
+        let updatedPrompts = false;
+        if (!rawPrompts) {
+            currentPrompts = requiredPrompts;
+            updatedPrompts = true;
+        } else {
+            for (const rp of requiredPrompts) {
+                if (!currentPrompts.some(p => p.label === rp.label)) {
+                    currentPrompts.push(rp);
+                    updatedPrompts = true;
+                }
+            }
+        }
+
+        if (updatedPrompts) {
+            console.log('DEBUG: Updating MCP Quick Prompts in DB...');
+            await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(currentPrompts));
         }
 
         // Auto-register Default Assistant Prompt
