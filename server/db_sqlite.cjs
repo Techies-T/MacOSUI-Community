@@ -871,6 +871,102 @@ Tailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML�
             console.log('DEBUG: Default Deep Research Workflows initialized with complete prompts.');
         }
 
+        // Auto-register Default Analytics Pods (Digital Agency & NPB)
+        const defaultPods = [
+            {
+                id: 'pod-digital-agency',
+                name: 'デジ庁データ分析',
+                description: 'デジタル庁 行政手続等の棚卸調査データ（7.6万件）に基づく行政改革ダッシュボード・分析レポート'
+            },
+            {
+                id: 'pod-npb-analytics',
+                name: 'NPB野球データ分析',
+                description: 'プロ野球 2024-2025 マルチ年度 セイバーメトリクス分析ダッシュボード'
+            }
+        ];
+
+        for (const pod of defaultPods) {
+            const exists = await new Promise((resolve) => {
+                db.get("SELECT COUNT(*) as count FROM pods WHERE id = ? OR name = ?", [pod.id, pod.name], (err, row) => {
+                    if (err) resolve(-1);
+                    else resolve(row ? row.count : 0);
+                });
+            });
+            if (exists === 0) {
+                console.log(`DEBUG: Initializing Pod: ${pod.name}...`);
+                db.run(
+                    "INSERT INTO pods (id, name, description) VALUES (?, ?, ?)",
+                    [pod.id, pod.name, pod.description],
+                    (err) => {
+                        if (err) console.error(`Failed to register pod ${pod.name}`, err);
+                        else console.log(`DEBUG: Pod ${pod.name} registered successfully.`);
+                    }
+                );
+            }
+        }
+
+        // Auto-seed Sample AI Analytics Article into "デジ庁データ分析" Pod
+        const sampleArticleCount = await new Promise((resolve) => {
+            db.get("SELECT COUNT(*) as count FROM knowledge_articles WHERE title LIKE '%行政手続%'", [], (err, row) => {
+                if (err) resolve(-1);
+                else resolve(row ? row.count : 0);
+            });
+        });
+        if (sampleArticleCount === 0) {
+            const fs = require('fs');
+            const path = require('path');
+            const sampleWidgetPath = path.join(__dirname, 'sample_widgets', 'digital_agency_dashboard.html');
+            if (fs.existsSync(sampleWidgetPath)) {
+                const sampleContent = fs.readFileSync(sampleWidgetPath, 'utf8');
+                console.log('DEBUG: Seeding sample AI Analytics article into knowledge base...');
+                db.run(
+                    `INSERT INTO knowledge_articles (title, content, tags, author_id, pod_id) VALUES (?, ?, ?, ?, ?)`,
+                    [
+                        '行政手続 ライフイベント別デジタル化＆行政改革ダッシュボード',
+                        sampleContent,
+                        'AI Analytics,GenUI,デジタル庁,行政改革,ダッシュボード',
+                        1,
+                        'pod-digital-agency'
+                    ],
+                    (err) => {
+                        if (err) console.error('Failed to seed sample knowledge article', err);
+                        else console.log('DEBUG: Sample AI Analytics knowledge article seeded successfully.');
+                    }
+                );
+            }
+        }
+
+        // Auto-seed NPB Sample Article into "NPB野球データ分析" Pod
+        const npbArticleCount = await new Promise((resolve) => {
+            db.get("SELECT COUNT(*) as count FROM knowledge_articles WHERE title LIKE '%NPB%'", [], (err, row) => {
+                if (err) resolve(-1);
+                else resolve(row ? row.count : 0);
+            });
+        });
+        if (npbArticleCount === 0) {
+            const fs = require('fs');
+            const path = require('path');
+            const npbWidgetPath = path.join(__dirname, 'sample_widgets', 'npb_dashboard.html');
+            if (fs.existsSync(npbWidgetPath)) {
+                const npbContent = fs.readFileSync(npbWidgetPath, 'utf8');
+                console.log('DEBUG: Seeding NPB AI Analytics article into knowledge base...');
+                db.run(
+                    `INSERT INTO knowledge_articles (title, content, tags, author_id, pod_id) VALUES (?, ?, ?, ?, ?)`,
+                    [
+                        'NPB 2024-2025 マルチ年度 セイバーメトリクス分析ダッシュボード',
+                        npbContent,
+                        'AI Analytics,GenUI,NPB,プロ野球,セイバーメトリクス,ダッシュボード',
+                        1,
+                        'pod-npb-analytics'
+                    ],
+                    (err) => {
+                        if (err) console.error('Failed to seed NPB knowledge article', err);
+                        else console.log('DEBUG: NPB AI Analytics knowledge article seeded successfully.');
+                    }
+                );
+            }
+        }
+
     } catch (error) {
         console.error('Error during auto-activation:', error);
     }

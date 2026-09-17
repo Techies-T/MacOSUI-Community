@@ -5,6 +5,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import WeatherForecastMap from './WeatherForecastMap';
+import SaveToKnowledgeModal from '../components/SaveToKnowledgeModal';
+import HtmlPreviewCodeBlock from '../components/HtmlPreviewCodeBlock';
 
 const SLASH_COMMANDS = [];
 
@@ -56,6 +58,23 @@ const Gemini = () => {
 
     const [copiedIndex, setCopiedIndex] = useState(null);
     const messagesEndRef = useRef(null);
+
+    // Save to Knowledge state
+    const [saveKnowledgeModalOpen, setSaveKnowledgeModalOpen] = useState(false);
+    const [codeToSave, setCodeToSave] = useState('');
+    const [saveKnowledgeDefaultTitle, setSaveKnowledgeDefaultTitle] = useState('');
+    const [toastMessage, setToastMessage] = useState(null);
+
+    const handleOpenSaveKnowledge = (code, title = '') => {
+        setCodeToSave(code);
+        setSaveKnowledgeDefaultTitle(title || 'AI Analytics ダッシュボード');
+        setSaveKnowledgeModalOpen(true);
+    };
+
+    const handleSavedToKnowledge = (article) => {
+        setToastMessage(`ナレッジ「${article.title}」に保存しました！`);
+        setTimeout(() => setToastMessage(null), 4000);
+    };
     const inputRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -677,6 +696,19 @@ const Gemini = () => {
                                                         li: ({ children }) => <li className="my-0.5 leading-relaxed">{children}</li>,
                                                         strong: ({ children }) => <strong className="font-bold text-white bg-indigo-500/20 px-1 py-0.5 rounded">{children}</strong>,
                                                         code: ({ inline, className, children, ...props }) => {
+                                                            const match = /language-(\w+)/.exec(className || '');
+                                                            const lang = match ? match[1].toLowerCase() : '';
+                                                            const codeStr = String(children).replace(/\n$/, '');
+
+                                                            if (!inline && (lang === 'html' || (!lang && (codeStr.includes('<!DOCTYPE html>') || codeStr.includes('<html'))))) {
+                                                                return (
+                                                                    <HtmlPreviewCodeBlock
+                                                                        code={codeStr}
+                                                                        onSaveToKnowledge={handleOpenSaveKnowledge}
+                                                                    />
+                                                                );
+                                                            }
+
                                                             if (inline) {
                                                                 return (
                                                                     <code className="bg-black/40 text-cyan-300 px-1.5 py-0.5 rounded text-xs font-mono border border-white/10" {...props}>
@@ -712,11 +744,24 @@ const Gemini = () => {
                                 {/* Actions Area */}
                                 <div className="flex gap-2 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     {msg.role === 'user' && (
-                                        <button onClick={() => handleEditQuery(msg.text)} className="text-white/60 hover:text-white transition-colors" title="Edit Query">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
-                                            </svg>
-                                        </button>
+                                        <>
+                                            <button onClick={() => handleCopy(msg.text, `user-${index}`)} className="text-white/60 hover:text-white transition-colors" title="プロンプトをコピー">
+                                                {copiedIndex === `user-${index}` ? (
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-green-400">
+                                                        <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                                    </svg>
+                                                ) : (
+                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                            <button onClick={() => handleEditQuery(msg.text)} className="text-white/60 hover:text-white transition-colors" title="Edit Query">
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                                                </svg>
+                                            </button>
+                                        </>
                                     )}
                                     {msg.role === 'model' && (
                                         <button onClick={() => handleCopy(msg.text, index)} className="text-white/60 hover:text-white transition-colors" title="Copy to clipboard">
@@ -859,6 +904,23 @@ const Gemini = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Save to Knowledge Modal */}
+            <SaveToKnowledgeModal
+                isOpen={saveKnowledgeModalOpen}
+                onClose={() => setSaveKnowledgeModalOpen(false)}
+                code={codeToSave}
+                defaultTitle={saveKnowledgeDefaultTitle}
+                onSaved={handleSavedToKnowledge}
+            />
+
+            {/* Toast Notification */}
+            {toastMessage && (
+                <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 border border-indigo-500/50 text-white px-4 py-2.5 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-2.5 text-xs font-medium animate-fadeIn">
+                    <span className="text-base">📚</span>
+                    <span>{toastMessage}</span>
+                </div>
+            )}
 
             <style>{`
         @keyframes fadeIn {
