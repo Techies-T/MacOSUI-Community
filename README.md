@@ -6,6 +6,9 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 ## 🚀 主な機能とエンタープライズ特長
 
+- **📊 AI Analytics (MCP×GenUI) ＆ ナレッジベース統合 (v2.6.0)**: チャット画面で MCP と生成 AI を活用して作成した動的ダッシュボード（HTML / Chart.js）をワンクリックでナレッジベースに保存。安全な iframe サンドボックスでナレッジベース上でも完全動作。
+- **👥 Pod とロールによるアクセス制御・限定公開**: 組織やプロジェクトごとに「Pod」を作成し、ロールベースアクセス制御（RBAC / PDP・PEP）によって特定メンバーのみにナレッジを限定共有。同僚や関係者は「AI トークン消費ゼロ・待ち時間ゼロ」でダッシュボードを閲覧・活用可能。
+- **🏛️ デジタル庁 行政手続等の棚卸調査（7.6万件）分析連携**: `zta-mcp-gateway v1.1.1` と連携し、全国 76,827 手続のオンライン化状況・申請件数・根拠法令を自律分析する MCP サーバー（`admin-procedures`）にネイティブ対応。
 - **AWS EC2 (x86_64 / AMD & Intel) シングルインスタンス設計**: 最小限のインフラコスト（`t3.micro` / `t3.small` 1台）で高速に立ち上げ可能なシンプルかつ堅牢な Docker デプロイアーキテクチャ。
 - **全自動プロビジョニング (CloudFormation & User Data)**: `cloudformation-cloudfront-ec2.yaml` をデプロイするだけで、VPC・EC2・HTTPS (CloudFront) 環境と、データ保護用の**外付けEBSボリューム**の構成・マウントまでを完全自動化。
 - **🛡️ Gemma 4 Local LLM-RAG (完全社内完結 / ゼロ外部漏洩)**: 外部クラウドへ 1 バイトも機密データを送ることなく、手元の Mac / オンプレミス GPU 上の **Gemma 4 (128K Long Context / KV Cache)** を活用して社内文書や HTML/SVG 構造化ナレッジを高速推論。
@@ -370,6 +373,104 @@ Tailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML�
    - **モデルの選択**:
      - 基本チャット・RAG: **Gemini 3.6 Flash** (低コスト・高速)
      - リサーチ推論・画像生成: **Gemini 3.1 Pro** または **Gemini 3.6 Flash**
+
+---
+
+## 📊 AI Analytics & Pod ナレッジ共有・アクセス制御ガイド (v2.6.0 新機能)
+
+MacOSUI v2.6.0 では、MCP 経由で取得した大規模データと生成 AI を組み合わせた動的ダッシュボード（**AI Analytics**）の作成、ナレッジベース保存、および組織内でのセキュアな **Pod 共有** に対応しました。
+
+### 1. AI Analytics（MCP × GenUI）とワンクリック保存
+- チャット画面（`McpChat` / `Gemini`）で MCP ツールを用いてデータを取得・集計し、Tailwind CSS や Chart.js を用いたリッチなダッシュボードを自動生成できます。
+- 生成されたダッシュボードのヘッダー右上にある **[📚 ナレッジに保存]** ボタンをクリックするだけで、タイトルや保存先 Pod、タグを指定して即座にナレッジベースへ蓄積できます。
+
+### 2. ナレッジベース画面での「動的プレビュー（安全な iframe サンドボックス）」
+- ナレッジベース（`KnowledgeBase`）で記事を選択すると、保存された動的ダッシュボードが **安全な iframe サンドボックス** 内でそのまま動的にレンダリングされます。
+- Chart.js によるグラフ描画はもちろん、**棒グラフクリックによる詳細カードの更新や動的フィルタリングなど、JavaScript の双方向インタラクションが 100% 稼働** します。
+- `[🖥️ インタラクティブ (GenUI)]` と `[📝 ソース / Markdown]` の切り替え、`[↗️ 別タブで開く]`、`[🗖 全幅表示]` ツールバーを完備しています。
+
+---
+
+### 👥 Pod とロールを使ったナレッジの「限定公開」方法
+
+社内の特定部署（例: 経営企画、人事、営業、デジ庁プロジェクトチーム）専用のナレッジ空間を作り、関係者のみに閲覧を限定する（Zero Trust / PDP・PEP 準拠）設定手順です。
+
+```mermaid
+graph TD
+    subgraph Users["ユーザー / 所属"]
+        UserA["👤 経営企画メンバー<br>(Role: executive)"]
+        UserB["👤 一般社員<br>(Role: general)"]
+    end
+
+    subgraph PDP["認可ポリシー (PDP: RBAC_POLICIES)"]
+        PolicyExec["Role: executive<br>allowed_pods: ['pod-management', 'public']"]
+        PolicyGeneral["Role: general<br>allowed_pods: ['public']"]
+    end
+
+    subgraph Pods["ナレッジベース (Pods)"]
+        PublicPod["🌐 共通 (パブリック)<br>全社員が閲覧可能"]
+        ExecPod["📦 経営企画限定 Pod<br>役員・企画部のみアクセス可能"]
+    end
+
+    UserA --> PolicyExec
+    UserB --> PolicyGeneral
+
+    PolicyExec -->|アクセス許可| PublicPod
+    PolicyExec -->|アクセス許可| ExecPod
+    PolicyGeneral -->|アクセス許可| PublicPod
+    PolicyGeneral -.->|アクセス拒否 403| ExecPod
+```
+
+#### 🌐 パブリック公開 vs 📦 Pod 限定公開
+- **🌐 共通（パブリック）**: 全社員・全ログインユーザーが閲覧可能な共有ナレッジ。社内ポータルや共通マニュアル向け。
+- **📦 特定 Pod（限定公開）**: その Pod ID が許可されているロールのメンバーのみが一覧表示・プレビューできる隔離された空間。
+
+#### 🛠️ 限定公開の設定ステップ (4ステップ)
+
+1. **Pod の作成**:
+   - ナレッジベース画面の Pod 一覧、またはデータベース（`db_sqlite.cjs` / `db_postgres.cjs`）に新しい Pod を登録します。
+   ```sql
+   INSERT INTO pods (id, name, description) VALUES ('pod-management', '経営企画部限定', '役員および企画メンバー専用の分析ナレッジ空間');
+   ```
+2. **ロールポリシー（`RBAC_POLICIES`）での Pod アクセス許可**:
+   - システム設定のロール管理画面（または DB 設定）で、対象ロール（例: `executive`）の `allowed_pods` に上記 Pod ID を追加します。
+   - 一般社員ロール（`general`）の `allowed_pods` に該当 Pod が含まれていなければ、一覧取得 API（`GET /api/knowledge`）および詳細取得 API（`GET /api/knowledge/:id`）で厳格に認可評価（PEP）され、データは返却されません。
+3. **対象ユーザーへのロール割り当て**:
+   - テナント管理画面（ユーザー管理）から、対象メンバーに `executive` ロールを付与します。
+4. **ダッシュボード・記事の Pod 紐付け保存**:
+   - チャットで [📚 ナレッジに保存] をクリックした際、保存先ドロップダウンで「📦 経営企画部限定」を選択して保存します。
+   - これにより、該当ロールを持つメンバーのみが「**AI トークン消費ゼロ・待ち時間ゼロ（瞬時表示）**」で動的ダッシュボードを安全に閲覧・活用できます！
+
+---
+
+### 🏛️ デジタル庁 行政手続分析 MCP ＆ ZTA MCP Gateway v1.1.1 連携手順
+
+全国 76,827 手続の棚卸調査データ（オンライン化率、年間申請件数、ライフイベント分類、手数料、根拠法令等）を AI が分析し、行政改革ダッシュボードを自律生成するための環境構築手順です。
+
+> [!IMPORTANT]
+> **前提条件**: 本機能には **`zta-mcp-gateway v1.1.1` 以上** が必須となります。
+
+#### 🚀 起動と利用手順
+
+1. **zta-mcp-gateway (v1.1.1) の起動**:
+   ```bash
+   git clone https://github.com/Techies-T/zta-mcp-gateway.git
+   cd zta-mcp-gateway
+   git checkout v1.1.1
+   docker compose up -d --build
+   ```
+   ※ ポート `8085` でゲートウェイが起動し、デジタル庁行政手続データ（`admin-procedures`）が利用可能になります。
+
+2. **MacOSUI の起動**:
+   ```bash
+   cd MacOSUI-Community  # または MacOSUI-oss
+   docker compose up -d --build
+   ```
+   ※ 起動時に `http://host.docker.internal:8085/mcp/admin-procedures/sse` へ自動接続され、4つの分析ツールがロードされます。
+
+3. **同梱サンプルの確認と活用**:
+   - ナレッジベースを開き、初期 Pod「**📦 デジ庁データ分析**」を選択すると、同梱されたサンプル記事「**行政手続 ライフイベント別デジタル化＆行政改革ダッシュボード**」を即座に動的プレビューできます。
+   - チャット（`McpChat`）で「引越し・出生関連で年間申請件数が多く、オンライン化が遅れている手続トップ10をダッシュボードにして」とプロンプトを投げるだけで、最新の分析ウィジェットが生成され、ワンクリックで Pod に保存できます。
 
 ---
 
