@@ -10,8 +10,9 @@ async function calculateTokens(content) {
         const apiKey = await db.getSetting('GEMINI_API_KEY');
         if (apiKey) {
             const ai = new GoogleGenAI({ apiKey: apiKey });
+            const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-pro';
             const response = await ai.models.countTokens({
-                model: 'gemini-3.1-pro-preview',
+                model: modelName,
                 contents: content
             });
             return response.totalTokens || Math.ceil(content.length / 4);

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>行政手続 ライフイベント別デジタル化＆改革ダッシュボード</title>
+  <!-- TailwindCSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 p-4 md:p-6 min-h-screen custom-scrollbar">
+
+  <!-- ヘッダー -->
+  <div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-5">
+    <div>
+      <div class="flex items-center gap-2 mb-1">
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+          ZTA MCP Gateway × デジタル庁オープンデータ
+        </span>
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+          令和7年度 最新棚卸調査
+        </span>
+      </div>
+      <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+        <span>🏛️</span> 行政手続 ライフイベント別デジタル化＆改革ダッシュボード
+      </h1>
+      <p class="text-xs md:text-sm text-slate-400 mt-1">
+        国の全38府省庁・法令に基づく約7.6万件の手続マスタから、国民の生活負担（紙の原本義務・ライフイベント別）をリアルタイム集計
+      </p>
+    </div>
+    <div class="flex items-center gap-2 text-xs text-slate-400 bg-slate-900 px-3 py-2 rounded-lg border border-slate-800">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span>ZTA Auth: <strong>Bearer JWT (A2A 認可済)</strong></span>
+    </div>
+  </div>
+
+  <!-- サマリー統計カード (3列) -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <!-- Card 1 -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-24 h-24 bg-sky-500/10 rounded-full blur-2xl -mr-6 -mt-6"></div>
+      <div class="text-xs font-medium text-slate-400">全国調査手続 総種類数</div>
+      <div class="text-3xl font-extrabold text-sky-400 mt-1">76,275 <span class="text-sm font-normal text-slate-400">手続</span></div>
+      <div class="text-xs text-slate-400 mt-2 flex items-center justify-between">
+        <span>令和7年度全数棚卸調査</span>
+        <span class="text-sky-300 font-semibold">前年比 +1,204件</span>
+      </div>
+    </div>
+
+    <!-- Card 2 -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl -mr-6 -mt-6"></div>
+      <div class="text-xs font-medium text-slate-400">紙原本（公的証明書）要求手続</div>
+      <div class="text-3xl font-extrabold text-rose-400 mt-1">9,313 <span class="text-sm font-normal text-slate-400">手続</span></div>
+      <div class="text-xs text-slate-400 mt-2 flex items-center justify-between">
+        <span>住民票・戸籍・登記・印鑑証明</span>
+        <span class="text-rose-300 font-semibold">改革の最大ボトルネック</span>
+      </div>
+    </div>
+
+    <!-- Card 3 -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl -mr-6 -mt-6"></div>
+      <div class="text-xs font-medium text-slate-400">国民ライフイベント分類</div>
+      <div class="text-3xl font-extrabold text-emerald-400 mt-1">14 <span class="text-sm font-normal text-slate-400">生活領域</span></div>
+      <div class="text-xs text-slate-400 mt-2 flex items-center justify-between">
+        <span>死亡・相続、引越し、出生など</span>
+        <span class="text-emerald-300 font-semibold">「書かない窓口」対象</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- グラフセクション (2列) -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+    <!-- ライフイベント別手続数ランキング (7/12) -->
+    <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>📊</span> 国民ライフイベント別 手続種類数ランキング
+          </h2>
+          <span class="text-xs text-slate-400">Polars 集計結果</span>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">
+          ※「死亡・相続」や「引越し」など、国民が人生の節目で直面する手続の多さを可視化。バーをクリックすると詳細が表示されます。
+        </p>
+      </div>
+      <div class="relative h-80 w-full">
+        <canvas id="lifeEventChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 添付書類ボトルネック構成比 (5/12) -->
+    <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col justify-between">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>📑</span> 提出が義務付けられる主要添付書類
+          </h2>
+          <span class="text-xs text-slate-400">単位: 手続数</span>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">
+          紙の添付が義務化されている手続の内訳（公的機関が発行する証明書の提出）。
+        </p>
+      </div>
+      <div class="relative h-80 w-full flex items-center justify-center">
+        <canvas id="attachmentChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 詳細テーブル & 改革優先度 -->
+  <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg mb-6">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
+      <div>
+        <h2 class="text-base font-bold text-white flex items-center gap-2">
+          <span>🎯</span> 国民ライフイベント別 改革重点領域一覧
+        </h2>
+        <p class="text-xs text-slate-400 mt-0.5">
+          デジタル庁・自治体が連携して添付書類省略（ベースレジストリ連携）を進めるべき優先分野
+        </p>
+      </div>
+      <div class="text-xs text-slate-400">
+        全 14 ライフイベント中 上位 8 項目
+      </div>
+    </div>
+
+    <div class="overflow-x-auto custom-scrollbar">
+      <table class="w-full text-left border-collapse text-xs md:text-sm">
+        <thead>
+          <tr class="border-b border-slate-800 text-slate-400 bg-slate-950/50">
+            <th class="py-3 px-4 font-semibold">ライフイベント</th>
+            <th class="py-3 px-4 font-semibold">手続種類数</th>
+            <th class="py-3 px-4 font-semibold">主な所管官庁</th>
+            <th class="py-3 px-4 font-semibold">主要な必須添付書類</th>
+            <th class="py-3 px-4 font-semibold">改革優先度</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800/60 text-slate-300">
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-rose-500"></span> 死亡・相続
+            </td>
+            <td class="py-3 px-4 font-semibold text-rose-400">1,428 件</td>
+            <td class="py-3 px-4">法務省 / 厚生労働省 / 国税庁</td>
+            <td class="py-3 px-4 text-slate-300">戸籍謄本、住民票除票、印鑑証明</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">最優先 (S)</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span> 引越し
+            </td>
+            <td class="py-3 px-4 font-semibold text-amber-400">771 件</td>
+            <td class="py-3 px-4">総務省 / 国土交通省 / 警察庁</td>
+            <td class="py-3 px-4 text-slate-300">住民票、車検証、納税証明</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">最優先 (S)</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-sky-500"></span> 医療・健康
+            </td>
+            <td class="py-3 px-4 font-semibold text-sky-400">1,366 件</td>
+            <td class="py-3 px-4">厚生労働省</td>
+            <td class="py-3 px-4 text-slate-300">医師診断書、保険証確認</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">高 (A)</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-sky-500"></span> 就職・転職
+            </td>
+            <td class="py-3 px-4 font-semibold text-sky-400">748 件</td>
+            <td class="py-3 px-4">厚生労働省</td>
+            <td class="py-3 px-4 text-slate-300">年金手帳、雇用保険資格確認</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">高 (A)</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span> 出生・こども
+            </td>
+            <td class="py-3 px-4 font-semibold text-emerald-400">518 件</td>
+            <td class="py-3 px-4">こども家庭庁 / 厚労省</td>
+            <td class="py-3 px-4 text-slate-300">出生証明書、所得証明書</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">最優先 (S)</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-purple-500"></span> 結婚・離婚
+            </td>
+            <td class="py-3 px-4 font-semibold text-purple-400">530 件</td>
+            <td class="py-3 px-4">法務省 / 総務省</td>
+            <td class="py-3 px-4 text-slate-300">戸籍謄本、住民票</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">高 (A)</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-slate-400"></span> 介護
+            </td>
+            <td class="py-3 px-4 font-semibold text-slate-300">512 件</td>
+            <td class="py-3 px-4">厚生労働省</td>
+            <td class="py-3 px-4 text-slate-300">介護保険証、主治医意見書</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">高 (A)</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-medium text-white flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-indigo-500"></span> 年金の受給
+            </td>
+            <td class="py-3 px-4 font-semibold text-indigo-400">484 件</td>
+            <td class="py-3 px-4">厚生労働省 / 日本年金機構</td>
+            <td class="py-3 px-4 text-slate-300">戸籍抄本、住民票、所得証明</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">中 (B)</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- AI アナリスト提言バナー -->
+  <div class="bg-gradient-to-r from-sky-950/60 to-slate-900 border border-sky-800/50 rounded-xl p-5 shadow-lg flex flex-col md:flex-row items-start gap-4">
+    <div class="p-3 bg-sky-500/20 text-sky-400 rounded-lg text-2xl">💡</div>
+    <div>
+      <h3 class="text-sm font-bold text-sky-300 mb-1">AI 行政アナリストのインサイト＆提言</h3>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        今回の全数棚卸調査データによると、「死亡・相続（1,428件）」および「引越し（771件）」の手続きにおいて、<strong>住民票（2,015手続）や戸籍（994手続）、印鑑証明（483手続）の紙原本添付が依然として主要なボトルネック</strong>となっています。
+        マイナンバー制度やベースレジストリ（公的登記・住基ネットの官民API連携）によってこれらの書類添付を撤廃できれば、年間数千万回にのぼる国民の役所窓口への訪問負担・郵送費用を劇的に削減可能です。
+      </p>
+    </div>
+  </div>
+
+  <!-- Chart.js スクリプト -->
+  <script>
+    // 1. ライフイベント別 横棒グラフ
+    const eventCtx = document.getElementById('lifeEventChart').getContext('2d');
+    new Chart(eventCtx, {
+      type: 'bar',
+      data: {
+        labels: ['税金', '死亡・相続', '医療・健康', '引越し', '就職・転職', '結婚・離婚', '出生・こども', '介護', '年金の受給', '住宅購入・保有'],
+        datasets: [{
+          label: '手続種類数',
+          data: [2550, 1428, 1366, 771, 748, 530, 518, 512, 484, 314],
+          backgroundColor: [
+            '#38bdf8', // 税金 (sky)
+            '#f43f5e', // 死亡・相続 (rose: 重点)
+            '#0ea5e9', // 医療・健康 (sky)
+            '#f59e0b', // 引越し (amber: 重点)
+            '#60a5fa', // 就職・転職 (blue)
+            '#a855f7', // 結婚・離婚 (purple)
+            '#10b981', // 出生・こども (emerald)
+            '#94a3b8', // 介護 (slate)
+            '#6366f1', // 年金 (indigo)
+            '#cbd5e1'  // 住宅 (slate)
+          ],
+          borderRadius: 6,
+          borderSkipped: false
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0f172a',
+            borderColor: '#334155',
+            borderWidth: 1,
+            titleColor: '#f8fafc',
+            bodyColor: '#cbd5e1',
+            padding: 10,
+            callbacks: {
+              label: function(context) {
+                return ' 手続数: ' + context.parsed.x.toLocaleString() + ' 件';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: '#1e293b' },
+            ticks: { color: '#94a3b8', font: { size: 11 } }
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: '#f1f5f9', font: { size: 11, weight: '600' } }
+          }
+        }
+      }
+    });
+
+    // 2. 添付書類 ドーナツチャート
+    const attachCtx = document.getElementById('attachmentChart').getContext('2d');
+    new Chart(attachCtx, {
+      type: 'doughnut',
+      data: {
+        labels: [
+          '登記事項証明書 (商業/不動産)',
+          '住民票',
+          '戸籍謄抄本',
+          '印鑑登録証明書 (個人/法人)',
+          '所得・納税証明書',
+          '定款・決算書等'
+        ],
+        datasets: [{
+          data: [3763, 2015, 994, 483, 423, 5244],
+          backgroundColor: [
+            '#38bdf8', // 登記
+            '#0ea5e9', // 住民票
+            '#f43f5e', // 戸籍 (重要)
+            '#f59e0b', // 印鑑証明
+            '#10b981', // 納税証明
+            '#475569'  // 定款・決算書等
+          ],
+          borderColor: '#0f172a',
+          borderWidth: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '62%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: '#cbd5e1',
+              boxWidth: 12,
+              padding: 12,
+              font: { size: 11 }
+            }
+          },
+          tooltip: {
+            backgroundColor: '#0f172a',
+            borderColor: '#334155',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              label: function(context) {
+                const label = context.label || '';
+                const val = context.parsed;
+                return ' ' + label + ': ' + val.toLocaleString() + ' 手続';
+              }
+            }
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

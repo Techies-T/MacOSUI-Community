@@ -5,6 +5,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import WeatherForecastMap from './WeatherForecastMap';
+import SaveToKnowledgeModal from '../components/SaveToKnowledgeModal';
+import HtmlPreviewCodeBlock from '../components/HtmlPreviewCodeBlock';
 
 const SLASH_COMMANDS = [];
 
@@ -56,6 +58,23 @@ const Gemini = () => {
 
     const [copiedIndex, setCopiedIndex] = useState(null);
     const messagesEndRef = useRef(null);
+
+    // Save to Knowledge state
+    const [saveKnowledgeModalOpen, setSaveKnowledgeModalOpen] = useState(false);
+    const [codeToSave, setCodeToSave] = useState('');
+    const [saveKnowledgeDefaultTitle, setSaveKnowledgeDefaultTitle] = useState('');
+    const [toastMessage, setToastMessage] = useState(null);
+
+    const handleOpenSaveKnowledge = (code, title = '') => {
+        setCodeToSave(code);
+        setSaveKnowledgeDefaultTitle(title || 'AI Analytics ダッシュボード');
+        setSaveKnowledgeModalOpen(true);
+    };
+
+    const handleSavedToKnowledge = (article) => {
+        setToastMessage(`ナレッジ「${article.title}」に保存しました！`);
+        setTimeout(() => setToastMessage(null), 4000);
+    };
     const inputRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -677,6 +696,19 @@ const Gemini = () => {
                                                         li: ({ children }) => <li className="my-0.5 leading-relaxed">{children}</li>,
                                                         strong: ({ children }) => <strong className="font-bold text-white bg-indigo-500/20 px-1 py-0.5 rounded">{children}</strong>,
                                                         code: ({ inline, className, children, ...props }) => {
+                                                            const match = /language-(\w+)/.exec(className || '');
+                                                            const lang = match ? match[1].toLowerCase() : '';
+                                                            const codeStr = String(children).replace(/\n$/, '');
+
+                                                            if (!inline && (lang === 'html' || (!lang && (codeStr.includes('<!DOCTYPE html>') || codeStr.includes('<html'))))) {
+                                                                return (
+                                                                    <HtmlPreviewCodeBlock
+                                                                        code={codeStr}
+                                                                        onSaveToKnowledge={handleOpenSaveKnowledge}
+                                                                    />
+                                                                );
+                                                            }
+
                                                             if (inline) {
                                                                 return (
                                                                     <code className="bg-black/40 text-cyan-300 px-1.5 py-0.5 rounded text-xs font-mono border border-white/10" {...props}>
@@ -872,6 +904,23 @@ const Gemini = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Save to Knowledge Modal */}
+            <SaveToKnowledgeModal
+                isOpen={saveKnowledgeModalOpen}
+                onClose={() => setSaveKnowledgeModalOpen(false)}
+                code={codeToSave}
+                defaultTitle={saveKnowledgeDefaultTitle}
+                onSaved={handleSavedToKnowledge}
+            />
+
+            {/* Toast Notification */}
+            {toastMessage && (
+                <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 border border-indigo-500/50 text-white px-4 py-2.5 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-2.5 text-xs font-medium animate-fadeIn">
+                    <span className="text-base">📚</span>
+                    <span>{toastMessage}</span>
+                </div>
+            )}
 
             <style>{`
         @keyframes fadeIn {

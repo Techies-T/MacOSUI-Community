@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import SaveToKnowledgeModal from '../components/SaveToKnowledgeModal';
 
 const renderContextUsage = (usage) => {
     if (!usage) return null;
@@ -31,7 +32,7 @@ const renderContextUsage = (usage) => {
 };
 
 // Generative UI: HTML Live Preview Component
-const HtmlPreviewCodeBlock = ({ code }) => {
+const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
     const [viewMode, setViewMode] = useState('preview'); // 'preview' or 'code'
     const [isExpanded, setIsExpanded] = useState(false);
     const iframeRef = useRef(null);
@@ -70,6 +71,15 @@ const HtmlPreviewCodeBlock = ({ code }) => {
                     <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 font-medium">Interactive Preview</span>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => onSaveToKnowledge && onSaveToKnowledge(code)}
+                        className="px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 text-xs font-semibold transition-colors border border-indigo-200 flex items-center gap-1.5 shadow-xs"
+                        title="このダッシュボードをナレッジベースに保存してチームで共有"
+                    >
+                        <span>📚</span>
+                        <span>ナレッジに保存</span>
+                    </button>
                     <button
                         type="button"
                         onClick={() => setIsExpanded(!isExpanded)}
@@ -136,6 +146,24 @@ const McpChat = () => {
     const [allArtifacts, setAllArtifacts] = useState([]);
     const [quickPrompts, setQuickPrompts] = useState([]);
     const [copiedId, setCopiedId] = useState(null);
+
+    // Save to Knowledge Modal State
+    const [saveKnowledgeModalOpen, setSaveKnowledgeModalOpen] = useState(false);
+    const [codeToSave, setCodeToSave] = useState('');
+    const [saveKnowledgeDefaultTitle, setSaveKnowledgeDefaultTitle] = useState('');
+    const [toastMessage, setToastMessage] = useState('');
+
+    const handleSaveToKnowledge = (code) => {
+        setCodeToSave(code);
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+        setSaveKnowledgeDefaultTitle(lastUserMsg ? lastUserMsg.text.slice(0, 60) : '');
+        setSaveKnowledgeModalOpen(true);
+    };
+
+    const handleSavedToKnowledge = (data) => {
+        setToastMessage(`「${data.title || 'ダッシュボード'}」をナレッジベースに保存しました！`);
+        setTimeout(() => setToastMessage(''), 4000);
+    };
 
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -464,7 +492,7 @@ const McpChat = () => {
                                                     code({ node, inline, className, children, ...props }) {
                                                         const match = /language-(\w+)/.exec(className || '');
                                                         if (!inline && match && match[1] === 'html') {
-                                                            return <HtmlPreviewCodeBlock code={String(children).replace(/\n$/, '')} />;
+                                                            return <HtmlPreviewCodeBlock code={String(children).replace(/\n$/, '')} onSaveToKnowledge={handleSaveToKnowledge} />;
                                                         }
                                                         return <code className={className} {...props}>{children}</code>;
                                                     }
@@ -558,6 +586,23 @@ const McpChat = () => {
                     </div>
 
                     {renderArtifactContent(activeArtifact)}
+                </div>
+            )}
+
+            {/* Save to Knowledge Modal */}
+            <SaveToKnowledgeModal
+                isOpen={saveKnowledgeModalOpen}
+                onClose={() => setSaveKnowledgeModalOpen(false)}
+                code={codeToSave}
+                defaultTitle={saveKnowledgeDefaultTitle}
+                onSaved={handleSavedToKnowledge}
+            />
+
+            {/* Toast Notification */}
+            {toastMessage && (
+                <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 border border-indigo-500/50 text-white px-4 py-2.5 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-2.5 text-xs font-medium animate-fadeIn">
+                    <span className="text-base">📚</span>
+                    <span>{toastMessage}</span>
                 </div>
             )}
 

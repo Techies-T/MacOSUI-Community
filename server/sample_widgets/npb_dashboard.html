@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NPB Analytics & ZTA MCP Dashboard</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    .tab-btn.active {
+      background-color: var(--primary);
+      color: var(--primary-foreground);
+    }
+    .badge-glow {
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-2 sm:p-4 selection:bg-[var(--primary)] selection:text-[var(--primary-foreground)]">
+  <div class="max-w-2xl mx-auto bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
+    
+    <!-- Header with Season Selector & ZTA Status -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
+      <div class="flex items-center space-x-2.5">
+        <span class="text-3xl">⚾</span>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-base sm:text-lg font-bold tracking-tight">NPB Analytics Hub</h2>
+            <!-- 年度バッジ -->
+            <span id="season-badge" class="px-2 py-0.5 rounded-full text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)]">
+              2024年 確定データ
+            </span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">MariaDB 10.11 × ZTA MCP Gateway セキュア分析</p>
+        </div>
+      </div>
+
+      <!-- Controls: Season Select & Security Badge -->
+      <div class="flex items-center gap-2 self-start sm:self-auto">
+        <!-- 年度切替ドロップダウン -->
+        <div class="flex items-center space-x-1.5 bg-[var(--muted)] px-2.5 py-1 rounded-lg border border-[var(--border)]">
+          <span class="text-xs text-[var(--muted-foreground)] font-medium">📅 対象年度:</span>
+          <select id="season-select" onchange="changeSeason(this.value)" class="bg-transparent text-xs font-bold text-[var(--foreground)] outline-none cursor-pointer">
+            <option value="2024" selected class="bg-[var(--card)] text-[var(--foreground)]">2024年度（確定記録）</option>
+            <option value="2025" class="bg-[var(--card)] text-[var(--foreground)]">2025年度（確定記録）</option>
+            <option value="2026" class="bg-[var(--card)] text-[var(--foreground)]">2026年度（最新速報）</option>
+          </select>
+        </div>
+
+        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 badge-glow">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>
+          ZTA Active
+        </span>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="flex space-x-1 bg-[var(--muted)] p-1 rounded-xl text-xs font-medium">
+      <button onclick="switchTab('standings')" id="tab-standings" class="tab-btn active flex-1 py-1.5 rounded-lg text-center transition-all duration-150">
+        🏆 順位表 (<span id="tab-season-label">2024</span>年)
+      </button>
+      <button onclick="switchTab('leaders')" id="tab-leaders" class="tab-btn flex-1 py-1.5 rounded-lg text-center transition-all duration-150 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+        📊 打撃リーダー (OPS)
+      </button>
+      <button onclick="switchTab('security')" id="tab-security" class="tab-btn flex-1 py-1.5 rounded-lg text-center transition-all duration-150 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+        🛡️ ZTA 防御ログ
+      </button>
+    </div>
+
+    <!-- TAB 1: 順位表 & シミュレーター -->
+    <div id="panel-standings" class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex gap-1.5">
+          <button onclick="filterLeague('Central')" id="btn-central" class="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)]">セ・リーグ</button>
+          <button onclick="filterLeague('Pacific')" id="btn-pacific" class="px-2.5 py-1 text-xs font-medium rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]">パ・リーグ</button>
+        </div>
+        <button onclick="simulateHanshinWin()" class="text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 font-medium transition-colors">
+          ⚡ 阪神勝利シミュレーション
+        </button>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border border-[var(--border)]">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold uppercase tracking-wider">
+            <tr>
+              <th class="py-2 px-3">順位 / 球団</th>
+              <th class="py-2 px-2 text-center">勝</th>
+              <th class="py-2 px-2 text-center">敗</th>
+              <th class="py-2 px-2 text-center">分</th>
+              <th class="py-2 px-2 text-center">勝率</th>
+              <th class="py-2 px-2 text-center">差</th>
+              <th class="py-2 px-2 text-center">得失点</th>
+            </tr>
+          </thead>
+          <tbody id="standings-body" class="divide-y divide-[var(--border)]">
+            <!-- JS dynamically rendered -->
+          </tbody>
+        </table>
+      </div>
+      <p id="sim-status" class="text-[11px] text-[var(--muted-foreground)] text-right italic"></p>
+    </div>
+
+    <!-- TAB 2: 打撃リーダー (OPS・wOBA) -->
+    <div id="panel-leaders" class="hidden space-y-3">
+      <div class="text-xs text-[var(--muted-foreground)] flex justify-between items-center">
+        <span><b id="leaders-season-label">2024</b>年度 セイバーメトリクス打撃指標ランキング (TOP 5)</span>
+        <span class="text-[11px] bg-[var(--muted)] px-2 py-0.5 rounded">OPS = 出塁率 + 長打率</span>
+      </div>
+
+      <div id="leaders-list" class="space-y-2">
+        <!-- JS dynamically rendered -->
+      </div>
+    </div>
+
+    <!-- TAB 3: ZTA セキュリティモニタ -->
+    <div id="panel-security" class="hidden space-y-2.5">
+      <div class="p-3 bg-[var(--muted)]/40 rounded-xl border border-[var(--border)] space-y-2 text-xs">
+        <div class="flex items-center justify-between font-semibold">
+          <span class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            ZTA Policy Enforcement Status
+          </span>
+          <span class="text-[11px] text-[var(--muted-foreground)]">NIST SP 800-207 準拠</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+          <div class="p-2 bg-[var(--card)] rounded-lg border border-[var(--border)]">
+            <div class="text-[var(--muted-foreground)]">Context Masking (AI視界)</div>
+            <div class="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">2件 遮断 (write/drop)</div>
+          </div>
+          <div class="p-2 bg-[var(--card)] rounded-lg border border-[var(--border)]">
+            <div class="text-[var(--muted-foreground)]">Query Firewall (SQL AST)</div>
+            <div class="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">1件 阻止 (多重クエリ)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <div class="text-[11px] font-semibold text-[var(--muted-foreground)] uppercase">直近の PEP 判定ログ (JSON Lines)</div>
+        <div class="space-y-1 text-[10px] font-mono">
+          <div class="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400">
+            [DENY] FIREWALL_VIOLATION: "SELECT 1; DROP TABLE orders;" ➔ AST複文検知により即時遮断 (403)
+          </div>
+          <div class="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400">
+            [DENY] ACCESS_BLOCKED: Tool 'write_query' requested by role 'analyst' ➔ 認可外のため拒否 (403)
+          </div>
+          <div class="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+            [ALLOW] ACCESS_ALLOWED: tools/list masked (5 tools ➔ 3 tools permitted for analyst)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="pt-2 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--muted-foreground)]">
+      <span>Database: MariaDB 10.11 (`testdb`) | Season: <b id="footer-season">2024</b></span>
+      <span class="font-mono">PEP Latency: ~1.2ms</span>
+    </div>
+
+  </div>
+
+  <script>
+    // Multi-Season Database Dataset
+    const seasonsDatabase = {
+      "2024": {
+        badge: "2024年 確定データ",
+        standings: {
+          Central: [
+            { rank: 1, name: "読売ジャイアンツ", wins: 77, losses: 59, draws: 7, gb: 0.0, diff: "+97" },
+            { rank: 2, name: "阪神タイガース", wins: 74, losses: 63, draws: 6, gb: 3.5, diff: "+65" },
+            { rank: 3, name: "横浜DeNAベイスターズ", wins: 71, losses: 69, draws: 3, gb: 8.0, diff: "+12" },
+            { rank: 4, name: "広島東洋カープ", wins: 68, losses: 70, draws: 5, gb: 10.0, diff: "-25" },
+            { rank: 5, name: "東京ヤクルトスワローズ", wins: 62, losses: 77, draws: 4, gb: 16.5, diff: "-90" },
+            { rank: 6, name: "中日ドラゴンズ", wins: 60, losses: 75, draws: 8, gb: 16.5, diff: "-65" }
+          ],
+          Pacific: [
+            { rank: 1, name: "福岡ソフトバンクホークス", wins: 91, losses: 49, draws: 3, gb: 0.0, diff: "+217" },
+            { rank: 2, name: "北海道日本ハムファイターズ", wins: 75, losses: 60, draws: 8, gb: 13.5, diff: "+50" },
+            { rank: 3, name: "千葉ロッテマリーンズ", wins: 71, losses: 66, draws: 6, gb: 18.5, diff: "+10" },
+            { rank: 4, name: "東北楽天ゴールデンイーグルス", wins: 67, losses: 72, draws: 4, gb: 23.5, diff: "-50" },
+            { rank: 5, name: "オリックス・バファローズ", wins: 63, losses: 77, draws: 3, gb: 28.0, diff: "-60" },
+            { rank: 6, name: "埼玉西武ライオンズ", wins: 49, losses: 91, draws: 3, gb: 42.0, diff: "-160" }
+          ]
+        },
+        leaders: [
+          { name: "近藤 健介", team: "ソフトバンク", avg: ".314", hr: 19, rbi: 72, ops: 0.961, woba: ".428" },
+          { name: "サンタナ", team: "ヤクルト", avg: ".316", hr: 18, rbi: 70, ops: 0.905, woba: ".405" },
+          { name: "岡本 和真", team: "巨人", avg: ".281", hr: 27, rbi: 83, ops: 0.890, woba: ".395" },
+          { name: "清宮 幸太郎", team: "日本ハム", avg: ".300", hr: 12, rbi: 51, ops: 0.865, woba: ".385" },
+          { name: "村上 宗隆", team: "ヤクルト", avg: ".245", hr: 33, rbi: 86, ops: 0.845, woba: ".380" }
+        ]
+      },
+      "2025": {
+        badge: "2025年 確定データ",
+        standings: {
+          Central: [
+            { rank: 1, name: "阪神タイガース", wins: 80, losses: 58, draws: 5, gb: 0.0, diff: "+110" },
+            { rank: 2, name: "読売ジャイアンツ", wins: 76, losses: 62, draws: 5, gb: 4.0, diff: "+75" },
+            { rank: 3, name: "横浜DeNAベイスターズ", wins: 73, losses: 67, draws: 3, gb: 7.0, diff: "+30" },
+            { rank: 4, name: "広島東洋カープ", wins: 69, losses: 71, draws: 3, gb: 11.0, diff: "-15" },
+            { rank: 5, name: "中日ドラゴンズ", wins: 63, losses: 74, draws: 6, gb: 15.5, diff: "-40" },
+            { rank: 6, name: "東京ヤクルトスワローズ", wins: 59, losses: 80, draws: 4, gb: 20.0, diff: "-85" }
+          ],
+          Pacific: [
+            { rank: 1, name: "北海道日本ハムファイターズ", wins: 85, losses: 54, draws: 4, gb: 0.0, diff: "+145" },
+            { rank: 2, name: "福岡ソフトバンクホークス", wins: 83, losses: 57, draws: 3, gb: 2.5, diff: "+130" },
+            { rank: 3, name: "オリックス・バファローズ", wins: 74, losses: 65, draws: 4, gb: 10.0, diff: "+40" },
+            { rank: 4, name: "千葉ロッテマリーンズ", wins: 68, losses: 71, draws: 4, gb: 16.0, diff: "-20" },
+            { rank: 5, name: "東北楽天ゴールデンイーグルス", wins: 64, losses: 75, draws: 4, gb: 20.0, diff: "-55" },
+            { rank: 6, name: "埼玉西武ライオンズ", wins: 55, losses: 85, draws: 3, gb: 29.0, diff: "-110" }
+          ]
+        },
+        leaders: [
+          { name: "佐藤 輝明", team: "阪神", avg: ".295", hr: 32, rbi: 95, ops: 0.945, woba: ".415" },
+          { name: "万波 中正", team: "日本ハム", avg: ".288", hr: 29, rbi: 88, ops: 0.912, woba: ".402" },
+          { name: "岡本 和真", team: "巨人", avg: ".278", hr: 30, rbi: 89, ops: 0.895, woba: ".392" },
+          { name: "牧 秀悟", team: "DeNA", avg: ".305", hr: 25, rbi: 84, ops: 0.880, woba: ".388" },
+          { name: "近藤 健介", team: "ソフトバンク", avg: ".308", hr: 16, rbi: 68, ops: 0.875, woba: ".385" }
+        ]
+      },
+      "2026": {
+        badge: "2026年 最新速報 (9月時点)",
+        standings: {
+          Central: [
+            { rank: 1, name: "阪神タイガース", wins: 71, losses: 50, draws: 4, gb: 0.0, diff: "+88" },
+            { rank: 2, name: "読売ジャイアンツ", wins: 68, losses: 53, draws: 4, gb: 3.0, diff: "+62" },
+            { rank: 3, name: "横浜DeNAベイスターズ", wins: 64, losses: 57, draws: 3, gb: 6.5, diff: "+25" },
+            { rank: 4, name: "広島東洋カープ", wins: 60, losses: 61, draws: 3, gb: 10.5, diff: "-10" },
+            { rank: 5, name: "中日ドラゴンズ", wins: 56, losses: 65, draws: 5, gb: 14.5, diff: "-35" },
+            { rank: 6, name: "東京ヤクルトスワローズ", wins: 51, losses: 71, draws: 4, gb: 19.5, diff: "-75" }
+          ],
+          Pacific: [
+            { rank: 1, name: "福岡ソフトバンクホークス", wins: 76, losses: 45, draws: 3, gb: 0.0, diff: "+150" },
+            { rank: 2, name: "北海道日本ハムファイターズ", wins: 70, losses: 51, draws: 4, gb: 6.0, diff: "+85" },
+            { rank: 3, name: "千葉ロッテマリーンズ", wins: 62, losses: 59, draws: 4, gb: 14.0, diff: "+15" },
+            { rank: 4, name: "オリックス・バファローズ", wins: 58, losses: 63, draws: 3, gb: 18.0, diff: "-25" },
+            { rank: 5, name: "東北楽天ゴールデンイーグルス", wins: 54, losses: 67, draws: 4, gb: 22.0, diff: "-45" },
+            { rank: 6, name: "埼玉西武ライオンズ", wins: 48, losses: 74, draws: 3, gb: 28.0, diff: "-95" }
+          ]
+        },
+        leaders: [
+          { name: "近藤 健介", team: "ソフトバンク", avg: ".322", hr: 18, rbi: 65, ops: 0.970, woba: ".432" },
+          { name: "佐藤 輝明", team: "阪神", avg: ".285", hr: 28, rbi: 82, ops: 0.925, woba: ".408" },
+          { name: "万波 中正", team: "日本ハム", avg: ".292", hr: 24, rbi: 75, ops: 0.905, woba: ".398" },
+          { name: "岡本 和真", team: "巨人", avg: ".275", hr: 26, rbi: 78, ops: 0.885, woba: ".390" },
+          { name: "清宮 幸太郎", team: "日本ハム", avg: ".305", hr: 16, rbi: 58, ops: 0.880, woba: ".388" }
+        ]
+      }
+    };
+
+    let selectedSeason = "2024";
+    let currentLeague = "Central";
+    let activeData = JSON.parse(JSON.stringify(seasonsDatabase[selectedSeason]));
+
+    function changeSeason(year) {
+      selectedSeason = year;
+      activeData = JSON.parse(JSON.stringify(seasonsDatabase[selectedSeason]));
+      
+      // Update UI labels
+      document.getElementById("season-badge").innerText = activeData.badge;
+      document.getElementById("tab-season-label").innerText = year;
+      document.getElementById("leaders-season-label").innerText = year;
+      document.getElementById("footer-season").innerText = year;
+      document.getElementById("sim-status").innerText = "";
+
+      renderStandings();
+      renderLeaders();
+    }
+
+    function renderStandings() {
+      const tbody = document.getElementById("standings-body");
+      const list = activeData.standings[currentLeague];
+      tbody.innerHTML = list.map((t) => {
+        const rate = (t.wins / (t.wins + t.losses)).toFixed(3);
+        const rankColor = t.rank === 1 ? "bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold" : "bg-[var(--muted)] text-[var(--muted-foreground)]";
+        return `
+          <tr class="hover:bg-[var(--muted)]/40 transition-colors">
+            <td class="py-2 px-3 font-medium flex items-center gap-2">
+              <span class="w-4 h-4 rounded-full text-[10px] inline-flex items-center justify-center ${rankColor}">${t.rank}</span>
+              <span>${t.name}</span>
+            </td>
+            <td class="py-2 px-2 text-center font-mono">${t.wins}</td>
+            <td class="py-2 px-2 text-center font-mono">${t.losses}</td>
+            <td class="py-2 px-2 text-center font-mono text-[var(--muted-foreground)]">${t.draws}</td>
+            <td class="py-2 px-2 text-center font-mono font-semibold">${rate.replace("0.", ".")}</td>
+            <td class="py-2 px-2 text-center font-mono">${t.gb === 0 ? "-" : t.gb.toFixed(1)}</td>
+            <td class="py-2 px-2 text-center font-mono text-[11px] ${t.diff.startsWith('+') ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-[var(--muted-foreground)]'}">${t.diff}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderLeaders() {
+      const container = document.getElementById("leaders-list");
+      container.innerHTML = activeData.leaders.map((p, idx) => {
+        const widthPct = Math.round((p.ops / 1.0) * 100);
+        return `
+          <div class="p-2.5 bg-[var(--muted)]/30 rounded-xl border border-[var(--border)] hover:border-[var(--primary)] transition-all">
+            <div class="flex items-center justify-between text-xs mb-1">
+              <div class="flex items-center gap-2">
+                <span class="w-4 h-4 rounded text-[10px] inline-flex items-center justify-center bg-[var(--muted)] font-bold">${idx + 1}</span>
+                <span class="font-bold text-[var(--foreground)]">${p.name}</span>
+                <span class="text-[10px] text-[var(--muted-foreground)]">${p.team}</span>
+              </div>
+              <div class="font-mono flex items-center gap-2 text-[11px]">
+                <span class="text-[var(--muted-foreground)]">打率 <b class="text-[var(--foreground)]">${p.avg}</b></span>
+                <span class="text-[var(--muted-foreground)]">本 <b class="text-[var(--foreground)]">${p.hr}</b></span>
+                <span class="px-1.5 py-0.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-bold">OPS ${p.ops.toFixed(3)}</span>
+              </div>
+            </div>
+            <div class="w-full bg-[var(--muted)] h-1.5 rounded-full overflow-hidden">
+              <div class="bg-[var(--primary)] h-full rounded-full transition-all duration-500" style="width: ${widthPct}%"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function switchTab(tab) {
+      ["standings", "leaders", "security"].forEach(t => {
+        document.getElementById(`panel-${t}`).classList.add("hidden");
+        document.getElementById(`tab-${t}`).classList.remove("active", "bg-[var(--primary)]", "text-[var(--primary-foreground)]");
+        document.getElementById(`tab-${t}`).classList.add("text-[var(--muted-foreground)]");
+      });
+      document.getElementById(`panel-${tab}`).classList.remove("hidden");
+      const activeBtn = document.getElementById(`tab-${tab}`);
+      activeBtn.classList.add("active", "bg-[var(--primary)]", "text-[var(--primary-foreground)]");
+      activeBtn.classList.remove("text-[var(--muted-foreground)]");
+    }
+
+    function filterLeague(league) {
+      currentLeague = league;
+      document.getElementById("btn-central").className = league === "Central" 
+        ? "px-2.5 py-1 text-xs font-semibold rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)]"
+        : "px-2.5 py-1 text-xs font-medium rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]";
+      document.getElementById("btn-pacific").className = league === "Pacific"
+        ? "px-2.5 py-1 text-xs font-semibold rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)]"
+        : "px-2.5 py-1 text-xs font-medium rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]";
+      renderStandings();
+    }
+
+    function simulateHanshinWin() {
+      const c = activeData.standings.Central;
+      const giants = c.find(t => t.name.includes("巨人"));
+      const hanshin = c.find(t => t.name.includes("阪神"));
+      
+      hanshin.wins += 1;
+      giants.losses += 1;
+      
+      const newGb = ((giants.wins - giants.losses) - (hanshin.wins - hanshin.losses)) / 2;
+      hanshin.gb = Math.max(0, newGb);
+
+      renderStandings();
+      document.getElementById("sim-status").innerText = `⚡ [${selectedSeason}年] シミュレーション反映: 阪神+1勝 / 巨人+1敗 ➔ ゲーム差が縮小！`;
+    }
+
+    // Initial render
+    changeSeason("2024");
+  </script>
+</body>
+</html>
