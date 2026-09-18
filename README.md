@@ -6,6 +6,9 @@ MacOSUI は、人間と AI の協調作業のために設計された、オー�
 
 ## 🚀 主な機能とエンタープライズ特長
 
+- **📊 AI Analytics (MCP×GenUI) ＆ ナレッジベース統合 (v2.6.0)**: チャット画面で MCP と生成 AI を活用して作成した動的ダッシュボード（HTML / Chart.js）をワンクリックでナレッジベースに保存。安全な iframe サンドボックスでナレッジベース上でも完全動作。
+- **👥 Pod とロールによるアクセス制御・限定公開**: 組織やプロジェクトごとに「Pod」を作成し、ロールベースアクセス制御（RBAC / PDP・PEP）によって特定メンバーのみにナレッジを限定共有。同僚や関係者は「AI トークン消費ゼロ・待ち時間ゼロ」でダッシュボードを閲覧・活用可能。
+- **🏛️ デジタル庁 行政手続等の棚卸調査（7.6万件）分析連携**: `zta-mcp-gateway v1.1.1` と連携し、全国 76,827 手続のオンライン化状況・申請件数・根拠法令を自律分析する MCP サーバー（`admin-procedures`）にネイティブ対応。
 - **AWS EC2 (x86_64 / AMD & Intel) シングルインスタンス設計**: 最小限のインフラコスト（`t3.micro` / `t3.small` 1台）で高速に立ち上げ可能なシンプルかつ堅牢な Docker デプロイアーキテクチャ。
 - **全自動プロビジョニング (CloudFormation & User Data)**: `cloudformation-cloudfront-ec2.yaml` をデプロイするだけで、VPC・EC2・HTTPS (CloudFront) 環境と、データ保護用の**外付けEBSボリューム**の構成・マウントまでを完全自動化。
 - **🛡️ Gemma 4 Local LLM-RAG (完全社内完結 / ゼロ外部漏洩)**: 外部クラウドへ 1 バイトも機密データを送ることなく、手元の Mac / オンプレミス GPU 上の **Gemma 4 (128K Long Context / KV Cache)** を活用して社内文書や HTML/SVG 構造化ナレッジを高速推論。
@@ -57,7 +60,7 @@ graph TD
         OllamaLocal --- LocalKnowledge
     end
     
-    Container -->|"Tailscale 暗号化メッシュトンネル (ゼロ漏洩)"| OllamaLocal
+    Container -->|"AWS Client VPN / TLS 相互認証 閉域網 (ゼロ外部漏洩)"| OllamaLocal
     Container -->|"RAG検索 & レポート保存"| GoogleDrive["Google Drive & Calendar API"]
     Container -->|"AI推論・思考"| GeminiAPI["Google Gemini 3.6 Flash API"]
 ```
@@ -134,34 +137,88 @@ AWS 以外の VPS（さくらのVPS, ConoHa, Linode 等の Debian/Ubuntu サー�
 
 ---
 
-## 🌐 AWS からローカル Gemma 4 を利用するハイブリッド接続ガイド (Tailscale)
+## 🌐 AWS からローカル Gemma 4 を利用するハイブリッド接続ガイド (AWS Client VPN / エンタープライズ標準)
 
 社外に送信できない極秘文書や、手元の Mac (Apple Silicon) 上で稼働している **Gemma 4 (Ollama / MLX)** を、AWS 上の MacOSUI から安全に利用するための手順です。
-グローバル IP の取得やルーターのポート開放は一切不要で、**Tailscale の P2P 暗号化メッシュネットワーク** により安全に直結します。
+外部 SaaS を一切介さず、**AWS 公式の「AWS Client VPN」** を用いて AWS VPC と社内 Mac を相互 TLS 認証（ACM）による完全閉域網で直結します。
 
-### ステップ 1: お手元の Mac での準備
-1. **Ollama で Gemma 4 を起動**:
+### ステップ 1: 相互 TLS 証明書の生成とお手元 Mac での準備
+手元の Mac のターミナルで標準の `openssl` コマンドを実行し、VPN 接続用の相互 TLS 証明書（CA・サーバー・クライアント）を一括生成します：
+
+```bash
+# 1. 証明書出力ディレクトリの作成
+mkdir -p ~/aws-vpn-certs && cd ~/aws-vpn-certs
+
+# 2. 認証局 (CA) の作成
+openssl genrsa -out ca.key 2048
+openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -out ca.crt -subj "/CN=AWS-VPN-CA"
+
+# 3. サーバー証明書の作成
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -out server.csr -subj "/CN=server"
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 3650 -sha256
+
+# 4. クライアント (Mac用) 証明書の作成
+openssl genrsa -out client1.domain.tld.key 2048
+openssl req -new -key client1.domain.tld.key -out client1.domain.tld.csr -subj "/CN=client1.domain.tld"
+openssl x509 -req -in client1.domain.tld.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client1.domain.tld.crt -days 3650 -sha256
+```
+
+### ステップ 2: AWS Certificate Manager (ACM) への証明書インポート
+AWS CLI または AWS マネジメントコンソールで、サーバー証明書とクライアント証明書を ACM にインポートします：
+
+```bash
+# サーバー証明書のインポート
+aws acm import-certificate \
+  --certificate fileb://~/aws-vpn-certs/server.crt \
+  --private-key fileb://~/aws-vpn-certs/server.key \
+  --certificate-chain fileb://~/aws-vpn-certs/ca.crt \
+  --region ap-northeast-1
+
+# クライアント証明書のインポート
+aws acm import-certificate \
+  --certificate fileb://~/aws-vpn-certs/client1.domain.tld.crt \
+  --private-key fileb://~/aws-vpn-certs/client1.domain.tld.key \
+  --certificate-chain fileb://~/aws-vpn-certs/ca.crt \
+  --region ap-northeast-1
+```
+
+### ステップ 3: AWS Client VPN エンドポイントの作成
+1. **AWS コンソール ＞ VPC ＞ Client VPN エンドポイント** を開きます。
+2. **「Client VPN エンドポイントを作成」** をクリック：
+   - **クライアント IPv4 CIDR**: `10.100.0.0/22`（VPC と重複しない CIDR）
+   - **サーバー証明書 ARN**: 上記でインポートしたサーバー証明書を選択
+   - **認証オプション**: 「相互認証を使用」➔ クライアント証明書 ARN を選択
+   - **接続ログ**: 無効（または CloudWatch Logs を指定）
+   - **VPC ID**: EC2 が存在する VPC を選択
+3. 作成後、**「ターゲットネットワークの関連付け」** で EC2 のサブネットを関連付けます。
+4. **「認証ルール」** で `0.0.0.0/0`（または VPC CIDR）へのアクセスを「すべてのユーザーに許可」します。
+5. **「クライアント設定をダウンロード」** から `.ovpn` ファイルを取得します。
+
+### ステップ 4: Mac 側で AWS VPN Client から接続
+1. 公式の **[AWS Client VPN アプリ (macOS版)](https://aws.amazon.com/vpn/client-vpn-download/)** をダウンロード・インストールします。
+2. ダウンロードした `.ovpn` ファイルの末尾に、Mac のクライアント証明書と秘密鍵を埋め込みます：
+   ```text
+   <cert>
+   （~/aws-vpn-certs/client1.domain.tld.crt の中身）
+   </cert>
+   <key>
+   （~/aws-vpn-certs/client1.domain.tld.key の中身）
+   </key>
+   ```
+3. AWS VPN Client アプリでプロファイルを追加し、**「接続」** をクリックします。
+4. これでお手元の Mac が AWS VPC 内の IP（例: `10.100.0.x`）を取得し、完全な閉域網で直結されます！
+
+### ステップ 5: Ollama の起動と MacOSUI での接続設定
+1. **Mac 側で Gemma 4 を起動**:
    ```bash
-   # 全インターフェースからのリクエストを許可して起動
    OLLAMA_HOST=0.0.0.0:11434 ollama run gemma4:26b-mlx
    ```
-2. **Tailscale を Mac にインストール & ログイン**:
-   - [Tailscale 公式サイト](https://tailscale.com/) から Mac アプリをダウンロードしてログインします。
-   - 割り当てられた **Mac の Tailscale IP**（例: `100.80.90.100`）を確認します。
-
-### ステップ 2: AWS EC2 サーバーでの接続
-1. EC2 に SSH 接続し、Tailscale をインストールしてログインします：
-   ```bash
-   curl -fsSL https://tailscale.com/install.sh | sh
-   sudo tailscale up
-   ```
-   > ※ 画面に表示される認証 URL をブラウザで開き、Mac と同じアカウントでログインします。
-
-### ステップ 3: MacOSUI での接続設定
-1. ブラウザで AWS 上の MacOSUI にログインします。
-2. **System Settings ＞ System タブ**（または Chat 設定）を開きます。
-3. **Local AI Host URL** に `http://100.80.90.100:11434`（MacのTailscale IP）を指定して保存します。
-4. チャット画面（Gemini）のモード選択で **`🛡️ Gemma 4 Local RAG`** を選択すれば、AWS 経由でも社内文書の推論がすべて手元の Mac 内で完結します！
+2. **MacOSUI 画面での設定**:
+   - ブラウザで AWS 上の MacOSUI（CloudFront または ALB）にアクセス。
+   - **System Settings ＞ System タブ** を開く。
+   - **Local AI Host URL** に `http://10.100.0.x:11434`（MacのVPN接続IP）を指定して保存。
+   - チャット画面で **`🛡️ Gemma 4 Local RAG`** を選択すれば、社内文書が一切クラウドに出ることなく安全に推論されます！
 
 ---
 
@@ -316,6 +373,104 @@ Tailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML�
    - **モデルの選択**:
      - 基本チャット・RAG: **Gemini 3.6 Flash** (低コスト・高速)
      - リサーチ推論・画像生成: **Gemini 3.1 Pro** または **Gemini 3.6 Flash**
+
+---
+
+## 📊 AI Analytics & Pod ナレッジ共有・アクセス制御ガイド (v2.6.0 新機能)
+
+MacOSUI v2.6.0 では、MCP 経由で取得した大規模データと生成 AI を組み合わせた動的ダッシュボード（**AI Analytics**）の作成、ナレッジベース保存、および組織内でのセキュアな **Pod 共有** に対応しました。
+
+### 1. AI Analytics（MCP × GenUI）とワンクリック保存
+- チャット画面（`McpChat` / `Gemini`）で MCP ツールを用いてデータを取得・集計し、Tailwind CSS や Chart.js を用いたリッチなダッシュボードを自動生成できます。
+- 生成されたダッシュボードのヘッダー右上にある **[📚 ナレッジに保存]** ボタンをクリックするだけで、タイトルや保存先 Pod、タグを指定して即座にナレッジベースへ蓄積できます。
+
+### 2. ナレッジベース画面での「動的プレビュー（安全な iframe サンドボックス）」
+- ナレッジベース（`KnowledgeBase`）で記事を選択すると、保存された動的ダッシュボードが **安全な iframe サンドボックス** 内でそのまま動的にレンダリングされます。
+- Chart.js によるグラフ描画はもちろん、**棒グラフクリックによる詳細カードの更新や動的フィルタリングなど、JavaScript の双方向インタラクションが 100% 稼働** します。
+- `[🖥️ インタラクティブ (GenUI)]` と `[📝 ソース / Markdown]` の切り替え、`[↗️ 別タブで開く]`、`[🗖 全幅表示]` ツールバーを完備しています。
+
+---
+
+### 👥 Pod とロールを使ったナレッジの「限定公開」方法
+
+社内の特定部署（例: 経営企画、人事、営業、デジ庁プロジェクトチーム）専用のナレッジ空間を作り、関係者のみに閲覧を限定する（Zero Trust / PDP・PEP 準拠）設定手順です。
+
+```mermaid
+graph TD
+    subgraph Users["ユーザー / 所属"]
+        UserA["👤 経営企画メンバー<br>(Role: executive)"]
+        UserB["👤 一般社員<br>(Role: general)"]
+    end
+
+    subgraph PDP["認可ポリシー (PDP: RBAC_POLICIES)"]
+        PolicyExec["Role: executive<br>allowed_pods: ['pod-management', 'public']"]
+        PolicyGeneral["Role: general<br>allowed_pods: ['public']"]
+    end
+
+    subgraph Pods["ナレッジベース (Pods)"]
+        PublicPod["🌐 共通 (パブリック)<br>全社員が閲覧可能"]
+        ExecPod["📦 経営企画限定 Pod<br>役員・企画部のみアクセス可能"]
+    end
+
+    UserA --> PolicyExec
+    UserB --> PolicyGeneral
+
+    PolicyExec -->|アクセス許可| PublicPod
+    PolicyExec -->|アクセス許可| ExecPod
+    PolicyGeneral -->|アクセス許可| PublicPod
+    PolicyGeneral -.->|アクセス拒否 403| ExecPod
+```
+
+#### 🌐 パブリック公開 vs 📦 Pod 限定公開
+- **🌐 共通（パブリック）**: 全社員・全ログインユーザーが閲覧可能な共有ナレッジ。社内ポータルや共通マニュアル向け。
+- **📦 特定 Pod（限定公開）**: その Pod ID が許可されているロールのメンバーのみが一覧表示・プレビューできる隔離された空間。
+
+#### 🛠️ 限定公開の設定ステップ (4ステップ)
+
+1. **Pod の作成**:
+   - ナレッジベース画面の Pod 一覧、またはデータベース（`db_sqlite.cjs` / `db_postgres.cjs`）に新しい Pod を登録します。
+   ```sql
+   INSERT INTO pods (id, name, description) VALUES ('pod-management', '経営企画部限定', '役員および企画メンバー専用の分析ナレッジ空間');
+   ```
+2. **ロールポリシー（`RBAC_POLICIES`）での Pod アクセス許可**:
+   - システム設定のロール管理画面（または DB 設定）で、対象ロール（例: `executive`）の `allowed_pods` に上記 Pod ID を追加します。
+   - 一般社員ロール（`general`）の `allowed_pods` に該当 Pod が含まれていなければ、一覧取得 API（`GET /api/knowledge`）および詳細取得 API（`GET /api/knowledge/:id`）で厳格に認可評価（PEP）され、データは返却されません。
+3. **対象ユーザーへのロール割り当て**:
+   - テナント管理画面（ユーザー管理）から、対象メンバーに `executive` ロールを付与します。
+4. **ダッシュボード・記事の Pod 紐付け保存**:
+   - チャットで [📚 ナレッジに保存] をクリックした際、保存先ドロップダウンで「📦 経営企画部限定」を選択して保存します。
+   - これにより、該当ロールを持つメンバーのみが「**AI トークン消費ゼロ・待ち時間ゼロ（瞬時表示）**」で動的ダッシュボードを安全に閲覧・活用できます！
+
+---
+
+### 🏛️ デジタル庁 行政手続分析 MCP ＆ ZTA MCP Gateway v1.1.1 連携手順
+
+全国 76,827 手続の棚卸調査データ（オンライン化率、年間申請件数、ライフイベント分類、手数料、根拠法令等）を AI が分析し、行政改革ダッシュボードを自律生成するための環境構築手順です。
+
+> [!IMPORTANT]
+> **前提条件**: 本機能には **`zta-mcp-gateway v1.1.1` 以上** が必須となります。
+
+#### 🚀 起動と利用手順
+
+1. **zta-mcp-gateway (v1.1.1) の起動**:
+   ```bash
+   git clone https://github.com/Techies-T/zta-mcp-gateway.git
+   cd zta-mcp-gateway
+   git checkout v1.1.1
+   docker compose up -d --build
+   ```
+   ※ ポート `8085` でゲートウェイが起動し、デジタル庁行政手続データ（`admin-procedures`）が利用可能になります。
+
+2. **MacOSUI の起動**:
+   ```bash
+   cd MacOSUI-Community  # または MacOSUI-oss
+   docker compose up -d --build
+   ```
+   ※ 起動時に `http://host.docker.internal:8085/mcp/admin-procedures/sse` へ自動接続され、4つの分析ツールがロードされます。
+
+3. **同梱サンプルの確認と活用**:
+   - ナレッジベースを開き、初期 Pod「**📦 デジ庁データ分析**」を選択すると、同梱されたサンプル記事「**行政手続 ライフイベント別デジタル化＆行政改革ダッシュボード**」を即座に動的プレビューできます。
+   - チャット（`McpChat`）で「引越し・出生関連で年間申請件数が多く、オンライン化が遅れている手続トップ10をダッシュボードにして」とプロンプトを投げるだけで、最新の分析ウィジェットが生成され、ワンクリックで Pod に保存できます。
 
 ---
 
