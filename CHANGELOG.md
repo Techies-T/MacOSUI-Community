@@ -5,6 +5,33 @@
 
 ---
 
+## [v2.7.0] - 2026-09-24
+
+### 🚀 MCP 最新仕様 (SEP-2663 Async Tasks) & 設定画面 403 監査ノイズ解消リリース
+
+#### ✨ Added (新機能・機能追加)
+- **⚡ MCP 最新仕様準拠: 完全ステートレス化 & SEP-2663 Async Tasks 非同期エンジン**:
+  - 2026年7月の MCP 公式仕様改定（SEP-2663 Async Tasks 拡張機能 & 完全ステートレス運用）に完全準拠。
+  - バックグラウンド実行 API（`POST /api/mcp/tasks`、`GET /api/mcp/tasks/:taskId`、`POST /api/mcp/tasks/:taskId/cancel`）を新設。
+  - SQLite および PostgreSQL に `mcp_tasks` テーブルを実装し、長時間の多段ツール呼び出しや大規模データ分析を非同期タスクとして安全に実行・永続化。
+- **⏱️ Tasks 進捗リアルタイム可視化 UI & タイムアウト根本対策**:
+  - `McpChat` UI において、タスクの実行経過秒数タイマー、実行中ステップメッセージ、いつでも中止可能な **[中断 (Cancel)]** ボタンを備えたリアルタイム進捗カードを導入。
+  - CloudFront の 60 秒タイムアウト制限を完全に回避し、巨大な Generative UI ダッシュボード生成や反復推論処理の完了まで確実にポーリング。
+- **🔍 HTML / GenUI レンダラー判定の強化**:
+  - Markdown 内のコードブロックにおいて、言語指定の有無にかかわらず HTML タグや Tailwind クラスを含む Generative UI ウィジェットを確実に検出し、インタラクティブ描画。
+
+#### 🐛 Fixed (バグ修正・安定性向上)
+- **🛡️ 一般ユーザー設定画面表示時の 403 監査ログノイズ解消 (Issue #1)**:
+  - `SystemSettings.jsx` において、ユーザーの認可ポリシー（`allowed_actions` / `allowed_widgets`）に基づき、利用可能なタブ（`Skills` 等）を動的に初期表示するよう改修。
+  - 管理者専用 API（`/api/gemini/models`、`/api/rag/popular-queries/all`）の呼び出しを認可ガードで保護し、一般ユーザーログイン・設定画面開時に発生していた不要な 403 警告ノイズを完全撲滅。
+  - 各種設定タブ（Roles, General, System, Security Logs 等）の認可ガードを強化。
+- **📈 DeepResearch デイリー実行制限の引き上げ**:
+  - デフォルトのデイリー実行回数上限を 1 から 5 回に引き上げ、DB 設定（`DEEP_RESEARCH_DAILY_LIMIT`）を優先参照する柔軟な設計に改善。
+- **🐳 Docker ビルド環境における OS メタデータ (AppleDouble) 除外**:
+  - macOS の `._*`（AppleDouble）ファイルや `.DS_Store` を `.dockerignore` および `eslint.config.js` で全階層一括無視するよう改善し、Linux コンテナビルドの堅牢性を向上。
+
+---
+
 ## [v2.6.0] - 2026-09-18
 
 ### 🚀 AI Analytics ナレッジベース化 & Pod 共有リリース
