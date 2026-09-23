@@ -46,7 +46,9 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
                     iframeRef.current.style.height = `${Math.min(scrollH + 30, 1200)}px`;
                 }
             }
-        } catch (_) {}
+        } catch {
+            // Ignore iframe access error
+        }
     };
 
     useEffect(() => {
@@ -140,6 +142,10 @@ const McpChat = () => {
     const [environmentId, setEnvironmentId] = useState(null);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [activeTask, setActiveTask] = useState(null); // { taskId, status, progress, currentTurn }
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const pollingIntervalRef = useRef(null);
+    const timerIntervalRef = useRef(null);
     
     // Artifact Viewer State
     const [activeArtifact, setActiveArtifact] = useState(null); // The artifact to display on the right pane
@@ -201,11 +207,6 @@ const McpChat = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
-    useEffect(() => {
-        scrollToBottom();
-        fetchQuickPrompts();
-    }, [messages]);
-
     const fetchQuickPrompts = async () => {
         try {
             const res = await fetch('/api/config');
@@ -220,6 +221,39 @@ const McpChat = () => {
         }
     };
 
+    useEffect(() => {
+        scrollToBottom();
+        fetchQuickPrompts();
+    }, [messages]);
+
+    const stopTaskPolling = () => {
+        if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+        }
+        if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+            timerIntervalRef.current = null;
+        }
+    };
+
+    useEffect(() => {
+        return () => stopTaskPolling();
+    }, []);
+
+    const handleCancelTask = async () => {
+        if (!activeTask?.taskId) return;
+        try {
+            await fetch(`/api/mcp/tasks/${activeTask.taskId}/cancel`, { method: 'POST' });
+        } catch (e) {
+            console.error("Cancel task error:", e);
+        }
+        stopTaskPolling();
+        setIsLoading(false);
+        setActiveTask(null);
+        setMessages(prev => [...prev, { role: 'model', text: "⚠️ タスクの実行がユーザーにより中断されました。" }]);
+    };
+
     const handleSend = async () => {
         const textToSend = input.trim();
         if (!textToSend) return;
@@ -228,63 +262,117 @@ const McpChat = () => {
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
+        setElapsedTime(0);
+
+        // タイマースタート
+        stopTaskPolling();
+        const startTime = Date.now();
+        timerIntervalRef.current = setInterval(() => {
+            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+        }, 1000);
 
         try {
-            // Reformat history for Gemini API
-            // Note: Our local state 'messages' only contains user/model text, 
-            // but the API expects `role` and `parts: [{text}]`.
-            const history = messages.map(m => ({
-                role: m.role,
-                parts: [{ text: m.text }]
-            }));
-
-            const response = await fetch('/api/mcp/chat', {
+            // SEP-2663 Tasks 拡張機能: 即時非同期タスク作成
+            const response = await fetch('/api/mcp/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: textToSend,
-                    history: history,
                     previous_interaction_id: previousInteractionId,
                     environment_id: environmentId
                 })
             });
 
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || `HTTP Error ${response.status}`);
+            }
+
             const data = await response.json();
 
-            if (data.interactionId) setPreviousInteractionId(data.interactionId);
-            if (data.environmentId) setEnvironmentId(data.environmentId);
+            // 202 Accepted: 非同期タスク開始
+            if (data.taskId) {
+                const taskId = data.taskId;
+                setActiveTask({
+                    taskId,
+                    status: 'pending',
+                    progress: 'タスク受付完了。処理を開始します...',
+                    currentTurn: 0
+                });
 
-            if (!response.ok) {
-                throw new Error(data.error || "Failed to get response");
-            }
+                // ポーリング開始 (1.5秒間隔)
+                pollingIntervalRef.current = setInterval(async () => {
+                    try {
+                        const statusRes = await fetch(`/api/mcp/tasks/${taskId}`);
+                        if (!statusRes.ok) return;
 
-            // Append model reply
-            if (data.reply) {
-                setMessages(prev => [...prev, { role: 'model', text: data.reply, usage: data.usageMetadata }]);
+                        const taskData = await statusRes.json();
+                        
+                        if (taskData.status === 'running') {
+                            setActiveTask(prev => ({
+                                ...prev,
+                                status: 'running',
+                                progress: taskData.progress || 'エージェントが推論中...',
+                                currentTurn: taskData.currentTurn || 0
+                            }));
+                        } else if (taskData.status === 'completed') {
+                            stopTaskPolling();
+                            setIsLoading(false);
+                            setActiveTask(null);
+
+                            const res = taskData.result || {};
+                            if (res.interactionId) setPreviousInteractionId(res.interactionId);
+                            if (res.environmentId) setEnvironmentId(res.environmentId);
+
+                            if (res.reply) {
+                                setMessages(prev => [...prev, { role: 'model', text: res.reply, usage: res.usageMetadata }]);
+                            } else {
+                                setMessages(prev => [...prev, { role: 'model', text: "Operation completed.", usage: res.usageMetadata }]);
+                            }
+
+                            if (res.artifacts && res.artifacts.length > 0) {
+                                const newArtifacts = res.artifacts.map((art, idx) => ({
+                                    id: Date.now() + idx,
+                                    tool: art.tool,
+                                    args: art.args,
+                                    result: art.result,
+                                    timestamp: new Date().toLocaleTimeString()
+                                }));
+                                setAllArtifacts(prev => [...prev, ...newArtifacts]);
+                                setActiveArtifact(newArtifacts[newArtifacts.length - 1]);
+                            }
+
+                        } else if (taskData.status === 'failed') {
+                            stopTaskPolling();
+                            setIsLoading(false);
+                            setActiveTask(null);
+                            setMessages(prev => [...prev, { role: 'model', text: `❌ エラー: ${taskData.error || 'タスクの実行に失敗しました'}` }]);
+                        } else if (taskData.status === 'cancelled') {
+                            stopTaskPolling();
+                            setIsLoading(false);
+                            setActiveTask(null);
+                            setMessages(prev => [...prev, { role: 'model', text: "⚠️ タスクがキャンセルされました。" }]);
+                        }
+                    } catch (pollErr) {
+                        console.error("Polling task error:", pollErr);
+                    }
+                }, 1500);
+
             } else {
-                setMessages(prev => [...prev, { role: 'model', text: "Operation completed.", usage: data.usageMetadata }]);
-            }
-
-            // Process artifacts (tool results)
-            if (data.artifacts && data.artifacts.length > 0) {
-                const newArtifacts = data.artifacts.map((art, idx) => ({
-                    id: Date.now() + idx,
-                    tool: art.tool,
-                    args: art.args,
-                    result: art.result,
-                    timestamp: new Date().toLocaleTimeString()
-                }));
-                
-                setAllArtifacts(prev => [...prev, ...newArtifacts]);
-                // Automatically show the latest artifact
-                setActiveArtifact(newArtifacts[newArtifacts.length - 1]);
+                // フォールバック（同期返却の場合）
+                stopTaskPolling();
+                setIsLoading(false);
+                if (data.reply) {
+                    setMessages(prev => [...prev, { role: 'model', text: data.reply, usage: data.usageMetadata }]);
+                }
             }
 
         } catch (error) {
             console.error("MCP Chat Error:", error);
-            setMessages(prev => [...prev, { role: 'model', text: `❌ Error: ${error.message}` }]);
-        } finally {
+            stopTaskPolling();
             setIsLoading(false);
+            setActiveTask(null);
+            setMessages(prev => [...prev, { role: 'model', text: `❌ Error: ${error.message}` }]);
         }
     };
 
@@ -491,8 +579,11 @@ const McpChat = () => {
                                                 components={{
                                                     code({ node, inline, className, children, ...props }) {
                                                         const match = /language-(\w+)/.exec(className || '');
-                                                        if (!inline && match && match[1] === 'html') {
-                                                            return <HtmlPreviewCodeBlock code={String(children).replace(/\n$/, '')} onSaveToKnowledge={handleSaveToKnowledge} />;
+                                                        const codeStr = String(children).replace(/\n$/, '');
+                                                        const isHtmlBlock = (!inline && match && (match[1] === 'html' || match[1] === 'htm')) ||
+                                                                            (!inline && (codeStr.startsWith('<!DOCTYPE html') || codeStr.includes('<html') || codeStr.startsWith('<div class=') || codeStr.startsWith('<div id=') || codeStr.includes('cdn.tailwindcss.com')));
+                                                        if (isHtmlBlock) {
+                                                            return <HtmlPreviewCodeBlock code={codeStr} onSaveToKnowledge={handleSaveToKnowledge} />;
                                                         }
                                                         return <code className={className} {...props}>{children}</code>;
                                                     }
@@ -509,18 +600,44 @@ const McpChat = () => {
 
                         {isLoading && (
                             <div className="flex gap-4 flex-row animate-fadeIn">
-                                <div className="flex-shrink-0 w-8 h-8 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm text-indigo-600">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                                        <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.06 1.06a.75.75 0 101.06 1.06l1.06-1.06zM5.466 19.08a.75.75 0 01-1.06-1.06l1.06-1.06a.75.75 0 011.06 1.06l-1.06 1.06zM20.25 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM6.75 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM18.894 17.834a.75.75 0 10-1.06 1.06l1.06 1.06a.75.75 0 101.06-1.06l-1.06-1.06zM5.466 4.92a.75.75 0 001.06-1.06l-1.06-1.06a.75.75 0 00-1.06 1.06l1.06 1.06z" clipRule="evenodd" />
+                                <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md text-white">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 animate-spin">
+                                        <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
                                     </svg>
                                 </div>
-                                <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm flex items-center">
-                                    <div className="flex gap-1.5 items-center">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                                <div className="w-full max-w-xl bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="relative flex h-2.5 w-2.5">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
+                                            </span>
+                                            <span className="text-xs font-semibold text-indigo-900 tracking-wide">
+                                                MCP Tasks 非同期エージェント自律実行中
+                                            </span>
+                                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
+                                                {elapsedTime}s
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleCancelTask}
+                                            className="px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium transition-colors"
+                                        >
+                                            中断 (Cancel)
+                                        </button>
                                     </div>
-                                    <span className="ml-3 text-xs text-gray-500 italic">Thinking and using tools...</span>
+                                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                                        <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
+                                            ⚙️
+                                        </div>
+                                        <span className="font-medium animate-pulse">
+                                            {activeTask?.progress || 'バックグラウンドで処理を実行中...'}
+                                        </span>
+                                    </div>
+                                    <div className="mt-2 text-[11px] text-gray-400">
+                                        ※ SEP-2663 準拠: CloudFront の 60秒制限を受けず、大規模分析・ダッシュボード生成をバックグラウンドで確実に完遂します。
+                                    </div>
                                 </div>
                             </div>
                         )}

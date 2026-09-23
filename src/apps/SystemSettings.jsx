@@ -13,7 +13,24 @@ import WorkPolicyTab from './SystemSettings/tabs/WorkPolicyTab';
 import AntigravityAgentTab from './SystemSettings/tabs/AntigravityAgentTab';
 
 const SystemSettings = ({ user }) => {
-    const [activeTab, setActiveTab] = useState('General');
+    const hasAction = (action) => {
+        const allowed = user?.allowed_actions || [];
+        return allowed.includes('*') || allowed.includes(action);
+    };
+
+    const hasWidget = (widget) => {
+        const allowed = user?.allowed_widgets || [];
+        return allowed.includes('*') || allowed.includes(widget);
+    };
+
+    const canManageSettings = hasAction('action:manage_system_settings');
+    const canSelectModel = canManageSettings || hasAction('action:edit_workflow_model') || hasWidget('app:gemini');
+
+    // 初期タブ: 管理者権限があれば 'General'、一般ユーザーなら利用可能な 'Skills' を初期選択
+    const [activeTab, setActiveTab] = useState(() => {
+        if (canManageSettings) return 'General';
+        return 'Skills';
+    });
     const [models, setModels] = useState([]);
     const [currentModel, setCurrentModel] = useState('');
     const [currentNanoBananaModel, setCurrentNanoBananaModel] = useState('');
@@ -85,7 +102,6 @@ const SystemSettings = ({ user }) => {
             .catch(err => console.error("Failed to fetch presets", err));
 
         // Fetch FAQ (Only for users with manage_system_settings permission)
-        const canManageSettings = user?.allowed_actions?.includes('*') || user?.allowed_actions?.includes('action:manage_system_settings');
         if (canManageSettings) {
             fetch('/api/rag/popular-queries/all')
                 .then(res => res.json())
@@ -93,11 +109,13 @@ const SystemSettings = ({ user }) => {
                 .catch(err => console.error("Failed to fetch FAQs", err));
         }
 
-        // Fetch models
-        fetch('/api/gemini/models')
-            .then(res => res.json())
-            .then(data => setModels(data.models || []))
-            .catch(err => console.error("Failed to fetch models", err));
+        // Fetch models (Only for users with permission to choose/manage models, preventing 403 audit logs)
+        if (canSelectModel) {
+            fetch('/api/gemini/models')
+                .then(res => res.json())
+                .then(data => setModels(data.models || []))
+                .catch(err => console.error("Failed to fetch models", err));
+        }
 
         // Fetch current config
         fetch('/api/config')
@@ -577,16 +595,6 @@ const SystemSettings = ({ user }) => {
         }
     };
 
-    const hasAction = (action) => {
-        const allowed = user?.allowed_actions || [];
-        return allowed.includes('*') || allowed.includes(action);
-    };
-
-    const hasWidget = (widget) => {
-        const allowed = user?.allowed_widgets || [];
-        return allowed.includes('*') || allowed.includes(widget);
-    };
-
     const sidebarItems = [
         { 
             id: 'Skills', 
@@ -829,7 +837,7 @@ const SystemSettings = ({ user }) => {
                     <UsersTab user={user} rbacPolicies={rbacPolicies} hasAction={hasAction} />
                 )}
 
-                {activeTab === 'Roles' && (
+                {activeTab === 'Roles' && hasAction('action:manage_roles') && (
                     <RolesTab user={user} rbacPolicies={rbacPolicies} onSaveRbacPolicies={handleSaveRbacPolicies} />
                 )}
 
@@ -855,7 +863,7 @@ const SystemSettings = ({ user }) => {
                     </div>
                 )}
 
-                {activeTab === 'General' && (
+                {activeTab === 'General' && canManageSettings && (
                     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
                         <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                             <span>About</span>
@@ -869,7 +877,7 @@ const SystemSettings = ({ user }) => {
                 )}
 
                 
-                {activeTab === 'System' && (
+                {activeTab === 'System' && canManageSettings && (
                     <SystemTab
                         geminiApiKey={geminiApiKey}
                         setGeminiApiKey={setGeminiApiKey}
@@ -900,7 +908,7 @@ const SystemSettings = ({ user }) => {
                     />
                 )}
 
-                {activeTab === 'Personal RAG' && (
+                {activeTab === 'Personal RAG' && hasAction('action:manage_rag_folders') && (
                     <PersonalRagTab
                         ragFolders={ragFolders}
                         newRagFolderName={newRagFolderName}
@@ -923,7 +931,7 @@ const SystemSettings = ({ user }) => {
                     />
                 )}
 
-                {activeTab === 'Server Monitor' && (
+                {activeTab === 'Server Monitor' && canManageSettings && (
                     <McpConnectionsTab 
                         mcpQuickPrompts={mcpQuickPrompts}
                         setMcpQuickPrompts={setMcpQuickPrompts}
@@ -953,11 +961,11 @@ const SystemSettings = ({ user }) => {
                     <PodsTab user={user} hasAction={hasAction} />
                 )}
 
-                {activeTab === 'Security Logs' && (
+                {activeTab === 'Security Logs' && canManageSettings && (
                     <SecurityLogsTab />
                 )}
 
-                {activeTab === 'Work Policy' && (
+                {activeTab === 'Work Policy' && hasAction('action:manage_work_policy') && (
                     <WorkPolicyTab
                         initialPolicy={companyWorkPolicy}
                         onSave={handleSaveWorkPolicy}
