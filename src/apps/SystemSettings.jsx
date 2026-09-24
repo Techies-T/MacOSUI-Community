@@ -10,6 +10,7 @@ import RolesTab from './SystemSettings/tabs/RolesTab';
 import SecurityLogsTab from './SystemSettings/tabs/SecurityLogsTab';
 import PodsTab from './SystemSettings/tabs/PodsTab';
 import WorkPolicyTab from './SystemSettings/tabs/WorkPolicyTab';
+import FinderTab from './SystemSettings/tabs/FinderTab';
 import AntigravityAgentTab from './SystemSettings/tabs/AntigravityAgentTab';
 
 const SystemSettings = ({ user }) => {
@@ -920,6 +921,15 @@ const SystemSettings = ({ user }) => {
                         handleSyncRag={handleSyncRag}
                         isSyncing={isSyncing}
                         lastRagSyncTime={lastRagSyncTime}
+                    />
+                )}
+
+                {activeTab === 'Finder' && (
+                    <FinderTab
+                        driveRootId={driveRootId}
+                        setDriveRootId={setDriveRootId}
+                        handleSaveDriveRoot={handleSaveDriveRoot}
+                        canManageSettings={canManageSettings}
                     />
                 )}
 
