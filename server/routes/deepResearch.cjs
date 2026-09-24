@@ -108,8 +108,19 @@ router.post('/start', async (req, res) => {
         }
 
         // --- Configurable Rate Limit check ---
-        const maxPerDayStr = process.env.MAX_DEEP_RESEARCH_PER_DAY;
-        const maxPerDay = maxPerDayStr !== undefined ? parseInt(maxPerDayStr, 10) : 1; // Default: 1
+        let maxPerDay = 5; // Default: 5
+        try {
+            const dbLimit = await db.getSetting('MAX_DEEP_RESEARCH_PER_DAY');
+            if (dbLimit !== null && dbLimit !== undefined && dbLimit !== '') {
+                maxPerDay = parseInt(dbLimit, 10);
+            } else if (process.env.MAX_DEEP_RESEARCH_PER_DAY !== undefined) {
+                maxPerDay = parseInt(process.env.MAX_DEEP_RESEARCH_PER_DAY, 10);
+            }
+        } catch (e) {
+            if (process.env.MAX_DEEP_RESEARCH_PER_DAY !== undefined) {
+                maxPerDay = parseInt(process.env.MAX_DEEP_RESEARCH_PER_DAY, 10);
+            }
+        }
 
         const now = new Date();
         const today = now.toISOString().slice(0, 10); // YYYY-MM-DD

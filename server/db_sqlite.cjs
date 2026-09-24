@@ -269,6 +269,21 @@ function initDb() {
     )`);
     db.run("UPDATE mcp_servers SET endpoint_url = REPLACE(endpoint_url, 'https://localhost', 'http://localhost'), token_url = REPLACE(token_url, 'https://localhost', 'http://localhost') WHERE endpoint_url LIKE 'https://localhost%'");
 
+    // MCP Tasks (SEP-2663 Async Stateless Tasks)
+    db.run(`CREATE TABLE IF NOT EXISTS mcp_tasks (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER,
+        server_id TEXT,
+        prompt TEXT,
+        status TEXT NOT NULL,
+        progress_message TEXT,
+        current_turn INTEGER DEFAULT 0,
+        result TEXT,
+        error TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS pods (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,

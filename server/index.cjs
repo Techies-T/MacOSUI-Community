@@ -451,6 +451,11 @@ function resolveLocalAiHost(configuredHost) {
         if (host.includes('localhost') || host.includes('127.0.0.1')) {
             host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
         }
+    } else {
+        // Fix for Node 18+ native fetch IPv6 issue with localhost
+        if (host.includes('localhost')) {
+            host = host.replace('localhost', '127.0.0.1');
+        }
     }
     return host.replace(/\/$/, '');
 }
@@ -554,6 +559,7 @@ app.use('/api/mcp/servers', requireAuth, (req, res, next) => {
 }, require('./routes/mcpServers.cjs'));
 
 app.use('/api/mcp/chat', requireWidgetAccess('app:mcp-chat'), require('./routes/mcpChat.cjs'));
+app.use('/api/mcp/tasks', requireWidgetAccess('app:mcp-chat'), require('./routes/mcpChat.cjs'));
 app.use('/api/local-rag', requireAuth, require('./routes/localRag.cjs'));
 
 // MCP Tool Execution Route
@@ -570,6 +576,22 @@ app.post('/api/mcp/tool', requireWidgetAccess('app:mcp-chat'), requirePermission
     if (serverId) {
         const allowedWidgets = req.user.allowed_widgets || [];
         if (!allowedWidgets.includes('*') && !allowedWidgets.includes(`mcp:${serverId}`)) {
+            console.warn(`[SECURITY AUDIT] 🚨 DOUBLE-CHECK BLOCKED: User '${req.user?.email}' attempted access to unauthorized MCP server '${serverId}'`);
+            await auditDb.logEvent({
+                userId: req.user?.id || null,
+                userEmail: req.user?.email || null,
+                eventType: 'mcp_tool_access_blocked',
+                action: `BLOCKED_UNAUTHORIZED_SERVER_ACCESS: ${serverId}`,
+                status: 'blocked',
+                req: req,
+                details: {
+                    serverId,
+                    toolName: name,
+                    arguments: args,
+                    reason: `Requires widget access: mcp:${serverId}`,
+                    doubleCheckEnforced: true
+                }
+            });
             return res.status(403).json({ error: `Access denied. Requires widget access: mcp:${serverId}` });
         }
     }
@@ -578,8 +600,8 @@ app.post('/api/mcp/tool', requireWidgetAccess('app:mcp-chat'), requirePermission
         const result = await callMcpTool(name, args, req.user.allowed_widgets || [], req.user, req);
         res.json(result);
     } catch (error) {
-        console.error(`MCP Proxy Error for tool ${name}:`, error);
-        res.status(500).json({ error: error.message || 'Failed to execute MCP tool' });
+        console.error(`MCP Proxy Error for tool ${name}:`, error.message);
+        res.status(error.message.includes('Access denied') ? 403 : 500).json({ error: error.message || 'Failed to execute MCP tool' });
     }
 });
 
@@ -1015,7 +1037,7 @@ app.post('/api/auth/token-exchange', express.json(), express.urlencoded({ extend
         }
 
         // Check DB to make sure user still exists and get latest details
-        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (dbErr, row) => {
+        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (dbErr, row) => {
             if (dbErr || !row) {
                 return res.status(401).json({ error: 'unauthorized', error_description: 'User not found' });
             }
@@ -1143,11 +1165,12 @@ function requireAgentOrUserAuth(req, res, next) {
         }
 
         // RBAC dynamic policy lookup for user
-        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (err, row) => {
             if (err || !row) return res.status(401).json({ error: 'User not found in database' });
             
             req.user = decoded;
             req.user.role = row.role;
+            req.user.native_language = row.native_language;
             
             let rbacPolicies;
             try {
@@ -1219,11 +1242,12 @@ function requireAuth(req, res, next) {
         }
 
         // ZTA Real-time PDP check: Always fetch the latest roles and policies from the database
-        db.get("SELECT role FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (err, row) => {
             if (err || !row) return res.status(401).json({ error: 'User not found in database' });
             
             req.user = decoded;
             req.user.role = row.role;
+            req.user.native_language = row.native_language;
             
             let rbacPolicies;
             try {
@@ -2194,11 +2218,20 @@ const geminiJobs = {};
 
 // Background Gemini Job Processor
 
-app.get('/api/gemini/job/:jobId', requireAuth, requireWidgetAccess('app:gemini'), (req, res) => {
+app.get('/api/gemini/job/:jobId', requireAuth, (req, res) => {
     const { jobId } = req.params;
     const job = geminiJobs[jobId];
     if (!job) {
         return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Avatar creation jobs or users with app:gemini access can check their own jobs
+    const isAvatarJob = job.isAvatarGeneration || job.mode === 'nanobanana' || (job.googleId && job.googleId === req.user.googleId);
+    const allowedWidgets = req.user.allowed_widgets || [];
+    const hasWidgetAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:gemini');
+
+    if (!isAvatarJob && !hasWidgetAccess) {
+        return res.status(403).json({ error: 'Access denied. Requires widget access: app:gemini' });
     }
     // ZTAジョブ盗み見防止: ジョブの所有者であることを検証
     if (job.googleId && job.googleId !== req.user.googleId) {
@@ -2292,13 +2325,158 @@ app.post('/api/gemini/proxy', requireWidgetAccess('app:gemini'), async (req, res
     }
 });
 
+// Dedicated AI Avatar Generation Endpoint with ZTA Security Audit Logging
+app.post('/api/avatar/generate', requireAuth, async (req, res) => {
+    const userId = req.user?.id;
+    const userEmail = req.user?.email;
+    const googleId = req.user?.googleId;
+    const { imageBase64 } = req.body;
+
+    if (!imageBase64) {
+        return res.status(400).json({ error: 'imageBase64 is required' });
+    }
+
+    try {
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ error: 'Gemini API Key not configured' });
+        }
+
+        const client = new GoogleGenAI({ apiKey });
+        const globalModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+        const rawAvatarModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
+        const cleanGlobalModel = globalModel.replace(/^models\//, '');
+        const cleanAvatarModel = rawAvatarModel.replace(/^models\//, '');
+
+        console.log(`[AvatarGenerator] Processing avatar for user ${userEmail} using textModel=${cleanGlobalModel}, imageModel=${cleanAvatarModel}`);
+
+        // Step 1: Extract facial features using Stateless generateContent
+        const analysisPrompt = "この人物の特徴（髪型、髪の色、目の特徴、表情、服装、アクセサリーなど）を詳細に描写してください。性別や年齢の推定も含めてください。アバター生成のプロンプトとして利用します。";
+        const analysisRes = await client.models.generateContent({
+            model: cleanGlobalModel,
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { inlineData: { data: imageBase64, mimeType: 'image/png' } },
+                        { text: analysisPrompt }
+                    ]
+                }
+            ]
+        });
+
+        const description = analysisRes.candidates?.[0]?.content?.parts?.[0]?.text || "Friendly anime character";
+        console.log(`[AvatarGenerator] Facial description generated: ${description.substring(0, 80)}...`);
+
+        // Step 2: Generate anime avatar image
+        const imagePrompt = `以下の人物の特徴を元に、高品質で魅力的なアニメ調（Anime style）のアバター画像を1枚生成してください。背景はシンプルにしてください。\n\n【人物の特徴】\n${description}`;
+        let generatedBase64 = null;
+
+        // Try Strategy A: generateImages if model is imagen
+        if (cleanAvatarModel.includes('imagen')) {
+            try {
+                const imgRes = await client.models.generateImages({
+                    model: cleanAvatarModel,
+                    prompt: imagePrompt,
+                    config: {
+                        numberOfImages: 1,
+                        outputMimeType: "image/png",
+                        aspectRatio: "1:1"
+                    }
+                });
+                const imgBytes = imgRes.generatedImages?.[0]?.image?.imageBytes;
+                if (imgBytes) generatedBase64 = imgBytes;
+            } catch (err) {
+                console.warn(`[AvatarGenerator] generateImages failed for ${cleanAvatarModel}: ${err.message}. Falling back to generateContent...`);
+            }
+        }
+
+        // Try Strategy B: multimodal generateContent with responseModalities
+        if (!generatedBase64) {
+            const targetModel = cleanAvatarModel.includes('imagen') ? cleanGlobalModel : cleanAvatarModel;
+            const imgRes = await client.models.generateContent({
+                model: targetModel,
+                contents: imagePrompt,
+                config: {
+                    responseModalities: ['IMAGE']
+                }
+            });
+            const parts = imgRes.candidates?.[0]?.content?.parts || [];
+            const imagePart = parts.find(p => p.inlineData && p.inlineData.data);
+            if (imagePart) {
+                generatedBase64 = imagePart.inlineData.data;
+            }
+        }
+
+        if (!generatedBase64) {
+            throw new Error("No image data returned from image generation model.");
+        }
+
+        const avatarUrl = `data:image/png;base64,${generatedBase64}`;
+
+        // Step 3: Save to user profile in DB
+        await new Promise((resolve, reject) => {
+            db.run("UPDATE users SET avatar_url = ? WHERE google_id = ?", [avatarUrl, googleId], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+
+        // Step 4: Record Security Audit Log
+        auditDb.logEvent({
+            userId: userId,
+            userEmail: userEmail,
+            eventType: 'avatar_generation',
+            action: 'POST /api/avatar/generate',
+            status: 'success',
+            req: req,
+            details: { textModel: cleanGlobalModel, imageModel: cleanAvatarModel }
+        });
+
+        console.log(`[AvatarGenerator] Successfully generated and updated avatar for ${userEmail}`);
+        res.json({ success: true, avatarUrl });
+
+    } catch (err) {
+        console.error("[AvatarGenerator] Error generating avatar:", err);
+        auditDb.logEvent({
+            userId: userId,
+            userEmail: userEmail,
+            eventType: 'avatar_generation',
+            action: 'POST /api/avatar/generate',
+            status: 'failure',
+            req: req,
+            details: { error: err.message }
+        });
+        res.status(500).json({ error: err.message || 'Failed to generate avatar' });
+    }
+});
+
+
+
 // ... (Top of file needs googleapis import if not present, but it is likely there or we use raw fetch)
 // Retrieving 'google' from googleapis is needed for Drive API usage inside the job.
 // Google Drive API endpoints (google import moved to top)
 
-app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
+app.post('/api/gemini', requireAuth, async (req, res) => {
     const { message, history, config, images, previous_interaction_id, environment_id, workflowDefinitionId } = req.body;
     try {
+        const allowedWidgets = req.user.allowed_widgets || [];
+        const isAvatarCreation = config?.isAvatarGeneration === true || config?.mode === 'nanobanana' || (Array.isArray(images) && images.length > 0 && typeof message === 'string' && message.includes('アバター'));
+        const hasGeminiAccess = allowedWidgets.includes('*') || allowedWidgets.includes('app:gemini');
+
+        if (!hasGeminiAccess && !isAvatarCreation) {
+            auditDb.logEvent({
+                userId: req.user.id,
+                userEmail: req.user.email,
+                eventType: 'permission_denied',
+                action: `${req.method} ${req.originalUrl}`,
+                status: 'blocked',
+                req: req,
+                details: { requiredWidget: 'app:gemini' }
+            });
+            return res.status(403).json({ error: 'Access denied. Requires widget access: app:gemini' });
+        }
+
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.1-flash-lite-preview';
 
@@ -2330,8 +2508,20 @@ app.post('/api/gemini', requireWidgetAccess('app:gemini'), async (req, res) => {
         }
 
         const allowedModels = req.user.allowed_models || [];
-        const hasModelAccess = allowedModels.includes('*') || allowedModels.includes(`model:${requestedModel}`);
-        if (!hasModelAccess) {
+        const cleanRequestedModel = requestedModel.replace(/^models\//, '');
+        const hasDirectModelAccess = allowedModels.includes('*') || 
+            allowedModels.includes(`model:${requestedModel}`) || 
+            allowedModels.includes(`model:${cleanRequestedModel}`) ||
+            (allowedModels.includes('model:gemini-flash') && (cleanRequestedModel.includes('flash') || requestedModel === globalGeminiModel));
+            
+        const isAvatarCreationModel = isAvatarCreation && (
+            requestedModel === globalGeminiModel || 
+            cleanRequestedModel === globalGeminiModel.replace(/^models\//, '') ||
+            requestedModel === (await db.getSetting('GEMINI_NANO_BANANA_MODEL')) ||
+            cleanRequestedModel === (await db.getSetting('GEMINI_NANO_BANANA_MODEL'))?.replace(/^models\//, '')
+        );
+
+        if (!hasDirectModelAccess && !isAvatarCreationModel) {
             return res.status(403).json({ error: `Access denied. Requires model access: ${requestedModel}` });
         }
 
@@ -4324,6 +4514,8 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                         if (translated) {
                             textToSave = `🌐 [Gemma 4 Translated (${senderLangFlag} ➔ ${targetLangFlag})]\n${translated}\n\n(${senderLangFlag} 原文: ${text})`;
                         }
+                    } else {
+                        console.error("Gemma 4 translation returned error status:", transRes.status, await transRes.text());
                     }
                 } catch (tErr) {
                     console.error("Gemma 4 translation failed:", tErr.message);
@@ -4414,10 +4606,11 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
 - Today's Available Common Free Slots:
 ${freeSlotsText}
 - Sender (${req.user.name})'s Native Language: ${senderLangName}
+- Target (${targetUser.name})'s Native Language: ${targetLangName}
 
 Instructions:
 1. If the sender is asking for a meeting or chat, suggest the available free slots clearly.
-2. ${isDifferentLang ? `Respond politely and helpfully in ${senderLangName} (the sender's native language) so they can read it directly in ${senderLangName}.` : `Respond politely and naturally in ${senderLangName}.`}
+2. ${isDifferentLang ? `Generate a bilingual response. First, write the response in ${targetLangName} (${targetUser.name}'s language). Then, provide the translation in ${senderLangName} (the sender's language) so both parties can read it.` : `Respond politely and naturally in ${senderLangName}.`}
 3. If ${targetUser.name} is in 'focus-zone' or 'meeting-room', state that they are currently unavailable and take a message.
 4. Output only the final assistant chat response without any meta commentary.`;
 
@@ -4471,8 +4664,14 @@ Instructions:
 - 主人の現在の部屋状態: ${targetUser.current_room || 'open-space'}
 - 本日の双方の共通空き時間帯: 
 ${freeSlotsText}
+- 送信者 (${req.user.name}) の母国語: ${senderLangName}
+- 主人 (${targetUser.name}) の母国語: ${targetLangName}
 `;
-                                finalSystemInstruction += `\n\n${contextText}\n\n【注意事項】丁寧な日本語で回答してください。`;
+                                const langInstruction = isDifferentLang 
+                                    ? `【注意事項】必ずバイリンガルで回答してください。まず主人が読めるように ${targetLangName} で書き、その後に送信者が読めるように ${senderLangName} で翻訳を添えてください。` 
+                                    : `【注意事項】自然な ${senderLangName} で丁寧に回答してください。`;
+                                
+                                finalSystemInstruction += `\n\n${contextText}\n\n${langInstruction}`;
 
                                 const aiResponse = await client.models.generateContent({
                                     model: modelName,
