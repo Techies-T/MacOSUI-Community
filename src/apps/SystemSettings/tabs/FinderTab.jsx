@@ -1,6 +1,6 @@
 import React from 'react';
 
-const FinderTab = ({ driveRootId, setDriveRootId, handleSaveDriveRoot }) => {
+const FinderTab = ({ driveRootId, setDriveRootId, handleSaveDriveRoot, canManageSettings = true }) => {
     return (
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
             <h2 className="font-semibold mb-3">Finder Configuration</h2>
@@ -12,16 +12,19 @@ const FinderTab = ({ driveRootId, setDriveRootId, handleSaveDriveRoot }) => {
                         value={driveRootId}
                         onChange={(e) => setDriveRootId(e.target.value)}
                         placeholder="Folder ID (leave empty for root)"
-                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500"
+                        disabled={!canManageSettings}
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded bg-white text-sm focus:outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
                     />
-                    <button
-                        onClick={handleSaveDriveRoot}
-                        className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
-                    >
-                        Save
-                    </button>
+                    {canManageSettings && (
+                        <button
+                            onClick={handleSaveDriveRoot}
+                            className="px-3 py-2 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                        >
+                            Save
+                        </button>
+                    )}
                 </div>
-                <p className="text-[10px] text-gray-400 mt-1">Only files within this folder will be shown in Finder.</p>
+                <p className="text-[10px] text-gray-400 mt-1">Only files within this folder will be shown in Finder. If empty, the entire Google Drive root is shown.</p>
             </div>
         </div>
     );
