@@ -12,6 +12,11 @@
      - `docker scout cves` で `No critical vulnerabilities found` の確認
      - VPS サーバー上の `docker ps` で `macosui-web` コンテナが最新に自動再生成（CREATED が数秒〜数分前）された確認
 
+3. **EC2 / 本番環境の永続データ保護と VUP 原則 (Zero Data Loss & No Re-activation)**:
+   - **アクティベーション再実行の厳禁**: アクティベーション（初期セットアップ）はインフラ初期構築時の 1 回限りである。VUP（バージョンアップ・機能追加）のデプロイにおいてアクティベーション画面（SetupScreen）を表示・実行させてはならない。
+   - **永続ボリューム（`/app/data`）マウントの維持**: EC2 環境では EBS 永続ボリュームが `/app/data` にマウントされているため、`docker-compose.yml` で `DATA_DIR=/app/data` を確実に参照し、シンボリックリンク破損等による空 DB 生成を絶対に防ぐこと。
+   - **デプロイ前後のバックアップ & データ生存検証義務**: デプロイ時には必ず `scripts/deploy-ec2.sh` を通じて `database.sqlite` の自動バックアップを作成し、デプロイ完了後に既存ユーザー（admin 等）および蓄積データ（リサーチ履歴・設定）が完全に維持されているエビデンスを取得すること。
+
 ## 開発・コーディングの原則 (Development Principles)
 
 1. **ハードコードの禁止 (頻繁に変更される情報の外部化)**:
