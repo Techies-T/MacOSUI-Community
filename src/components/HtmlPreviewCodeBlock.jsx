@@ -31,6 +31,34 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
         window.open(url, '_blank');
     };
 
+    // srcDoc 用に DOMContentLoaded が既に発火済みでも初期化が実行されるセーフティスクリプトを注入
+    const preparedCode = React.useMemo(() => {
+        if (!code) return '';
+        const safetyScript = `
+<script>
+(function() {
+    function fireReady() {
+        try {
+            window.dispatchEvent(new Event('DOMContentLoaded'));
+            window.dispatchEvent(new Event('load'));
+        } catch (_) {}
+    }
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(fireReady, 50);
+        setTimeout(fireReady, 300);
+    } else {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(fireReady, 50));
+        window.addEventListener('load', () => setTimeout(fireReady, 50));
+    }
+})();
+</script>
+`;
+        if (code.includes('</body>')) {
+            return code.replace('</body>', `${safetyScript}</body>`);
+        }
+        return code + safetyScript;
+    }, [code]);
+
     return (
         <div className={`my-4 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden shadow-sm bg-white dark:bg-[#1a1a1a] not-prose transition-all ${isExpanded ? 'ring-2 ring-indigo-400' : ''}`}>
             <div className="bg-gray-100/90 dark:bg-[#252526] backdrop-blur px-3 py-2 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between text-xs">
@@ -90,7 +118,7 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
                     <iframe
                         ref={iframeRef}
                         onLoad={updateHeight}
-                        srcDoc={code}
+                        srcDoc={preparedCode}
                         className={`w-full rounded-lg border border-gray-200 dark:border-gray-800 bg-white transition-all ${isExpanded ? 'h-[800px]' : 'min-h-[500px] h-[520px]'}`}
                         sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads"
                         title="GenUI Preview"

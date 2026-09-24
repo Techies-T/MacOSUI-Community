@@ -73,6 +73,7 @@ Whenever the user asks for a dashboard ("ダッシュボード"), visual report 
    - Tailwind CSS: <script src="https://cdn.tailwindcss.com"></script>
    - Chart.js: <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
    - Lucide/FontAwesome or SVG icons, sleek dark/light theme, and polished typography.
+   - Script Initialization: To ensure Chart.js renders reliably inside iframes, initialize charts and tables immediately if document.readyState is not 'loading', or attach to both DOMContentLoaded and window load events.
 3. For NPB Baseball Analytics Dashboards:
    - Top 3 Stat Cards: ①「最大跳躍スラッガー」(大幅WAR/本塁打増野手), ②「最大跳躍エース」(大幅防御率/投球回改善先発), ③「鉄壁リリーフ進化」(大幅S/H増加守護神/セットアッパー).
    - Clean Tabs: [⚾ 野手編 (2カ年比較)], [🎯 先発投手編 (2カ年比較)], [🛡️ 救援投手編 (クローザー＆中継ぎ)].
@@ -347,7 +348,7 @@ async function processTaskInBackground(taskId, { user, message, previous_interac
  * POST /api/mcp/tasks
  * 非同期タスクの受付（即座に HTTP 202 Accepted と taskId を返却）
  */
-router.post('/tasks', async (req, res) => {
+const createTaskHandler = async (req, res) => {
     try {
         const { message, previous_interaction_id, environment_id } = req.body;
 
@@ -388,7 +389,9 @@ router.post('/tasks', async (req, res) => {
         console.error("[MCP Tasks] Create error:", err);
         res.status(500).json({ error: err.message || 'Internal server error' });
     }
-});
+};
+
+router.post('/tasks', createTaskHandler);
 
 const getTaskHandler = (req, res) => {
     const { taskId } = req.params;
@@ -463,6 +466,11 @@ router.post('/:taskId/cancel', cancelTaskHandler);
 // 従来の POST / (同期モード - 後方互換性維持)
 // ==========================================
 router.post('/', async (req, res) => {
+    // もし /api/mcp/tasks にマウントされた場合はタスク作成ハンドラへ委譲
+    if (req.baseUrl && req.baseUrl.endsWith('/tasks')) {
+        return createTaskHandler(req, res);
+    }
+
     try {
         const { message, previous_interaction_id, environment_id } = req.body;
         
