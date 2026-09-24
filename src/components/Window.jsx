@@ -107,7 +107,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                     </div>
                     <div style={{ width: '52px' }}></div>
                 </div>
-                <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+                <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
                     {children}
                 </div>
             </div>
@@ -206,7 +206,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                             </div>
                             <div style={{ width: '52px' }}></div> {/* Spacer to center title */}
                         </div>
-                        <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+                        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
                             {children}
                         </div>
                     </div>

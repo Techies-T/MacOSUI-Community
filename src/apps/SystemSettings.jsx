@@ -792,10 +792,10 @@ const SystemSettings = ({ user }) => {
     });
 
     return (
-        <div className="flex h-full bg-[#f5f5f7] text-black font-sans text-sm">
+        <div className="flex h-full w-full overflow-hidden bg-[#f5f5f7] text-black font-sans text-sm select-none">
             {/* Sidebar */}
-            <div className="w-48 flex-shrink-0 bg-[#e8e8ed]/50 border-r border-gray-300/50 pt-4 px-2 flex flex-col gap-1 backdrop-blur-xl">
-                <div className="px-3 mb-2">
+            <div className="w-52 flex-shrink-0 bg-[#e8e8ed]/50 border-r border-gray-300/50 pt-4 pb-4 px-2 flex flex-col gap-1 backdrop-blur-xl overflow-y-auto overscroll-contain min-h-0">
+                <div className="px-3 mb-2 flex-shrink-0">
                     <div className="flex items-center gap-2 mb-4">
                         <div className="w-8 h-8 bg-gray-300 rounded-full overflow-hidden flex items-center justify-center font-medium text-gray-700 shadow-inner">
                             {user?.avatar_url || user?.avatarUrl ? (
@@ -815,19 +815,19 @@ const SystemSettings = ({ user }) => {
                     <button
                         key={item.id}
                         onClick={() => setActiveTab(item.id)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-left transition-colors ${activeTab === item.id
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-left transition-colors flex-shrink-0 ${activeTab === item.id
                             ? 'bg-blue-500 text-white shadow-sm'
                             : 'hover:bg-black/5 text-gray-700'
                             }`}
                     >
                         <span className="text-lg">{item.icon}</span>
-                        <span className="font-medium">{item.label}</span>
+                        <span className="font-medium text-xs truncate">{item.label}</span>
                     </button>
                 ))}
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto overscroll-contain p-8 min-h-0 bg-[#f5f5f7]">
                 <h1 className="text-2xl font-bold mb-6">{activeTab}</h1>
 
                 {activeTab === 'Skills' && <SkillsTab />}
