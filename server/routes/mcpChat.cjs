@@ -73,7 +73,9 @@ Whenever the user asks for a dashboard ("ダッシュボード"), visual report 
    - Tailwind CSS: <script src="https://cdn.tailwindcss.com"></script>
    - Chart.js: <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
    - Lucide/FontAwesome or SVG icons, sleek dark/light theme, and polished typography.
-   - Script Initialization: To ensure Chart.js renders reliably inside iframes, initialize charts and tables immediately if document.readyState is not 'loading', or attach to both DOMContentLoaded and window load events.
+   - Compact JS Data & Dynamic Rendering (CRITICAL TO AVOID TOKEN LIMIT):
+     Do NOT write dozens of repetitive HTML <tr>/<td> rows manually. Instead, embed the queried data as clean JavaScript objects/arrays (e.g. \`const batterData = [...]\`, \`const starterData = [...]\`) in \`<script>\`, and render the table rows and Chart.js charts dynamically using JavaScript (\`innerHTML = data.map(...).join('')\`). This keeps the HTML compact, fast, ensures the \`<script>\` section is 100% complete without being cut off, and enables seamless click-to-view player detail card interactions.
+   - Script Initialization: Initialize charts and tables immediately if document.readyState is not 'loading', or listen on both DOMContentLoaded and load events.
 3. For NPB Baseball Analytics Dashboards:
    - Top 3 Stat Cards: ①「最大跳躍スラッガー」(大幅WAR/本塁打増野手), ②「最大跳躍エース」(大幅防御率/投球回改善先発), ③「鉄壁リリーフ進化」(大幅S/H増加守護神/セットアッパー).
    - Clean Tabs: [⚾ 野手編 (2カ年比較)], [🎯 先発投手編 (2カ年比較)], [🛡️ 救援投手編 (クローザー＆中継ぎ)].
@@ -109,7 +111,7 @@ ${toolDescriptions}`;
         tools: tools.length > 0 ? tools : undefined,
         generation_config: {
             temperature: 0.2,
-            max_output_tokens: 8192
+            max_output_tokens: 24576
         }
     });
 
@@ -209,7 +211,7 @@ ${toolDescriptions}`;
                     tools: availableTools,
                     generation_config: {
                         temperature: 0.2,
-                        max_output_tokens: 8192
+                        max_output_tokens: 24576
                     }
                 });
 
@@ -248,7 +250,7 @@ ${toolDescriptions}`;
                 system_instruction: systemInstruction,
                 generation_config: {
                     temperature: 0.2,
-                    max_output_tokens: 8192
+                    max_output_tokens: 24576
                 }
             });
             if (finalSynthesis.steps) {
