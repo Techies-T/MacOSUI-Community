@@ -3435,22 +3435,56 @@ app.delete('/api/rag/popular-queries/:id', requirePermission('action:manage_syst
     });
 });
 
-// Chat: Get Preset Prompts
+// Chat: Get Preset Prompts (Personal with fallback to system default)
 app.get('/api/chat/presets', requireAuth, async (req, res) => {
     try {
-        const presets = await db.getSetting('CHAT_PRESET_PROMPTS') || '{}';
-        res.json(JSON.parse(presets));
+        db.get("SELECT chat_presets FROM user_preferences WHERE user_id = ?", [req.user.id], async (err, row) => {
+            if (!err && row && row.chat_presets) {
+                try {
+                    return res.json(JSON.parse(row.chat_presets));
+                } catch (e) {}
+            }
+            // Fall back to system-wide default presets
+            try {
+                const presets = await db.getSetting('CHAT_PRESET_PROMPTS') || '{}';
+                res.json(JSON.parse(presets));
+            } catch (e) {
+                res.json({});
+            }
+        });
     } catch (e) {
         res.json({});
     }
 });
 
-// Chat: Save Preset Prompts
-app.post('/api/chat/presets', requirePermission('action:manage_system_settings'), async (req, res) => {
+// Chat: Save Preset Prompts (Personal for all authenticated users, System if admin explicitly requests)
+app.post('/api/chat/presets', requireAuth, async (req, res) => {
     try {
-        await db.setSetting('CHAT_PRESET_PROMPTS', JSON.stringify(req.body));
-        res.json({ success: true });
+        const presetsJson = JSON.stringify(req.body);
+        
+        // If admin requests saving system presets
+        const isAdmin = req.user.role === 'admin' || (req.user.allowed_actions && req.user.allowed_actions.includes('action:manage_system_settings'));
+        if (req.body.is_system && isAdmin) {
+            await db.setSetting('CHAT_PRESET_PROMPTS', presetsJson);
+            return res.json({ success: true, scope: 'system' });
+        }
+
+        // Save to user_preferences for the current user
+        db.run(
+            `INSERT INTO user_preferences (user_id, chat_presets, updated_at) 
+             VALUES (?, ?, CURRENT_TIMESTAMP) 
+             ON CONFLICT(user_id) DO UPDATE SET chat_presets = excluded.chat_presets, updated_at = CURRENT_TIMESTAMP`,
+            [req.user.id, presetsJson],
+            (err) => {
+                if (err) {
+                    console.error("Failed to save user chat presets:", err);
+                    return res.status(500).json({ error: 'Failed to save presets' });
+                }
+                res.json({ success: true, scope: 'user' });
+            }
+        );
     } catch (e) {
+        console.error("Error in POST /api/chat/presets:", e);
         res.status(500).json({ error: 'Failed to save presets' });
     }
 });
