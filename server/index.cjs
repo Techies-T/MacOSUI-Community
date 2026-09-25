@@ -3388,14 +3388,42 @@ app.get('/api/rag/popular-queries/all', requirePermission('action:manage_system_
     );
 });
 
+// RAG: Add FAQ Query
+app.post('/api/rag/popular-queries', requirePermission('action:manage_system_settings'), (req, res) => {
+    const { query_text, usage_count } = req.body;
+    if (!query_text || !query_text.trim()) {
+        return res.status(400).json({ error: "Query text is required" });
+    }
+    const count = Number(usage_count) > 0 ? Number(usage_count) : 10;
+    db.run(
+        `INSERT INTO rag_queries (query_text, usage_count, last_used_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(query_text) DO UPDATE SET usage_count = excluded.usage_count, last_used_at = CURRENT_TIMESTAMP`,
+        [query_text.trim(), count],
+        function (err) {
+            if (err) {
+                console.error("Failed to insert FAQ query:", err);
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true, id: this?.lastID });
+        }
+    );
+});
+
 // RAG: Update FAQ Query
 app.put('/api/rag/popular-queries/:id', requirePermission('action:manage_system_settings'), (req, res) => {
     const { id } = req.params;
-    const { query_text } = req.body;
-    db.run("UPDATE rag_queries SET query_text = ? WHERE id = ?", [query_text, id], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true });
-    });
+    const { query_text, usage_count } = req.body;
+    if (usage_count !== undefined) {
+        db.run("UPDATE rag_queries SET query_text = ?, usage_count = ?, last_used_at = CURRENT_TIMESTAMP WHERE id = ?", [query_text, Number(usage_count) || 1, id], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    } else {
+        db.run("UPDATE rag_queries SET query_text = ?, last_used_at = CURRENT_TIMESTAMP WHERE id = ?", [query_text, id], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    }
 });
 
 // RAG: Delete FAQ Query
