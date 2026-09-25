@@ -216,7 +216,7 @@ router.post('/extract-tags', async (req, res) => {
             return res.status(401).json({ error: 'Invalid token' });
         }
 
-        const genAI = new GoogleGenAI({ apiKey });
+        const genAI = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
         // Use flash-lite or base flash for fast inference
         const model = await db.getSetting('GEMINI_MODEL') || process.env.GEMINI_MODEL || 'models/gemini-2.5-flash';
         
@@ -284,7 +284,7 @@ async function startDeepResearch(jobId, query, apiKey, customInstruction = null,
     console.log(`Starting Deep Research Job ${jobId} (Pod: ${podId || 'None'}, Selected Articles: ${selectedArticleIds ? selectedArticleIds.length : 0})...`);
 
     try {
-        const client = new GoogleGenAI({ apiKey });
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
         
         // --- Pod RAG 連携: 選択された過去ナレッジ記事の結合処理 ---
         let knowledgeContext = "";

@@ -9,7 +9,7 @@ async function calculateTokens(content) {
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY');
         if (apiKey) {
-            const ai = new GoogleGenAI({ apiKey: apiKey });
+            const ai = new GoogleGenAI({ apiKey: apiKey, httpOptions: { timeout: 300000 } });
             const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-pro';
             const response = await ai.models.countTokens({
                 model: modelName,
