@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const ChatConfigTab = ({
     chatPresets,
@@ -12,6 +12,76 @@ const ChatConfigTab = ({
     ragFaqs,
     setRagFaqs
 }) => {
+    const [newFaqText, setNewFaqText] = useState('');
+    const [newFaqUsage, setNewFaqUsage] = useState(10);
+    const [faqMessage, setFaqMessage] = useState({ text: '', type: '' });
+    const [presetMessage, setPresetMessage] = useState({ text: '', type: '' });
+    const [isSubmittingFaq, setIsSubmittingFaq] = useState(false);
+    const [isSubmittingPreset, setIsSubmittingPreset] = useState(false);
+
+    const handleAddFaq = async () => {
+        if (!newFaqText.trim()) return;
+        setIsSubmittingFaq(true);
+        setFaqMessage({ text: '', type: '' });
+        try {
+            const res = await fetch('/api/rag/popular-queries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query_text: newFaqText.trim(),
+                    usage_count: Number(newFaqUsage) || 10
+                })
+            });
+            if (res.ok) {
+                setNewFaqText('');
+                setNewFaqUsage(10);
+                setFaqMessage({ text: 'FAQを正常に登録しました！', type: 'success' });
+                // Refresh FAQ list
+                const listRes = await fetch('/api/rag/popular-queries/all');
+                if (listRes.ok) {
+                    setRagFaqs(await listRes.json());
+                }
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                setFaqMessage({ text: `登録に失敗しました: ${errData.error || 'Server error'}`, type: 'error' });
+            }
+        } catch (err) {
+            setFaqMessage({ text: `通信エラー: ${err.message}`, type: 'error' });
+        } finally {
+            setIsSubmittingFaq(false);
+        }
+    };
+
+    const handleAddPreset = async () => {
+        if (!presetLabel || !presetPrompt) return;
+        setIsSubmittingPreset(true);
+        setPresetMessage({ text: '', type: '' });
+        const newPresets = { ...chatPresets };
+        if (!newPresets[chatPresetContext]) newPresets[chatPresetContext] = [];
+        newPresets[chatPresetContext].push({ label: presetLabel, prompt: presetPrompt });
+
+        try {
+            const res = await fetch('/api/chat/presets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newPresets)
+            });
+            if (res.ok) {
+                setChatPresets(newPresets);
+                setPresetLabel('');
+                setPresetPrompt('');
+                setPresetMessage({ text: 'プリセットを保存しました！', type: 'success' });
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                setPresetMessage({ text: `保存に失敗しました: ${errData.error || 'Server error'}`, type: 'error' });
+            }
+        } catch (err) {
+            setPresetMessage({ text: `通信エラー: ${err.message}`, type: 'error' });
+        } finally {
+            setIsSubmittingPreset(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             {/* Chat Presets Config */}
@@ -82,24 +152,17 @@ const ChatConfigTab = ({
                                 onChange={(e) => setPresetPrompt(e.target.value)}
                             />
                             <button 
-                                disabled={!presetLabel || !presetPrompt}
-                                onClick={async () => {
-                                    const newPresets = { ...chatPresets };
-                                    if (!newPresets[chatPresetContext]) newPresets[chatPresetContext] = [];
-                                    newPresets[chatPresetContext].push({ label: presetLabel, prompt: presetPrompt });
-                                    setChatPresets(newPresets);
-                                    setPresetLabel('');
-                                    setPresetPrompt('');
-                                    try {
-                                        await fetch('/api/chat/presets', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify(newPresets)
-                                        });
-                                    } catch(e) {}
-                                }}
-                                className="w-full px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
-                            >Add Preset</button>
+                                disabled={!presetLabel || !presetPrompt || isSubmittingPreset}
+                                onClick={handleAddPreset}
+                                className="w-full px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
+                            >
+                                {isSubmittingPreset ? 'Saving...' : 'Add Preset'}
+                            </button>
+                            {presetMessage.text && (
+                                <p className={`text-xs ${presetMessage.type === 'error' ? 'text-red-500' : 'text-green-600'} font-medium`}>
+                                    {presetMessage.text}
+                                </p>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -110,15 +173,60 @@ const ChatConfigTab = ({
                         <span className="text-xl">🌟</span>
                         <h2 className="font-semibold text-indigo-900">RAG Popular FAQ</h2>
                     </div>
-                    <p className="text-xs text-gray-500 mb-4">Manage the auto-generated popular questions that appear in RAG chat mode.</p>
+                    <p className="text-xs text-gray-500 mb-4">Manage the popular FAQ questions that appear in RAG chat mode. Queries are prioritized by their usage count.</p>
+
+                    {/* Add New FAQ Form */}
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-6">
+                        <h3 className="text-xs font-semibold text-gray-700 mb-2">Add New FAQ Question</h3>
+                        <div className="space-y-2">
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    placeholder="FAQ Question Text (e.g. 会社のリモートワーク規程について教えてください)" 
+                                    className="flex-1 bg-white border border-gray-300 text-gray-900 text-xs rounded-lg p-2 focus:outline-none focus:border-indigo-500"
+                                    value={newFaqText}
+                                    onChange={(e) => setNewFaqText(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && newFaqText.trim() && !isSubmittingFaq) {
+                                            handleAddFaq();
+                                        }
+                                    }}
+                                />
+                                <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-lg px-2">
+                                    <span className="text-[10px] text-gray-500 whitespace-nowrap">Priority:</span>
+                                    <input 
+                                        type="number" 
+                                        min="1"
+                                        max="999"
+                                        className="w-14 text-xs text-gray-900 focus:outline-none text-center"
+                                        value={newFaqUsage}
+                                        onChange={(e) => setNewFaqUsage(e.target.value)}
+                                        title="Higher usage count appears first in Gemini RAG chat"
+                                    />
+                                </div>
+                            </div>
+                            <button 
+                                disabled={!newFaqText.trim() || isSubmittingFaq}
+                                onClick={handleAddFaq}
+                                className="w-full px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
+                            >
+                                {isSubmittingFaq ? 'Adding...' : 'Add FAQ Question'}
+                            </button>
+                            {faqMessage.text && (
+                                <p className={`text-xs ${faqMessage.type === 'error' ? 'text-red-500' : 'text-green-600'} font-medium`}>
+                                    {faqMessage.text}
+                                </p>
+                            )}
+                        </div>
+                    </div>
 
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs text-gray-600">
                             <thead className="bg-gray-100 uppercase text-gray-700">
                                 <tr>
                                     <th className="px-4 py-2 border-b">Query Text</th>
-                                    <th className="px-4 py-2 border-b">Usage</th>
-                                    <th className="px-4 py-2 border-b">Actions</th>
+                                    <th className="px-4 py-2 border-b w-24">Usage (Priority)</th>
+                                    <th className="px-4 py-2 border-b w-20">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -148,7 +256,29 @@ const ChatConfigTab = ({
                                                 }}
                                             />
                                         </td>
-                                        <td className="px-4 py-2">{faq.usage_count}</td>
+                                        <td className="px-4 py-2">
+                                            <input 
+                                                type="number" 
+                                                min="1"
+                                                max="999"
+                                                className="w-16 bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center" 
+                                                defaultValue={faq.usage_count}
+                                                onBlur={async (e) => {
+                                                    const val = Number(e.target.value);
+                                                    if (val && val !== faq.usage_count) {
+                                                        try {
+                                                            await fetch(`/api/rag/popular-queries/${faq.id}`, {
+                                                                method: 'PUT',
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ query_text: faq.query_text, usage_count: val })
+                                                            });
+                                                            const res = await fetch('/api/rag/popular-queries/all');
+                                                            if (res.ok) setRagFaqs(await res.json());
+                                                        } catch(err) {}
+                                                    }
+                                                }}
+                                            />
+                                        </td>
                                         <td className="px-4 py-2">
                                             <button 
                                                 className="text-red-500 hover:underline"
