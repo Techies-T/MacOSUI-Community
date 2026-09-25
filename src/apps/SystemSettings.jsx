@@ -964,6 +964,7 @@ const SystemSettings = ({ user }) => {
                         setPresetPrompt={setPresetPrompt}
                         ragFaqs={ragFaqs}
                         setRagFaqs={setRagFaqs}
+                        canManageSettings={canManageSettings}
                     />
                 )}
 
