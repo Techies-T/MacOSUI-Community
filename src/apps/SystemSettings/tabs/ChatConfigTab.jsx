@@ -85,20 +85,16 @@ const ChatConfigTab = ({
 
     return (
         <div className="space-y-6">
-            {!canManageSettings && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-3 rounded-lg flex items-center gap-2">
-                    <span className="text-base">ℹ️</span>
-                    <span>チャットプリセットおよびFAQの登録・変更・削除には管理者権限が必要です。現在は閲覧のみ可能です。</span>
-                </div>
-            )}
-
             {/* Chat Presets Config */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                <div className="flex items-center gap-2 mb-4">
-                    <span className="text-xl">💬</span>
-                    <h2 className="font-semibold text-indigo-900">Chat Input Presets</h2>
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl">💬</span>
+                        <h2 className="font-semibold text-indigo-900">Chat Input Presets</h2>
+                        <span className="text-[11px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">個人設定 (Personal)</span>
+                    </div>
                 </div>
-                <p className="text-xs text-gray-500 mb-4">Configure preset buttons that appear above the chat input box. You can define different presets based on the chat context (e.g., normal chat vs terminal mode).</p>
+                <p className="text-xs text-gray-500 mb-4">チャット入力欄の上に表示される定型文ボタンを設定します。コンテキスト（通常チャット、Deep Research、ターミナルモード）ごとに自由に追加・削除できます。</p>
                 
                 <div className="mb-4 flex items-center gap-3">
                     <label className="text-xs font-semibold text-gray-700">Select Context:</label>
@@ -122,72 +118,78 @@ const ChatConfigTab = ({
                             chatPresets[chatPresetContext].map((preset, idx) => (
                                 <div key={idx} className="flex items-center gap-1 bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded-full border border-indigo-100 group">
                                     <span className="cursor-help" title={preset.prompt}>{preset.label}</span>
-                                    {canManageSettings && (
-                                        <button 
-                                            className="text-indigo-400 hover:text-red-500 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
-                                            onClick={async () => {
-                                                const newPresets = { ...chatPresets };
-                                                newPresets[chatPresetContext].splice(idx, 1);
-                                                setChatPresets(newPresets);
-                                                try {
-                                                    await fetch('/api/chat/presets', {
-                                                        method: 'POST',
-                                                        headers: { 'Content-Type': 'application/json' },
-                                                        body: JSON.stringify(newPresets)
-                                                    });
-                                                } catch(e) {}
-                                            }}
-                                            title="削除"
-                                        >×</button>
-                                    )}
+                                    <button 
+                                        className="text-indigo-400 hover:text-red-500 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
+                                        onClick={async () => {
+                                            const newPresets = { ...chatPresets };
+                                            newPresets[chatPresetContext].splice(idx, 1);
+                                            setChatPresets(newPresets);
+                                            try {
+                                                await fetch('/api/chat/presets', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify(newPresets)
+                                                });
+                                            } catch(e) {}
+                                        }}
+                                        title="削除"
+                                    >×</button>
                                 </div>
                             ))
                         )}
                     </div>
 
-                    {canManageSettings && (
-                        <div className="border border-dashed border-gray-300 bg-gray-50 rounded-lg p-3">
-                            <h3 className="text-xs font-semibold text-gray-700 mb-2">Add New Preset</h3>
-                            <div className="space-y-2">
-                                <input 
-                                    type="text" 
-                                    placeholder="Button Label (e.g. 📰 今週のAI3大ニュース)" 
-                                    className="w-full bg-white border border-gray-300 text-gray-900 text-xs rounded-lg p-2"
-                                    value={presetLabel}
-                                    onChange={(e) => setPresetLabel(e.target.value)}
-                                />
-                                <input 
-                                    type="text" 
-                                    placeholder="Prompt to send (e.g. 今週のAI3大ニュースについて教えてください)" 
-                                    className="w-full bg-white border border-gray-300 text-gray-900 text-xs rounded-lg p-2"
-                                    value={presetPrompt}
-                                    onChange={(e) => setPresetPrompt(e.target.value)}
-                                />
-                                <button 
-                                    disabled={!presetLabel || !presetPrompt || isSubmittingPreset}
-                                    onClick={handleAddPreset}
-                                    className="w-full px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
-                                >
-                                    {isSubmittingPreset ? 'Saving...' : 'Add Preset'}
-                                </button>
-                                {presetMessage.text && (
-                                    <p className={`text-xs ${presetMessage.type === 'error' ? 'text-red-500' : 'text-green-600'} font-medium`}>
-                                        {presetMessage.text}
-                                    </p>
-                                )}
-                            </div>
+                    <div className="border border-dashed border-gray-300 bg-gray-50 rounded-lg p-3">
+                        <h3 className="text-xs font-semibold text-gray-700 mb-2">Add New Preset</h3>
+                        <div className="space-y-2">
+                            <input 
+                                type="text" 
+                                placeholder="ボタン名 (例: 📰 今週のAI3大ニュース)" 
+                                className="w-full bg-white border border-gray-300 text-gray-900 text-xs rounded-lg p-2"
+                                value={presetLabel}
+                                onChange={(e) => setPresetLabel(e.target.value)}
+                            />
+                            <input 
+                                type="text" 
+                                placeholder="送信するプロンプト (例: 今週のAI3大ニュースについて教えてください)" 
+                                className="w-full bg-white border border-gray-300 text-gray-900 text-xs rounded-lg p-2"
+                                value={presetPrompt}
+                                onChange={(e) => setPresetPrompt(e.target.value)}
+                            />
+                            <button 
+                                disabled={!presetLabel || !presetPrompt || isSubmittingPreset}
+                                onClick={handleAddPreset}
+                                className="w-full px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors cursor-pointer"
+                            >
+                                {isSubmittingPreset ? 'Saving...' : 'Add Preset'}
+                            </button>
+                            {presetMessage.text && (
+                                <p className={`text-xs ${presetMessage.type === 'error' ? 'text-red-500' : 'text-green-600'} font-medium`}>
+                                    {presetMessage.text}
+                                </p>
+                            )}
                         </div>
-                    )}
+                    </div>
                 </div>
             </div>
 
             {/* RAG FAQ Manager */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                    <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
                         <span className="text-xl">🌟</span>
                         <h2 className="font-semibold text-indigo-900">RAG Popular FAQ</h2>
+                        <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">組織設定 (Company-wide)</span>
                     </div>
-                    <p className="text-xs text-gray-500 mb-4">Manage the popular FAQ questions that appear in RAG chat mode. Queries are prioritized by their usage count.</p>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">RAGチャットモードで表示される「よくある質問」を管理します。全ユーザーがワンクリックで規程やナレッジを検索できます。</p>
+
+                {!canManageSettings && (
+                    <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs px-3.5 py-2.5 rounded-lg mb-4 flex items-center gap-2">
+                        <span className="text-base">ℹ️</span>
+                        <span>おすすめFAQの登録・変更・削除は管理者（Admin）のみ可能です。登録されたFAQはGemini RAGチャットでワンクリック検索候補として全員が利用できます。</span>
+                    </div>
+                )}
 
                     {/* Add New FAQ Form */}
                     {canManageSettings && (

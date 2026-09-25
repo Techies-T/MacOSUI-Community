@@ -102,13 +102,11 @@ const SystemSettings = ({ user }) => {
             .then(data => setChatPresets(data))
             .catch(err => console.error("Failed to fetch presets", err));
 
-        // Fetch FAQ (Only for users with manage_system_settings permission)
-        if (canManageSettings) {
-            fetch('/api/rag/popular-queries/all')
-                .then(res => res.json())
-                .then(data => setRagFaqs(data))
-                .catch(err => console.error("Failed to fetch FAQs", err));
-        }
+        // Fetch FAQ (Admins get all FAQs, general users get popular FAQs)
+        fetch(canManageSettings ? '/api/rag/popular-queries/all' : '/api/rag/popular-queries')
+            .then(res => res.json())
+            .then(data => setRagFaqs(Array.isArray(data) ? data : []))
+            .catch(err => console.error("Failed to fetch FAQs", err));
 
         // Fetch models (Only for users with permission to choose/manage models, preventing 403 audit logs)
         if (canSelectModel) {

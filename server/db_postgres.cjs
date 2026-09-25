@@ -229,12 +229,14 @@ async function initDb() {
     await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", () => r()));
     await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN folder_id TEXT", () => r()));
 
-    // User Preferences (Window State)
+    // User Preferences (Window State & Personal Chat Presets)
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS user_preferences (
         user_id INTEGER PRIMARY KEY,
         window_state TEXT,
+        chat_presets TEXT,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`, () => r()));
+    await new Promise(r => pool.query("ALTER TABLE user_preferences ADD COLUMN chat_presets TEXT", () => r()));
 
     // Memos (Stickies)
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS memos (
@@ -408,9 +410,21 @@ async function autoActivate() {
                     "allowed_models": ["*"],
                     "allowed_actions": ["*"]
                 },
+                "engineer": {
+                    "name": "Engineer (IT)",
+                    "allowed_widgets": ["app:mcp-chat", "app:deep-research", "app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_models": ["*"],
+                    "allowed_actions": ["action:use_mcp_tools"]
+                },
+                "data_analyst": {
+                    "name": "Data Analyst",
+                    "allowed_widgets": ["app:mcp-chat", "app:knowledge-base", "app:gemini", "app:html-editor", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:browser", "app:virtual-office", "app:dm-chat"],
+                    "allowed_models": ["*"],
+                    "allowed_actions": ["action:use_mcp_tools"]
+                },
                 "researcher": {
-                    "name": "Researcher",
-                    "allowed_widgets": ["app:deep-research", "app:knowledge-base", "app:gemini", "app:browser", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:virtual-office", "app:dm-chat"],
+                    "name": "Researcher (IT)",
+                    "allowed_widgets": ["app:mcp-chat", "app:deep-research", "app:knowledge-base", "app:gemini", "app:browser", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["*"],
                     "allowed_actions": ["action:generate_infographic", "action:use_mcp_tools"]
                 },
@@ -445,6 +459,36 @@ async function autoActivate() {
                 const policies = JSON.parse(existingPolicies);
                 let updated = false;
 
+                // Migrate and add data_analyst role if missing
+                if (!policies.data_analyst) {
+                    policies.data_analyst = {
+                        "name": "Data Analyst",
+                        "allowed_widgets": ["app:mcp-chat", "app:knowledge-base", "app:gemini", "app:html-editor", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_models": ["*"],
+                        "allowed_actions": ["action:use_mcp_tools"]
+                    };
+                    updated = true;
+                    console.log('DEBUG: Migrated RBAC - added data_analyst role');
+                } else if (policies.data_analyst.allowed_widgets && !policies.data_analyst.allowed_widgets.includes('*') && !policies.data_analyst.allowed_widgets.includes('app:mcp-chat')) {
+                    policies.data_analyst.allowed_widgets.unshift('app:mcp-chat');
+                    updated = true;
+                }
+
+                // Migrate and add engineer role if missing
+                if (!policies.engineer) {
+                    policies.engineer = {
+                        "name": "Engineer (IT)",
+                        "allowed_widgets": ["app:mcp-chat", "app:deep-research", "app:knowledge-base", "app:gemini", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:html-editor", "app:browser", "app:virtual-office", "app:dm-chat"],
+                        "allowed_models": ["*"],
+                        "allowed_actions": ["action:use_mcp_tools"]
+                    };
+                    updated = true;
+                    console.log('DEBUG: Migrated RBAC - added engineer role');
+                } else if (policies.engineer.allowed_widgets && !policies.engineer.allowed_widgets.includes('*') && !policies.engineer.allowed_widgets.includes('app:mcp-chat')) {
+                    policies.engineer.allowed_widgets.unshift('app:mcp-chat');
+                    updated = true;
+                }
+
                 // Migrate and add manager role if missing
                 if (!policies.manager) {
                     policies.manager = {
@@ -478,7 +522,7 @@ async function autoActivate() {
                     updated = true;
                 }
                 
-                ['researcher', 'user', 'manager', 'hr', 'guest'].forEach(roleKey => {
+                ['researcher', 'engineer', 'data_analyst', 'user', 'manager', 'hr', 'guest'].forEach(roleKey => {
                     if (policies[roleKey] && policies[roleKey].allowed_widgets) {
                         const widgets = policies[roleKey].allowed_widgets;
                         if (!widgets.includes('app:virtual-office')) {
@@ -504,6 +548,18 @@ async function autoActivate() {
                             policies[roleKey].allowed_actions.push('action:use_mcp_tools');
                             updated = true;
                             console.log(`DEBUG: Migrated ${roleKey} role - added action:use_mcp_tools to allowed_actions`);
+                        }
+                    }
+                });
+
+                // Migrate: IT roles (researcher, engineer, data_analyst) ensure app:mcp-chat is added
+                ['researcher', 'engineer', 'data_analyst'].forEach(roleKey => {
+                    if (policies[roleKey] && policies[roleKey].allowed_widgets) {
+                        const widgets = policies[roleKey].allowed_widgets;
+                        if (!widgets.includes('*') && !widgets.includes('app:mcp-chat')) {
+                            widgets.unshift('app:mcp-chat');
+                            updated = true;
+                            console.log(`DEBUG: Migrated ${roleKey} role - added app:mcp-chat to allowed_widgets`);
                         }
                     }
                 });
