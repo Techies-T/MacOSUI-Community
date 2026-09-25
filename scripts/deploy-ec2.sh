@@ -67,7 +67,7 @@ elif docker compose version >/dev/null 2>&1; then
     COMPOSE_CMD="docker compose"
 fi
 
-sudo $COMPOSE_CMD up -d --build
+sudo $COMPOSE_CMD up -d --build --force-recreate
 
 echo "Pruning dangling images..."
 sudo docker image prune -f || true
