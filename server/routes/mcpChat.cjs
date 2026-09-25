@@ -5,9 +5,12 @@ const { GoogleGenAI } = require("@google/genai");
 const { getAllMcpToolsForGemini, callMcpTool } = require('../mcpClient.cjs');
 const db = require('../db.cjs');
 
-// Initialize Gemini
+// Initialize Gemini with extended timeout for complex MCP multi-tool workflows
 function getGeminiClient(apiKey) {
-    return new GoogleGenAI({ apiKey: apiKey || process.env.GEMINI_API_KEY });
+    return new GoogleGenAI({ 
+        apiKey: apiKey || process.env.GEMINI_API_KEY,
+        httpOptions: { timeout: 600000 } // 10 minutes timeout for complex MCP multi-tool analytics & GenUI rendering
+    });
 }
 
 /**
@@ -113,7 +116,7 @@ ${toolDescriptions}`;
             temperature: 0.2,
             max_output_tokens: 24576
         }
-    });
+    }, { timeout: 600000 });
 
     currentInteractionId = interaction.id;
     currentEnvironmentId = interaction.environment_id;
@@ -213,7 +216,7 @@ ${toolDescriptions}`;
                         temperature: 0.2,
                         max_output_tokens: 24576
                     }
-                });
+                }, { timeout: 600000 });
 
                 currentInteractionId = interaction.id;
                 currentEnvironmentId = interaction.environment_id;
@@ -252,7 +255,7 @@ ${toolDescriptions}`;
                     temperature: 0.2,
                     max_output_tokens: 24576
                 }
-            });
+            }, { timeout: 600000 });
             if (finalSynthesis.steps) {
                 for (const step of finalSynthesis.steps) {
                     if (step.type === 'model_output' && step.content) {

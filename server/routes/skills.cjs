@@ -9,7 +9,7 @@ async function getGeminiClient() {
     if (!apiKey) {
         throw new Error("GEMINI_API_KEY is not configured in System Settings.");
     }
-    return new GoogleGenAI({ apiKey });
+    return new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
 }
 
 // 1. GET /api/skills - インストール済みのスキル一覧を取得

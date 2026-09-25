@@ -1762,7 +1762,7 @@ app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
 
             if (apiKey && companyWorkPolicy) {
                 try {
-                    const client = new GoogleGenAI({ apiKey });
+                    const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
                     const model = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
 
                     const systemInstruction = `あなたは会社のコンプライアンスおよび労働管理（36協定）の監査用AIです。
@@ -2172,7 +2172,7 @@ app.get('/api/gemini/models', requireAuth, requireWidgetAccess('app:gemini'), as
             return res.json({ models: DEFAULT_GEMINI_MODELS, isConfigured: false });
         }
 
-        const client = new GoogleGenAI({ apiKey });
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 60000 } });
         const response = await client.models.list();
 
         let modelsList = [];
@@ -2342,7 +2342,7 @@ app.post('/api/avatar/generate', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Gemini API Key not configured' });
         }
 
-        const client = new GoogleGenAI({ apiKey });
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
         const globalModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
         const rawAvatarModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || 'imagen-3.0-generate-002';
         const cleanGlobalModel = globalModel.replace(/^models\//, '');
@@ -2560,7 +2560,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
     console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
 
     try {
-        const client = new GoogleGenAI({ apiKey });
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
 
         let mode = customConfig?.mode || 'rag'; // Default to RAG
 
@@ -3179,7 +3179,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
     console.log("Starting background RAG sync for multiple folders...");
 
     try {
-        const client = new GoogleGenAI({ apiKey });
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
 
         let allDriveFiles = [];
         let folderIdMap = new Map(); // drive_file_id -> folder_id
@@ -4191,7 +4191,7 @@ async function estimateTravelTimes(apiKey, events, ownerName) {
     if (!events || events.length === 0) return [];
     
     try {
-        const client = new GoogleGenAI({ apiKey });
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
         const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
 
         const formatEventsForTravel = (events) => {
@@ -4707,7 +4707,7 @@ Instructions:
                         if (apiKey) {
                             try {
                                 const { GoogleGenAI } = require("@google/genai");
-                                const client = new GoogleGenAI({ apiKey });
+                                const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
                                 const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
 
                                 const defaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
