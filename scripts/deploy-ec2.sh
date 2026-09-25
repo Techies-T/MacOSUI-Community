@@ -69,8 +69,9 @@ fi
 
 sudo $COMPOSE_CMD up -d --build --force-recreate
 
-echo "Pruning dangling images..."
+echo "Pruning dangling images and builder cache..."
 sudo docker image prune -f || true
+sudo docker builder prune -f || true
 
 echo "=================================================="
 echo "✅ [Step 5/5] Verify Post-Deploy Health & Data Integrity"
