@@ -14,6 +14,36 @@ function getGeminiClient(apiKey) {
 }
 
 /**
+ * Executes client.interactions.create with automatic retry for malformed_tool_call (HTTP 400 JSON parse errors)
+ */
+async function createInteractionWithRetry(client, params, options, maxRetries = 2) {
+    let attempt = 0;
+    let currentParams = { ...params };
+    while (attempt <= maxRetries) {
+        try {
+            return await client.interactions.create(currentParams, options);
+        } catch (err) {
+            const errMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+            const isMalformed = errMsg.includes('malformed_tool_call') ||
+                                errMsg.includes('invalid JSON syntax') ||
+                                (err.status === 400 && errMsg.includes('JSON'));
+            if (isMalformed && attempt < maxRetries) {
+                attempt++;
+                console.warn(`[MCP Chat] Warning: malformed_tool_call encountered (Attempt ${attempt}/${maxRetries}). Retrying with corrected JSON instructions...`);
+                const correctionNotice = "\n\nCRITICAL SYSTEM REQUIREMENT: Your previous tool call produced malformed JSON syntax. You MUST format all function call arguments as strictly valid JSON strings. Escape all double quotes (\") and newlines (\\n) properly.";
+                currentParams = {
+                    ...currentParams,
+                    system_instruction: (currentParams.system_instruction || '') + correctionNotice
+                };
+                await new Promise(r => setTimeout(r, 1000));
+                continue;
+            }
+            throw err;
+        }
+    }
+}
+
+/**
  * MCP ワークフロー実行コア関数（同期・非同期共通）
  */
 async function executeMcpWorkflow({ user, message, previous_interaction_id, environment_id, req, onProgress, checkCancelled }) {
@@ -27,7 +57,35 @@ async function executeMcpWorkflow({ user, message, previous_interaction_id, envi
     const modelName = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || globalGeminiModel;
 
     // Get MCP Tools filtered by user's permissions
-    const mcpTools = await getAllMcpToolsForGemini(user.allowed_widgets || []);
+    let mcpTools = await getAllMcpToolsForGemini(user.allowed_widgets || []);
+
+    // Tool Routing: Filter tools based on user prompt intent to prevent token bloat & tool schema confusion
+    const msgLower = (message || '').toLowerCase();
+    const isBaseballIntent = msgLower.includes('阪神') || msgLower.includes('タイガース') || 
+                            msgLower.includes('npb') || msgLower.includes('野球') || 
+                            msgLower.includes('batting') || msgLower.includes('pitching') || 
+                            msgLower.includes('war') || msgLower.includes('立役者') || 
+                            msgLower.includes('打者') || msgLower.includes('投手');
+    
+    const isProceduresIntent = msgLower.includes('行政') || msgLower.includes('手続き') || 
+                              msgLower.includes('デジタル庁') || msgLower.includes('マイナンバー') || 
+                              msgLower.includes('procedures');
+
+    if (isBaseballIntent && !isProceduresIntent) {
+        // MariaDB関連ツールに絞り込み
+        const filtered = mcpTools.filter(t => t.name.includes('query') || t.name.includes('sql') || t.name.includes('table') || t.name.includes('schema') || t.name.includes('catalog'));
+        if (filtered.length > 0) {
+            console.log(`[mcpChat] Tool Routing: Baseball analytics intent detected. Filtered tools from ${mcpTools.length} to ${filtered.length}.`);
+            mcpTools = filtered;
+        }
+    } else if (isProceduresIntent && !isBaseballIntent) {
+        // 行政手続き関連ツールに絞り込み
+        const filtered = mcpTools.filter(t => t.name.includes('procedures') || t.name.includes('records') || t.name.includes('catalog'));
+        if (filtered.length > 0) {
+            console.log(`[mcpChat] Tool Routing: Procedures intent detected. Filtered tools from ${mcpTools.length} to ${filtered.length}.`);
+            mcpTools = filtered;
+        }
+    }
     
     const tools = mcpTools.map(t => ({
         type: "function",
@@ -41,6 +99,12 @@ async function executeMcpWorkflow({ user, message, previous_interaction_id, envi
     const toolDescriptions = mcpTools.map(t => `- **${t.name}**: ${t.description}`).join('\n');
 
     const systemInstruction = `You are a helpful IT Operations, Data Analytics, and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown.
+
+CRITICAL TOOL ARGUMENT SYNTAX (ABSOLUTE MANDATORY):
+When calling any tool with arguments (especially SQL queries or multi-line strings):
+1. Always generate STRICTLY VALID JSON for the tool call arguments.
+2. Properly escape all double quotes (\") and newlines (\\n) inside string arguments.
+3. NEVER generate unescaped raw newlines, quotes, or control characters inside JSON values.
 
 Database Multi-Year Notice:
 The database contains official multi-year records for both the 2024 and 2025 NPB seasons:
@@ -105,7 +169,7 @@ ${toolDescriptions}`;
     let currentInteractionId = previous_interaction_id;
     let currentEnvironmentId = environment_id;
 
-    let interaction = await client.interactions.create({
+    let interaction = await createInteractionWithRetry(client, {
         model: modelName,
         input: message,
         previous_interaction_id: currentInteractionId || undefined,
@@ -205,7 +269,7 @@ ${toolDescriptions}`;
 
                 const availableTools = (maxTurns > 0 && tools.length > 0) ? tools : undefined;
 
-                interaction = await client.interactions.create({
+                interaction = await createInteractionWithRetry(client, {
                     model: modelName,
                     input: functionResponses,
                     previous_interaction_id: currentInteractionId,
@@ -245,7 +309,7 @@ ${toolDescriptions}`;
         console.log('[MCP Chat] Final response text missing after tool calls. Requesting synthesis without tools...');
         if (onProgress) onProgress('ツール実行結果を元にダッシュボードと回答を合成中...', turnCount + 1);
         try {
-            const finalSynthesis = await client.interactions.create({
+            const finalSynthesis = await createInteractionWithRetry(client, {
                 model: modelName,
                 input: 'Based on the tool execution results above, please provide the complete answer and interactive HTML dashboard widget inside ```html ... ``` code block as requested.',
                 previous_interaction_id: currentInteractionId,
