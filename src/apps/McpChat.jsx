@@ -153,6 +153,11 @@ const McpChat = () => {
     const [quickPrompts, setQuickPrompts] = useState([]);
     const [copiedId, setCopiedId] = useState(null);
 
+    // MCP Meta Information & Dynamic Pipeline State
+    const [metaData, setMetaData] = useState(null); // { servers, totalServers, totalTools, userRole }
+    const [selectedDomain, setSelectedDomain] = useState('auto'); // 'auto' | domain id
+    const [isLoadingMeta, setIsLoadingMeta] = useState(false);
+
     // Save to Knowledge Modal State
     const [saveKnowledgeModalOpen, setSaveKnowledgeModalOpen] = useState(false);
     const [codeToSave, setCodeToSave] = useState('');
@@ -207,6 +212,22 @@ const McpChat = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
+    const fetchMcpMetadata = async () => {
+        setIsLoadingMeta(true);
+        try {
+            const res = await fetch('/api/mcp/meta');
+            if (res.ok) {
+                const data = await res.json();
+                setMetaData(data);
+                console.log('[MCP Client] Metadata loaded successfully:', data);
+            }
+        } catch (e) {
+            console.error('Failed to fetch MCP metadata:', e);
+        } finally {
+            setIsLoadingMeta(false);
+        }
+    };
+
     const fetchQuickPrompts = async () => {
         try {
             const res = await fetch('/api/config');
@@ -220,6 +241,10 @@ const McpChat = () => {
             console.error('Failed to fetch config for quick prompts:', e);
         }
     };
+
+    useEffect(() => {
+        fetchMcpMetadata();
+    }, []);
 
     useEffect(() => {
         scrollToBottom();
@@ -279,7 +304,8 @@ const McpChat = () => {
                 body: JSON.stringify({
                     message: textToSend,
                     previous_interaction_id: previousInteractionId,
-                    environment_id: environmentId
+                    environment_id: environmentId,
+                    pipelineDomain: selectedDomain === 'auto' ? undefined : selectedDomain
                 })
             });
 
@@ -452,6 +478,12 @@ const McpChat = () => {
                         </div>
                         <h1 className="font-semibold text-gray-800">MCP Client</h1>
                         <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full border border-indigo-100 ml-2">Beta</span>
+                        {metaData && (
+                            <div className="flex items-center gap-1.5 ml-3 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium shadow-2xs" title="ZTA-MCP-GATEWAY より取得した最新メタ情報">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span>ZTA Gateway: {metaData.totalServers}サーバー / {metaData.totalTools}ツール接続中</span>
+                            </div>
+                        )}
                     </div>
                     <div className="flex items-center gap-4">
                         {allArtifacts.length > 0 && !activeArtifact && (
@@ -648,6 +680,47 @@ const McpChat = () => {
                 {/* Input Area */}
                 <div className="flex-none p-4 bg-white border-t border-gray-200">
                     <div className="w-full max-w-[96%] mx-auto">
+                        {/* Dynamic Pipeline Domain Selector */}
+                        {metaData && metaData.servers && metaData.servers.length > 0 && (
+                            <div className="flex items-center gap-1.5 overflow-x-auto mb-2.5 pb-1 scrollbar-thin text-xs">
+                                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold flex items-center mr-1 flex-shrink-0">
+                                    ⚡ Pipeline:
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedDomain('auto')}
+                                    className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all flex items-center gap-1.5 border ${
+                                        selectedDomain === 'auto'
+                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-semibold'
+                                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    <span>⚡ 自動判定 (Auto)</span>
+                                </button>
+                                {metaData.servers.map((s) => (
+                                    <button
+                                        key={s.id}
+                                        type="button"
+                                        onClick={() => setSelectedDomain(s.domain === selectedDomain ? 'auto' : s.domain)}
+                                        className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all flex items-center gap-1.5 border ${
+                                            selectedDomain === s.domain
+                                                ? 'bg-indigo-50 text-indigo-700 border-indigo-300 ring-1 ring-indigo-300 shadow-xs font-semibold'
+                                                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                                        }`}
+                                        title={`サーバー: ${s.name}\nツール: ${s.tools.map(t => t.name).join(', ')}`}
+                                    >
+                                        <span>{s.icon}</span>
+                                        <span>{s.category}</span>
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                                            selectedDomain === s.domain ? 'bg-indigo-200 text-indigo-800' : 'bg-gray-100 text-gray-500'
+                                        }`}>
+                                            {s.toolCount}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
                         <div className="flex gap-2 overflow-x-auto mb-3 pb-1 scrollbar-thin">
                             <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold flex items-center mr-1">Quick Prompts</span>
                             {quickPrompts.map((item, idx) => (
