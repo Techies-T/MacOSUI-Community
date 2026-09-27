@@ -430,7 +430,7 @@ async function processTaskInBackground(taskId, { user, message, previous_interac
  * GET /api/mcp/meta
  * クライアント側で利用可能なMCPサーバーおよびツールのメタ情報を取得
  */
-router.get('/meta', async (req, res) => {
+const getMetaHandler = async (req, res) => {
     try {
         const metadata = await getMcpMetadata(req.user?.allowed_widgets || []);
         res.json({
@@ -441,6 +441,14 @@ router.get('/meta', async (req, res) => {
         console.error("[MCP Meta] Failed to fetch metadata:", err);
         res.status(500).json({ error: 'Failed to fetch MCP metadata' });
     }
+};
+
+router.get('/meta', getMetaHandler);
+router.get('/', (req, res, next) => {
+    if (req.baseUrl && req.baseUrl.endsWith('/meta')) {
+        return getMetaHandler(req, res);
+    }
+    next();
 });
 
 /**

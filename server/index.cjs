@@ -560,6 +560,7 @@ app.use('/api/mcp/servers', requireAuth, (req, res, next) => {
 
 app.use('/api/mcp/chat', requireWidgetAccess('app:mcp-chat'), require('./routes/mcpChat.cjs'));
 app.use('/api/mcp/tasks', requireWidgetAccess('app:mcp-chat'), require('./routes/mcpChat.cjs'));
+app.use('/api/mcp/meta', requireWidgetAccess('app:mcp-chat'), require('./routes/mcpChat.cjs'));
 app.use('/api/local-rag', requireAuth, require('./routes/localRag.cjs'));
 
 // MCP Tool Execution Route
