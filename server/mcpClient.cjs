@@ -479,6 +479,75 @@ async function testMcpConnection(config, user = null, req = null) {
     }
 }
 
+/**
+ * Returns lightweight metadata of all accessible MCP servers and tools for the client.
+ * Used by the client to construct dynamic execution pipelines.
+ */
+async function getMcpMetadata(allowedWidgets = ['*']) {
+    if (serverConnections.size === 0) {
+        await refreshConnections();
+    }
+
+    const hasWildcard = allowedWidgets.includes('*');
+    const serversMeta = [];
+
+    for (const [id, conn] of serverConnections.entries()) {
+        if (!hasWildcard && !allowedWidgets.includes(`mcp:${id}`)) {
+            continue;
+        }
+
+        // Determine domain category
+        let domain = 'general';
+        let icon = '⚡';
+        let category = 'システム・汎用';
+        const nameLower = (conn.name || '').toLowerCase();
+        
+        if (nameLower.includes('npb') || nameLower.includes('baseball') || nameLower.includes('mariadb')) {
+            domain = 'npb_baseball';
+            icon = '⚾';
+            category = 'プロ野球データ分析';
+        } else if (nameLower.includes('行政') || nameLower.includes('procedures')) {
+            domain = 'digital_agency';
+            icon = '🏛️';
+            category = '行政手続・統計';
+        } else if (nameLower.includes('catalog')) {
+            domain = 'catalog';
+            icon = '📑';
+            category = 'データカタログ・GenUIメタ情報';
+        } else if (nameLower.includes('knowledge')) {
+            domain = 'knowledge_base';
+            icon = '📚';
+            category = 'ナレッジベース';
+        } else if (nameLower.includes('gemma')) {
+            domain = 'local_ai';
+            icon = '🤖';
+            category = 'ローカルAI推論';
+        }
+
+        const toolsMeta = (conn.tools || []).map(t => ({
+            name: t.name,
+            description: t.description || '',
+            parameters: t.inputSchema ? Object.keys(t.inputSchema.properties || {}) : []
+        }));
+
+        serversMeta.push({
+            id: conn.id,
+            name: conn.name,
+            domain,
+            icon,
+            category,
+            toolCount: toolsMeta.length,
+            tools: toolsMeta
+        });
+    }
+
+    return {
+        servers: serversMeta,
+        totalServers: serversMeta.length,
+        totalTools: serversMeta.reduce((acc, s) => acc + s.toolCount, 0)
+    };
+}
+
 // Auto-init on load
 setTimeout(() => refreshConnections(), 2000);
 
@@ -487,5 +556,6 @@ module.exports = {
     refreshConnections,
     disconnectServer,
     getAllMcpToolsForGemini,
+    getMcpMetadata,
     testMcpConnection
 };

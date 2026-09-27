@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const { GoogleGenAI } = require("@google/genai");
-const { getAllMcpToolsForGemini, callMcpTool } = require('../mcpClient.cjs');
+const { getAllMcpToolsForGemini, callMcpTool, getMcpMetadata } = require('../mcpClient.cjs');
 const db = require('../db.cjs');
 
 // Initialize Gemini with extended timeout for complex MCP multi-tool workflows
@@ -46,7 +46,7 @@ async function createInteractionWithRetry(client, params, options, maxRetries = 
 /**
  * MCP ワークフロー実行コア関数（同期・非同期共通）
  */
-async function executeMcpWorkflow({ user, message, previous_interaction_id, environment_id, req, onProgress, checkCancelled }) {
+async function executeMcpWorkflow({ user, message, previous_interaction_id, environment_id, req, onProgress, checkCancelled, pipelineDomain }) {
     const apiKey = await db.getSetting('GEMINI_API_KEY');
     if (!apiKey && !process.env.GEMINI_API_KEY) {
         throw new Error('Gemini API Key is not configured');
@@ -59,30 +59,42 @@ async function executeMcpWorkflow({ user, message, previous_interaction_id, envi
     // Get MCP Tools filtered by user's permissions
     let mcpTools = await getAllMcpToolsForGemini(user.allowed_widgets || []);
 
-    // Tool Routing: Filter tools based on user prompt intent to prevent token bloat & tool schema confusion
+    // Dynamic Pipeline Routing: Filter tools based on explicit pipelineDomain from client OR prompt intent
     const msgLower = (message || '').toLowerCase();
-    const isBaseballIntent = msgLower.includes('阪神') || msgLower.includes('タイガース') || 
-                            msgLower.includes('npb') || msgLower.includes('野球') || 
-                            msgLower.includes('batting') || msgLower.includes('pitching') || 
-                            msgLower.includes('war') || msgLower.includes('立役者') || 
-                            msgLower.includes('打者') || msgLower.includes('投手');
+    const isBaseball = pipelineDomain === 'npb_baseball' || 
+                      (!pipelineDomain && (msgLower.includes('阪神') || msgLower.includes('タイガース') || 
+                                          msgLower.includes('npb') || msgLower.includes('野球') || 
+                                          msgLower.includes('batting') || msgLower.includes('pitching') || 
+                                          msgLower.includes('war') || msgLower.includes('立役者') || 
+                                          msgLower.includes('打者') || msgLower.includes('投手')));
     
-    const isProceduresIntent = msgLower.includes('行政') || msgLower.includes('手続き') || 
-                              msgLower.includes('デジタル庁') || msgLower.includes('マイナンバー') || 
-                              msgLower.includes('procedures');
+    const isProcedures = pipelineDomain === 'digital_agency' || 
+                        (!pipelineDomain && (msgLower.includes('行政') || msgLower.includes('手続き') || 
+                                            msgLower.includes('デジタル庁') || msgLower.includes('マイナンバー') || 
+                                            msgLower.includes('procedures')));
 
-    if (isBaseballIntent && !isProceduresIntent) {
+    const isKnowledge = pipelineDomain === 'knowledge_base' ||
+                       (!pipelineDomain && (msgLower.includes('ナレッジ') || msgLower.includes('マニュアル') || msgLower.includes('社内規程')));
+
+    if (isBaseball && !isProcedures) {
         // MariaDB関連ツールに絞り込み
         const filtered = mcpTools.filter(t => t.name.includes('query') || t.name.includes('sql') || t.name.includes('table') || t.name.includes('schema') || t.name.includes('catalog'));
         if (filtered.length > 0) {
-            console.log(`[mcpChat] Tool Routing: Baseball analytics intent detected. Filtered tools from ${mcpTools.length} to ${filtered.length}.`);
+            console.log(`[mcpChat] Dynamic Pipeline: NPB Baseball analytics pipeline active. Bound ${filtered.length} tools.`);
             mcpTools = filtered;
         }
-    } else if (isProceduresIntent && !isBaseballIntent) {
+    } else if (isProcedures && !isBaseball) {
         // 行政手続き関連ツールに絞り込み
         const filtered = mcpTools.filter(t => t.name.includes('procedures') || t.name.includes('records') || t.name.includes('catalog'));
         if (filtered.length > 0) {
-            console.log(`[mcpChat] Tool Routing: Procedures intent detected. Filtered tools from ${mcpTools.length} to ${filtered.length}.`);
+            console.log(`[mcpChat] Dynamic Pipeline: Digital Agency procedures pipeline active. Bound ${filtered.length} tools.`);
+            mcpTools = filtered;
+        }
+    } else if (isKnowledge && !isBaseball && !isProcedures) {
+        // ナレッジ関連ツールに絞り込み
+        const filtered = mcpTools.filter(t => t.name.includes('knowledge') || t.name.includes('search') || t.name.includes('doc'));
+        if (filtered.length > 0) {
+            console.log(`[mcpChat] Dynamic Pipeline: Knowledge Base pipeline active. Bound ${filtered.length} tools.`);
             mcpTools = filtered;
         }
     }
@@ -347,8 +359,8 @@ ${toolDescriptions}`;
 /**
  * バックグラウンドで非同期タスクを実行し、DB を更新する関数
  */
-async function processTaskInBackground(taskId, { user, message, previous_interaction_id, environment_id, req }) {
-    console.log(`[MCP Tasks] Starting background execution for task: ${taskId}`);
+async function processTaskInBackground(taskId, { user, message, previous_interaction_id, environment_id, req, pipelineDomain }) {
+    console.log(`[MCP Tasks] Starting background execution for task: ${taskId} (Domain: ${pipelineDomain || 'auto'})`);
 
     const checkCancelled = async () => {
         return new Promise((resolve) => {
@@ -379,7 +391,8 @@ async function processTaskInBackground(taskId, { user, message, previous_interac
             environment_id,
             req,
             onProgress: updateProgress,
-            checkCancelled
+            checkCancelled,
+            pipelineDomain
         });
 
         // 完了状態に更新
@@ -414,12 +427,29 @@ async function processTaskInBackground(taskId, { user, message, previous_interac
 // ==========================================
 
 /**
+ * GET /api/mcp/meta
+ * クライアント側で利用可能なMCPサーバーおよびツールのメタ情報を取得
+ */
+router.get('/meta', async (req, res) => {
+    try {
+        const metadata = await getMcpMetadata(req.user?.allowed_widgets || []);
+        res.json({
+            ...metadata,
+            userRole: req.user?.role || 'user'
+        });
+    } catch (err) {
+        console.error("[MCP Meta] Failed to fetch metadata:", err);
+        res.status(500).json({ error: 'Failed to fetch MCP metadata' });
+    }
+});
+
+/**
  * POST /api/mcp/tasks
  * 非同期タスクの受付（即座に HTTP 202 Accepted と taskId を返却）
  */
 const createTaskHandler = async (req, res) => {
     try {
-        const { message, previous_interaction_id, environment_id } = req.body;
+        const { message, previous_interaction_id, environment_id, pipelineDomain } = req.body;
 
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
@@ -450,7 +480,8 @@ const createTaskHandler = async (req, res) => {
                     message,
                     previous_interaction_id,
                     environment_id,
-                    req
+                    req,
+                    pipelineDomain
                 });
             }
         );
