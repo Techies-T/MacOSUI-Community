@@ -501,7 +501,10 @@ const SystemSettings = ({ user }) => {
                         const newSyncTime = new Date().toISOString();
                         setLastRagSyncTime(newSyncTime);
                         window.dispatchEvent(new CustomEvent('rag-synced', { detail: { lastRagSyncTime: newSyncTime } }));
-                        alert('Sync Complete!');
+                        const alertMsg = statusData.syncedCount !== undefined 
+                            ? (statusData.syncedCount > 0 ? `同期が完了しました (${statusData.syncedCount} 件のファイルを Gemini に同期)` : '同期完了 (※ フォルダ内に対象ファイルが 0 件でした)')
+                            : (statusData.currentFile || 'Sync Complete!');
+                        alert(alertMsg);
                     } else if (statusData.state === 'error') {
                         clearInterval(pollInterval);
                         setIsSyncing(false);

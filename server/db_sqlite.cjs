@@ -171,6 +171,7 @@ function initDb() {
     drive_file_id TEXT PRIMARY KEY,
     gemini_file_uri TEXT,
     folder_id TEXT,
+    file_name TEXT,
     mime_type TEXT,
     last_synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     file_hash TEXT
@@ -189,6 +190,9 @@ function initDb() {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE rag_files ADD COLUMN folder_id TEXT", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE rag_files ADD COLUMN file_name TEXT", (err) => {
         // Ignore error if column exists
     });
 

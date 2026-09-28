@@ -35,6 +35,78 @@ const renderContextUsage = (usage, isDark = true) => {
     );
 };
 
+const renderSourceInfo = (sourceInfo) => {
+    if (!sourceInfo) return null;
+
+    if (sourceInfo.type === 'google_drive') {
+        return (
+            <div className="mt-2.5 pt-2 border-t border-white/10 flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/20 text-[10px]">📚</span>
+                    <span>情報源: Google Drive (Personal RAG)</span>
+                    {sourceInfo.sources && sourceInfo.sources.length > 0 && (
+                        <span className="text-[10px] font-normal text-emerald-300 bg-emerald-900/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                            {sourceInfo.sources.length} 件のドキュメントを参照
+                        </span>
+                    )}
+                </div>
+                {sourceInfo.sources && sourceInfo.sources.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pl-5">
+                        {sourceInfo.sources.map((s, idx) => (
+                            <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-black/40 border border-emerald-500/30 text-[11px] font-mono text-emerald-200">
+                                📄 {s.name}
+                            </span>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (sourceInfo.warning === 'RAG_EMPTY') {
+        return (
+            <div className="mt-2.5 pt-2 border-t border-amber-500/20 flex flex-col gap-1 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-amber-300">
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/20 text-[10px]">⚠️</span>
+                    <span>情報源: パブリック一般知識 (※ Google Drive 未同期)</span>
+                </div>
+                <p className="text-[11px] text-amber-200/80 pl-5">
+                    対象フォルダに同期ファイルが存在しないため、Gemini のパブリック知識で回答しました。System Settings ＞ Personal RAG で同期を実行してください。
+                </p>
+            </div>
+        );
+    }
+
+    if (sourceInfo.type === 'google_search') {
+        return (
+            <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-1.5 text-xs font-semibold text-sky-300">
+                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500/20 text-[10px]">🌐</span>
+                <span>情報源: Google Search (パブリックWeb検索)</span>
+            </div>
+        );
+    }
+
+    if (sourceInfo.type === 'local_ai') {
+        return (
+            <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-1.5 text-xs font-semibold text-indigo-300">
+                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-500/20 text-[10px]">🛡️</span>
+                <span>情報源: Local Gemma 4 (完全社内完結)</span>
+            </div>
+        );
+    }
+
+    if (sourceInfo.type === 'general_knowledge') {
+        return (
+            <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-1.5 text-xs text-purple-200/80">
+                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-500/20 text-[10px]">🧠</span>
+                <span>情報源: パブリック一般知識 (Gemini 事前学習データ)</span>
+            </div>
+        );
+    }
+
+    return null;
+};
+
 const Gemini = () => {
     const [mode, setMode] = useState('normal');
     const [useGrounding, setUseGrounding] = useState(true);
@@ -422,7 +494,12 @@ const Gemini = () => {
 
                     if (jobData.state === 'completed') {
                         clearInterval(pollInterval);
-                        setMessages(prev => [...prev, { role: 'model', text: jobData.reply, usage: jobData.usageMetadata }]);
+                        setMessages(prev => [...prev, { 
+                            role: 'model', 
+                            text: jobData.reply, 
+                            usage: jobData.usageMetadata,
+                            sourceInfo: jobData.sourceInfo 
+                        }]);
                         if (jobData.interactionId) setPreviousInteractionId(jobData.interactionId);
                         if (jobData.environmentId) setEnvironmentId(jobData.environmentId);
                         setIsLoading(false);
@@ -739,6 +816,7 @@ const Gemini = () => {
                                             </div>
                                         );
                                     })()}
+                                    {msg.role === 'model' && renderSourceInfo(msg.sourceInfo)}
                                     {msg.role === 'model' && renderContextUsage(msg.usage, true)}
                                 </div>
                                 {/* Actions Area */}

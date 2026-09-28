@@ -212,6 +212,7 @@ async function initDb() {
     drive_file_id TEXT PRIMARY KEY,
     gemini_file_uri TEXT,
     folder_id TEXT,
+    file_name TEXT,
     mime_type TEXT,
     last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     file_hash TEXT
@@ -228,6 +229,7 @@ async function initDb() {
     // Migration for rag_files
     await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", () => r()));
     await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN folder_id TEXT", () => r()));
+    await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN file_name TEXT", () => r()));
 
     // User Preferences (Window State & Personal Chat Presets)
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS user_preferences (
