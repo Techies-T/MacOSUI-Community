@@ -3,6 +3,31 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v2.7.2] - 2026-09-28
+
+### 🚀 MCP ツール動的バインド・GenUI 堅牢化 & Pod ナレッジ認可 (RBAC) 完全連携リリース
+
+#### ✨ Added (新機能・機能追加)
+- **📦 Data Analyst ロールへの Pod アクセス権 (`allowed_pods`) 標準追加 & JWT トークン伝達**:
+  - 認可ポリシー（PDP: `RBAC_POLICIES`）において `data_analyst` に `allowed_pods: ['*']` を標準設定（新規DB作成時および自動マイグレーション対応）。
+  - ログイン時および `/api/auth/me` でユーザーの複数ロールから `allowed_pods` を集約し、JWT 認証トークンに正しく伝達するよう改修。
+  - `server/routes/pods.cjs` において、カンマ区切りの複数ロール（例: `admin,data_analyst`）にも対応したセキュアな管理者判定ロジックを導入。
+  - ナレッジ保存モーダル（`SaveToKnowledgeModal`）で、Data Analyst ロールのユーザーでもアクセス可能な Pod（デジ庁データ分析、NPB野球データ分析等）が正しくドロップダウン表示され、分析ダッシュボードをワンクリックで Pod へ保存可能に。
+- **🌐 クライアント側メタ情報読み込み & パイプライン連携エンドポイント (`GET /api/mcp/meta`)**:
+  - ZTA-MCP-GATEWAY に登録されたメタ情報（サーバー定義・ツール群）をクライアントへ連携するルートを提供。
+
+#### 🐛 Fixed (バグ修正・安定性向上)
+- **🔧 MCP ツール 0件バインドバグの完全解消 (`server/mcpClient.cjs`)**:
+  - `hasServerAccess(serverId, allowedWidgets, user)` を新設。
+  - `app:mcp-chat` アプリ権限または `action:use_mcp_tools` アクション権限を持つユーザー（Data Analyst 等）に対して、ZTA-MCP-GATEWAY 経由の全 5 サーバー（NPB、デジタル庁、カタログ、ナレッジ、Gemma）および全 15 ツールが確実にバインドされるよう修正。
+- **🛡️ GenUI ダッシュボード切断クラッシュの根絶 & 自動修復 (`safeCode`)**:
+  - 分析ダッシュボード生成プロンプトに「注目対象（上位5〜8件）への絞り込み」と「末尾の `</script></body></html>` まで完全に出力する義務」を明記。
+  - フロントエンドの `HtmlPreviewCodeBlock.jsx` に、万が一のトークン切断時にも構文エラーで画面が真っ白になるのを防ぐ自己修復ロジック（欠落した閉じタグの自動補完）を実装。
+- **📖 ドキュメント拡充**:
+  - `README.md` に Data Analyst ロールの推奨 RBAC 設定サンプルおよび各パラメータ（`allowed_widgets`, `allowed_actions`, `allowed_models`, `allowed_pods`）の解説を追記。
+
+---
+
 ## [v2.7.1] - 2026-09-24
 
 ### 🚀 GenUI ダッシュボード描画の安定化 & EC2 永続データ保護 (Zero Data Loss) リリース

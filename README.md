@@ -443,6 +443,62 @@ graph TD
 
 ---
 
+### 🛡️ ロールベースアクセス制御 (RBAC) と「Data Analyst」権限設計サンプル
+
+MacOSUI では、Zero Trust Architecture (ZTA) に基づくポリシー決定ポイント (PDP) およびポリシー施行ポイント (PEP) アーキテクチャを採用しており、ユーザーのロールごとに利用可能なウィジェット、モデル、アクション、および Pod へのアクセス権限を一元的に動的評価します。
+
+#### 1. 各権限設定パラメータの役割
+
+| パラメータ | 説明と役割 | 指定例 |
+| :--- | :--- | :--- |
+| **`allowed_widgets`** | ユーザーが起動・利用できるアプリケーションの一覧。MCP チャット（`app:mcp-chat`）やナレッジベース（`app:knowledge-base`）などを指定します。 | `["app:mcp-chat", "app:knowledge-base", ...]` |
+| **`allowed_actions`** | 実行可能な高度なアクション。MCP ツールの動的呼び出しには **`action:use_mcp_tools`** が必須です。 | `["action:use_mcp_tools"]` |
+| **`allowed_models`** | チャットやリサーチで使用できる LLM モデルのホワイトリスト。`["*"]` で全モデル、または特定モデル（`["model:gemini-flash"]` 等）を指定します。 | `["*"]` |
+| **`allowed_pods`** | **【最重要】アクセスおよびナレッジ保存先として選択可能な Pod の一覧**。`["*"]` で全 Pod を許可、または特定 Pod ID（例: `["pod-digital-agency", "pod-npb-analytics"]`）を指定します。※ これが未設定または空の場合、ナレッジ保存モーダルの Pod 選択ドロップダウンに表示されず保存できません。 | `["*"]` または `["pod-xxx", "pod-yyy"]` |
+
+#### 2. 「Data Analyst (データアナリスト)」推奨ロール定義サンプル
+
+データ分析官やアナリストが、MCP ツールによる大規模データ集計、GenUI 動的ダッシュボード生成、および Pod への分析ナレッジ蓄積を完全に行うための推奨設定例です：
+
+```json
+{
+  "data_analyst": {
+    "name": "Data Analyst",
+    "allowed_widgets": [
+      "app:mcp-chat",
+      "app:knowledge-base",
+      "app:gemini",
+      "app:html-editor",
+      "app:finder",
+      "app:stickies",
+      "app:notes",
+      "app:calendar",
+      "app:calculator",
+      "app:browser",
+      "app:virtual-office",
+      "app:dm-chat"
+    ],
+    "allowed_models": [
+      "*"
+    ],
+    "allowed_actions": [
+      "action:use_mcp_tools"
+    ],
+    "allowed_pods": [
+      "*"
+    ]
+  }
+}
+```
+
+> [!TIP]
+> **設定手順**:
+> 1. 管理者（Admin）アカウントでログインし、**「System Settings」 ＞ 「ロール管理 (RBAC Policies)」** を開きます。
+> 2. `data_analyst` の設定で上記のように `allowed_pods` に `["*"]`（または許可したい Pod ID）が含まれていることを確認・保存します。
+> 3. テナント管理画面（ユーザー一覧）で対象ユーザーのロールに `data_analyst` を割り当てます。
+
+---
+
 ### 🏛️ デジタル庁 行政手続分析 MCP ＆ ZTA MCP Gateway v1.1.1 連携手順
 
 全国 76,827 手続の棚卸調査データ（オンライン化率、年間申請件数、ライフイベント分類、手数料、根拠法令等）を AI が分析し、行政改革ダッシュボードを自律生成するための環境構築手順です。

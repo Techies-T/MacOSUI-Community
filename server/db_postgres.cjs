@@ -420,7 +420,8 @@ async function autoActivate() {
                     "name": "Data Analyst",
                     "allowed_widgets": ["app:mcp-chat", "app:knowledge-base", "app:gemini", "app:html-editor", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:browser", "app:virtual-office", "app:dm-chat"],
                     "allowed_models": ["*"],
-                    "allowed_actions": ["action:use_mcp_tools"]
+                    "allowed_actions": ["action:use_mcp_tools"],
+                    "allowed_pods": ["*"]
                 },
                 "researcher": {
                     "name": "Researcher (IT)",
@@ -465,13 +466,21 @@ async function autoActivate() {
                         "name": "Data Analyst",
                         "allowed_widgets": ["app:mcp-chat", "app:knowledge-base", "app:gemini", "app:html-editor", "app:finder", "app:stickies", "app:notes", "app:calendar", "app:calculator", "app:browser", "app:virtual-office", "app:dm-chat"],
                         "allowed_models": ["*"],
-                        "allowed_actions": ["action:use_mcp_tools"]
+                        "allowed_actions": ["action:use_mcp_tools"],
+                        "allowed_pods": ["*"]
                     };
                     updated = true;
                     console.log('DEBUG: Migrated RBAC - added data_analyst role');
-                } else if (policies.data_analyst.allowed_widgets && !policies.data_analyst.allowed_widgets.includes('*') && !policies.data_analyst.allowed_widgets.includes('app:mcp-chat')) {
-                    policies.data_analyst.allowed_widgets.unshift('app:mcp-chat');
-                    updated = true;
+                } else {
+                    if (policies.data_analyst.allowed_widgets && !policies.data_analyst.allowed_widgets.includes('*') && !policies.data_analyst.allowed_widgets.includes('app:mcp-chat')) {
+                        policies.data_analyst.allowed_widgets.unshift('app:mcp-chat');
+                        updated = true;
+                    }
+                    if (!policies.data_analyst.allowed_pods) {
+                        policies.data_analyst.allowed_pods = ["*"];
+                        updated = true;
+                        console.log('DEBUG: Migrated RBAC - added allowed_pods to data_analyst role');
+                    }
                 }
 
                 // Migrate and add engineer role if missing
