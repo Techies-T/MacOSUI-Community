@@ -229,6 +229,38 @@ async function ensureConnection(connState, user = null, req = null) {
 }
 
 /**
+ * ZTA-compliant PDP check for MCP server access
+ * Evaluates whether a user or requested context has permission to access a specific MCP server.
+ */
+function hasServerAccess(serverId, allowedWidgets = ['*'], user = null) {
+    if (!allowedWidgets || allowedWidgets.length === 0) {
+        if (user?.allowed_actions?.includes('action:use_mcp_tools') || user?.allowed_actions?.includes('*')) {
+            return true;
+        }
+        return false;
+    }
+
+    if (allowedWidgets.includes('*')) {
+        return true;
+    }
+
+    // 明示的な mcp: プレフィックスによるきめ細かな認可が指定されている場合
+    const explicitMcpPerms = allowedWidgets.filter(w => typeof w === 'string' && w.startsWith('mcp:'));
+    if (explicitMcpPerms.length > 0) {
+        return explicitMcpPerms.includes(`mcp:${serverId}`) || 
+               explicitMcpPerms.includes('mcp:*') ||
+               explicitMcpPerms.some(p => p.toLowerCase().includes(String(serverId).toLowerCase()));
+    }
+
+    // 明示的な個別 mcp: 指定がない場合、app:mcp-chat 利用権限、または action:use_mcp_tools 権限があればアクセス可能
+    const hasChatWidget = allowedWidgets.includes('app:mcp-chat');
+    const hasAction = user?.allowed_actions?.includes('action:use_mcp_tools') || user?.allowed_actions?.includes('*');
+    const isAdmin = user?.role === 'admin' || (typeof user?.role === 'string' && user?.role.includes('admin'));
+
+    return hasChatWidget || hasAction || isAdmin;
+}
+
+/**
  * Calls a tool, routing it to the correct MCP server
  * @param {string} name - The tool name
  * @param {object} args - The arguments for the tool
@@ -242,11 +274,10 @@ async function callMcpTool(name, args, allowedWidgets = ['*'], user = null, req 
     }
 
     // Dynamically find a server that provides this tool AND the user has access to
-    const hasWildcard = allowedWidgets.includes('*');
     let targetConnState = null;
 
     for (const [id, conn] of serverConnections.entries()) {
-        if (!hasWildcard && !allowedWidgets.includes(`mcp:${id}`)) continue;
+        if (!hasServerAccess(id, allowedWidgets, user)) continue;
         
         if (conn.tools && conn.tools.some(t => t.name === name)) {
             targetConnState = conn;
@@ -381,18 +412,18 @@ function disconnectServer(serverId) {
 /**
  * Gets all tools from all connected MCP servers formatted for Gemini functionDeclarations
  * @param {string[]} allowedWidgets - The user's allowed widgets array to filter the tools
+ * @param {object} user - The authenticated user object
  */
-async function getAllMcpToolsForGemini(allowedWidgets = ['*']) {
+async function getAllMcpToolsForGemini(allowedWidgets = ['*'], user = null) {
     if (serverConnections.size === 0) {
         await refreshConnections();
     }
     
     const functionDeclarations = [];
     const addedToolNames = new Set();
-    const hasWildcard = allowedWidgets.includes('*');
     
     for (const [id, conn] of serverConnections.entries()) {
-        if (!hasWildcard && !allowedWidgets.includes(`mcp:${id}`)) {
+        if (!hasServerAccess(id, allowedWidgets, user)) {
             continue; // Skip tools from this server if user doesn't have permission
         }
 
@@ -550,17 +581,18 @@ async function testMcpConnection(config, user = null, req = null) {
 /**
  * Returns lightweight metadata of all accessible MCP servers and tools for the client.
  * Used by the client to construct dynamic execution pipelines.
+ * @param {string[]} allowedWidgets - The user's allowed widgets array
+ * @param {object} user - The authenticated user object
  */
-async function getMcpMetadata(allowedWidgets = ['*']) {
+async function getMcpMetadata(allowedWidgets = ['*'], user = null) {
     if (serverConnections.size === 0) {
         await refreshConnections();
     }
 
-    const hasWildcard = allowedWidgets.includes('*');
     const serversMeta = [];
 
     for (const [id, conn] of serverConnections.entries()) {
-        if (!hasWildcard && !allowedWidgets.includes(`mcp:${id}`)) {
+        if (!hasServerAccess(id, allowedWidgets, user)) {
             continue;
         }
 
