@@ -56,8 +56,8 @@ async function executeMcpWorkflow({ user, message, previous_interaction_id, envi
     const globalGeminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
     const modelName = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || globalGeminiModel;
 
-    // Get MCP Tools filtered by user's permissions
-    let mcpTools = await getAllMcpToolsForGemini(user.allowed_widgets || []);
+    // Get MCP Tools filtered by user's permissions (ZTA-compliant PDP check)
+    let mcpTools = await getAllMcpToolsForGemini(user?.allowed_widgets || [], user);
 
     // Dynamic Pipeline Routing: Filter tools based on explicit pipelineDomain from client OR prompt intent
     const msgLower = (message || '').toLowerCase();
@@ -153,7 +153,10 @@ Whenever the user asks for a dashboard ("ダッシュボード"), visual report 
    - Chart.js: <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
    - Lucide/FontAwesome or SVG icons, sleek dark/light theme, and polished typography.
    - Compact JS Data & Dynamic Rendering (CRITICAL TO AVOID TOKEN LIMIT):
-     Do NOT write dozens of repetitive HTML <tr>/<td> rows manually. Instead, embed the queried data as clean JavaScript objects/arrays (e.g. \`const batterData = [...]\`, \`const starterData = [...]\`) in \`<script>\`, and render the table rows and Chart.js charts dynamically using JavaScript (\`innerHTML = data.map(...).join('')\`). This keeps the HTML compact, fast, ensures the \`<script>\` section is 100% complete without being cut off, and enables seamless click-to-view player detail card interactions.
+     Do NOT write dozens of repetitive HTML <tr>/<td> rows manually. Instead, embed the queried data as clean JavaScript objects/arrays (e.g. \`const batterData = [...]\`, \`const starterData = [...]\`) in \`<script>\`, and render the table rows and Chart.js charts dynamically using JavaScript (\`innerHTML = data.map(...).join('')\`). This keeps the HTML compact and fast.
+    - Token Limit Prevention & Code Completeness (ABSOLUTE MANDATORY):
+      Select ONLY the top 5 to 8 standout key players/entities per category (e.g. top 6 batters, top 6 starters, top 6 relievers) to keep the JavaScript data concise and highly relevant. DO NOT embed dozens of repetitive player records.
+      The HTML and \`<script>\` code MUST be 100% complete and fully closed with \`</script></body></html>\`. NEVER allow the script to be truncated mid-statement. Wrap all initialization inside \`try { ... } catch (err) { console.error("Dashboard init error:", err); }\` to guarantee robustness.
    - Script Initialization: Initialize charts and tables immediately if document.readyState is not 'loading', or listen on both DOMContentLoaded and load events.
 3. For NPB Baseball Analytics Dashboards:
    - Top 3 Stat Cards: ①「最大跳躍スラッガー」(大幅WAR/本塁打増野手), ②「最大跳躍エース」(大幅防御率/投球回改善先発), ③「鉄壁リリーフ進化」(大幅S/H増加守護神/セットアッパー).
@@ -432,7 +435,7 @@ async function processTaskInBackground(taskId, { user, message, previous_interac
  */
 const getMetaHandler = async (req, res) => {
     try {
-        const metadata = await getMcpMetadata(req.user?.allowed_widgets || []);
+        const metadata = await getMcpMetadata(req.user?.allowed_widgets || [], req.user);
         res.json({
             ...metadata,
             userRole: req.user?.role || 'user'

@@ -58,8 +58,20 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
         }
     }, [viewMode, code, isExpanded]);
 
+    // 自動修復: もし <script> が開いているのに </script> が閉じていない場合、安全に閉じタグを補完
+    const safeCode = React.useMemo(() => {
+        if (!code) return '';
+        let sanitized = code;
+        const scriptOpenCount = (sanitized.match(/<script\b[^>]*>/gi) || []).length;
+        const scriptCloseCount = (sanitized.match(/<\/script>/gi) || []).length;
+        if (scriptOpenCount > scriptCloseCount) {
+            sanitized += '\n</script></body></html>';
+        }
+        return sanitized;
+    }, [code]);
+
     const openInNewTab = () => {
-        const blob = new Blob([code], { type: 'text/html' });
+        const blob = new Blob([safeCode], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank');
     };
@@ -75,7 +87,7 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
-                        onClick={() => onSaveToKnowledge && onSaveToKnowledge(code)}
+                        onClick={() => onSaveToKnowledge && onSaveToKnowledge(safeCode)}
                         className="px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 text-xs font-semibold transition-colors border border-indigo-200 flex items-center gap-1.5 shadow-xs"
                         title="このダッシュボードをナレッジベースに保存してチームで共有"
                     >
@@ -121,7 +133,7 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
                     <iframe
                         ref={iframeRef}
                         onLoad={updateHeight}
-                        srcDoc={code}
+                        srcDoc={safeCode}
                         className={`w-full rounded-lg border border-gray-200 bg-white transition-all ${isExpanded ? 'h-[800px]' : 'min-h-[500px] h-[520px]'}`}
                         sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads"
                         title="GenUI Preview"
