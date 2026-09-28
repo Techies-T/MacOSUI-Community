@@ -652,12 +652,14 @@ app.post('/api/auth/google', async (req, res) => {
                 let allowed_widgets_set = new Set();
                 let allowed_actions_set = new Set();
                 let allowed_models_set = new Set();
+                let allowed_pods_set = new Set();
                 let hasWildcardModels = false;
 
                 roles.forEach(r => {
                     const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
                     (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
                     (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+                    (policy.allowed_pods || []).forEach(p => allowed_pods_set.add(p));
                     (policy.allowed_models || []).forEach(m => {
                         if (m === '*') hasWildcardModels = true;
                         allowed_models_set.add(m);
@@ -671,6 +673,7 @@ app.post('/api/auth/google', async (req, res) => {
                 const allowed_widgets = (isAdmin || allowed_widgets_set.has('*')) ? ['*'] : Array.from(allowed_widgets_set);
                 const allowed_actions = (isAdmin || allowed_actions_set.has('*')) ? ['*'] : Array.from(allowed_actions_set);
                 const allowed_models = (isAdmin || hasWildcardModels) ? ['*'] : Array.from(allowed_models_set);
+                const allowed_pods = (isAdmin || allowed_pods_set.has('*')) ? ['*'] : Array.from(allowed_pods_set);
 
                 db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role, token_expiry) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
@@ -701,6 +704,7 @@ app.post('/api/auth/google', async (req, res) => {
                                 allowed_widgets, 
                                 allowed_actions, 
                                 allowed_models,
+                                allowed_pods,
                                 ip_hash: hashes.ipHash,
                                 ua_hash: hashes.uaHash
                             },
@@ -842,12 +846,14 @@ app.get('/api/auth/me', (req, res) => {
                 let allowed_widgets_set = new Set();
                 let allowed_actions_set = new Set();
                 let allowed_models_set = new Set();
+                let allowed_pods_set = new Set();
                 let hasWildcardModels = false;
 
                 roles.forEach(r => {
                     const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
                     (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
                     (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+                    (policy.allowed_pods || []).forEach(p => allowed_pods_set.add(p));
                     (policy.allowed_models || []).forEach(m => {
                         if (m === '*') hasWildcardModels = true;
                         allowed_models_set.add(m);
@@ -857,9 +863,11 @@ app.get('/api/auth/me', (req, res) => {
                 // Enforce Universal Default Widgets for profile management
                 ['app:settings'].forEach(w => allowed_widgets_set.add(w));
 
-                user.allowed_widgets = allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set);
-                user.allowed_actions = allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set);
-                user.allowed_models = hasWildcardModels ? ['*'] : Array.from(allowed_models_set);
+                const isAdmin = roles.includes('admin');
+                user.allowed_widgets = (isAdmin || allowed_widgets_set.has('*')) ? ['*'] : Array.from(allowed_widgets_set);
+                user.allowed_actions = (isAdmin || allowed_actions_set.has('*')) ? ['*'] : Array.from(allowed_actions_set);
+                user.allowed_models = (isAdmin || hasWildcardModels) ? ['*'] : Array.from(allowed_models_set);
+                user.allowed_pods = (isAdmin || allowed_pods_set.has('*')) ? ['*'] : Array.from(allowed_pods_set);
 
                 // Re-issue JWT to ensure subsequent API calls (PEP) succeed with fresh permissions
                 const hashes = getContextHashes(req);
@@ -873,6 +881,7 @@ app.get('/api/auth/me', (req, res) => {
                         allowed_widgets: user.allowed_widgets, 
                         allowed_actions: user.allowed_actions, 
                         allowed_models: user.allowed_models,
+                        allowed_pods: user.allowed_pods,
                         ip_hash: hashes.ipHash,
                         ua_hash: hashes.uaHash
                     },
