@@ -80,7 +80,9 @@ router.post('/', async (req, res) => {
         if (!authData) return res.status(401).json({ error: 'Not authenticated' });
         
         const { user } = authData;
-        if (user.role !== 'admin') {
+        const roles = (user.role || '').split(',').map(r => r.trim());
+        const isAdmin = roles.includes('admin') || (user.allowed_actions && (user.allowed_actions.includes('*') || user.allowed_actions.includes('action:manage_roles')));
+        if (!isAdmin) {
             return res.status(403).json({ error: 'Podの作成権限がありません。管理者のみ可能です。' });
         }
         
@@ -113,7 +115,9 @@ router.put('/:id', async (req, res) => {
         if (!authData) return res.status(401).json({ error: 'Not authenticated' });
         
         const { user } = authData;
-        if (user.role !== 'admin') {
+        const roles = (user.role || '').split(',').map(r => r.trim());
+        const isAdmin = roles.includes('admin') || (user.allowed_actions && (user.allowed_actions.includes('*') || user.allowed_actions.includes('action:manage_roles')));
+        if (!isAdmin) {
             return res.status(403).json({ error: 'Podの更新権限がありません。管理者のみ可能です。' });
         }
         
@@ -149,7 +153,9 @@ router.delete('/:id', async (req, res) => {
         if (!authData) return res.status(401).json({ error: 'Not authenticated' });
         
         const { user } = authData;
-        if (user.role !== 'admin') {
+        const roles = (user.role || '').split(',').map(r => r.trim());
+        const isAdmin = roles.includes('admin') || (user.allowed_actions && (user.allowed_actions.includes('*') || user.allowed_actions.includes('action:manage_roles')));
+        if (!isAdmin) {
             return res.status(403).json({ error: 'Podの削除権限がありません。管理者のみ可能です。' });
         }
         
