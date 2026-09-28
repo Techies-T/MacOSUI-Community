@@ -2603,12 +2603,18 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
         // Get RAG files (if mode is 'rag' or 'research')
         let ragFiles = [];
+        let sourceInfo = {
+            type: 'general_knowledge',
+            label: '🧠 パブリック一般知識 (事前学習モデル)',
+            sources: []
+        };
+
         if (mode === 'rag' || mode === 'research') {
             const targetFolderId = customConfig?.targetRagFolderId;
             ragFiles = await new Promise((resolve, reject) => {
                 // Only use files synced within the last 40 hours (Gemini File API limit is 48h)
                 const expirationLimit = new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString();
-                let query = "SELECT gemini_file_uri, drive_file_id, mime_type FROM rag_files WHERE datetime(last_synced_at) > datetime(?)";
+                let query = "SELECT gemini_file_uri, drive_file_id, file_name, mime_type FROM rag_files WHERE datetime(last_synced_at) > datetime(?)";
                 let params = [expirationLimit];
                 
                 if (mode === 'rag' && targetFolderId) {
@@ -2621,6 +2627,40 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                     else resolve(rows || []);
                 });
             });
+
+            if (mode === 'rag') {
+                if (ragFiles.length > 0) {
+                    sourceInfo = {
+                        type: 'google_drive',
+                        label: '📚 Google Drive (Personal RAG)',
+                        folderId: targetFolderId,
+                        sources: ragFiles.map(f => ({
+                            name: f.file_name || f.drive_file_id,
+                            fileId: f.drive_file_id,
+                            mimeType: f.mime_type
+                        }))
+                    };
+                } else {
+                    sourceInfo = {
+                        type: 'general_knowledge',
+                        warning: 'RAG_EMPTY',
+                        label: '⚠️ Google Drive 未同期 (パブリック知識)',
+                        sources: []
+                    };
+                }
+            }
+        } else if (mode === 'normal' && customConfig?.grounding) {
+            sourceInfo = {
+                type: 'google_search',
+                label: '🌐 Google Search (パブリックWeb検索)',
+                sources: []
+            };
+        } else if (mode === 'local_rag' || mode === 'gemma4') {
+            sourceInfo = {
+                type: 'local_ai',
+                label: '🛡️ Local Gemma 4',
+                sources: []
+            };
         }
 
         let requestParts = [{ text: message }];
@@ -2661,6 +2701,11 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
         if (customConfig?.systemInstruction) {
             systemInstruction = customConfig.systemInstruction;
+        } else if (mode === 'rag' && ragFiles.length > 0) {
+            const fileNames = ragFiles.map(f => f.file_name || f.drive_file_id).join(', ');
+            systemInstruction = `あなたは Google Drive から同期された社内ドキュメントを参照して回答する専門アシスタントです。\n提供された添付資料（${fileNames}）の内容を最優先とし、そこに書かれている定義や事実に基づいて正確に回答してください。\n回答の文脈の中で、どのドキュメントを参照したかを明記してください。`;
+        } else if (mode === 'rag' && ragFiles.length === 0) {
+            systemInstruction = "【注意】指定された Google Drive フォルダには同期済みドキュメントが存在しませんでした。Gemini のパブリックな一般知識に基づいて回答してください。回答の冒頭に「※ Google Drive 内に対象ドキュメントが見つからないため、一般知識に基づいて回答します」と明記してください。";
         } else if (mode === 'normal' && customConfig?.grounding) {
             systemInstruction = "You have access to Google Search. ALWAYS use Google Search for any questions about current events, people, or facts that might have changed since your training data. Prioritize information from search results over your internal knowledge.";
         } else if (mode === 'research') {
@@ -3063,6 +3108,7 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                         state: 'completed', 
                         reply: responseText, 
                         usageMetadata, 
+                        sourceInfo,
                         error: null,
                         interactionId: currentInteractionId,
                         environmentId: currentEnvironmentId
@@ -3196,10 +3242,11 @@ async function performRagSync(drive, ragFolders, apiKey) {
 
         // 1. List files for all folders
         ragSyncStatus.currentFile = 'Listing files...';
+        let folderErrors = [];
         for (const folder of ragFolders) {
             try {
                 const driveRes = await drive.files.list({
-                    q: `'${folder.id}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
+                    q: `'${folder.id}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'text/markdown' or mimeType = 'text/csv' or mimeType = 'application/vnd.google-apps.document')`,
                     fields: 'files(id, name, mimeType, modifiedTime)',
                     pageSize: 50,
                     supportsAllDrives: true,
@@ -3211,6 +3258,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
                 files.forEach(f => folderIdMap.set(f.id, folder.id));
             } catch (folderErr) {
                 console.error(`Failed to list files for folder ${folder.name}:`, folderErr.message);
+                folderErrors.push(`${folder.name}: ${folderErr.message}`);
             }
         }
 
@@ -3253,6 +3301,8 @@ async function performRagSync(drive, ragFolders, apiKey) {
                     }, { responseType: 'arraybuffer' });
                     content = Buffer.from(getRes.data);
                     if (mimeType === 'text/plain') extension = 'txt';
+                    if (mimeType === 'text/markdown') extension = 'md';
+                    if (mimeType === 'text/csv') extension = 'csv';
                     if (mimeType === 'application/pdf') extension = 'pdf';
                 }
 
@@ -3275,8 +3325,8 @@ async function performRagSync(drive, ragFolders, apiKey) {
 
                 // Store in DB
                 await new Promise((resolve, reject) => {
-                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, folder_id, mime_type, last_synced_at) VALUES (?, ?, ?, ?, ?)`,
-                        [file.id, uploadResult.uri, currentFolderId, mimeType, new Date().toISOString()],
+                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, folder_id, file_name, mime_type, last_synced_at) VALUES (?, ?, ?, ?, ?, ?)`,
+                        [file.id, uploadResult.uri, currentFolderId, file.name, mimeType, new Date().toISOString()],
                         (err) => {
                             if (err) reject(err);
                             else resolve();
@@ -3318,9 +3368,15 @@ async function performRagSync(drive, ragFolders, apiKey) {
             });
         }
 
-        ragSyncStatus.state = 'completed';
-        ragSyncStatus.currentFile = 'Sync Complete';
-        console.log("RAG sync completed.");
+        ragSyncStatus.syncedCount = syncedFiles.length;
+        if (folderErrors.length > 0 && uniqueDriveFiles.length === 0) {
+            ragSyncStatus.state = 'error';
+            ragSyncStatus.error = `Folder access error: ${folderErrors.join(', ')}`;
+        } else {
+            ragSyncStatus.state = 'completed';
+            ragSyncStatus.currentFile = uniqueDriveFiles.length === 0 ? 'Sync Complete (0 files found)' : `Sync Complete (${syncedFiles.length} files synced)`;
+        }
+        console.log("RAG sync completed. Total synced:", syncedFiles.length);
 
     } catch (error) {
         console.error("RAG Sync Fatal Error:", error);
