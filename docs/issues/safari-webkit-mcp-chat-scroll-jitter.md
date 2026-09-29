@@ -1,4 +1,7 @@
-# [Bug] Safari (WebKit) における MCP チャットクライアントの複数プロンプト実行時のスクロール巻き戻り・画面ちらつき
+# [Bug #6] Safari (WebKit) における MCP チャットクライアントの複数プロンプト実行時のスクロール巻き戻り・画面ちらつき
+
+- **GitHub Issue**: [#6 (Techies-T/MacOSUI-oss)](https://github.com/Techies-T/MacOSUI-oss/issues/6)
+- **Status**: Open (Chrome推奨 / 次回深掘り調査予定)
 
 ## 1. 概要 (Overview)
 `McpChat`（MCPチャットクライアント）において、**1回目のプロンプトと回答がチャット画面上部に残っている状態で2回目のプロンプトを連続送信した際、画面が上部に引き戻されたり、スクロールが小刻みに振動・ちらつく**現象が発生する。
@@ -10,6 +13,7 @@
 ---
 
 ## 2. 環境情報 (Environment)
+- **GitHub Issue**: #6
 - **ブラウザ**: Safari (macOS WebKit)
 - **比較対象**: Google Chrome (Blink) - 正常
 - **対象コンポーネント**: `src/apps/McpChat.jsx`, `src/components/HtmlPreviewCodeBlock.jsx`, `src/components/Window.jsx`
