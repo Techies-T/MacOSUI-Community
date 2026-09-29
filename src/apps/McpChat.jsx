@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import SaveToKnowledgeModal from '../components/SaveToKnowledgeModal';
+import HtmlPreviewCodeBlock from '../components/HtmlPreviewCodeBlock';
 
 const renderContextUsage = (usage) => {
     if (!usage) return null;
@@ -31,122 +32,98 @@ const renderContextUsage = (usage) => {
     );
 };
 
-// Generative UI: HTML Live Preview Component
-const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
-    const [viewMode, setViewMode] = useState('preview'); // 'preview' or 'code'
-    const [isExpanded, setIsExpanded] = useState(false);
-    const iframeRef = useRef(null);
-
-    const updateHeight = () => {
-        try {
-            if (iframeRef.current && iframeRef.current.contentWindow) {
-                const doc = iframeRef.current.contentWindow.document;
-                if (doc && doc.body) {
-                    const scrollH = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 500);
-                    iframeRef.current.style.height = `${Math.min(scrollH + 30, 1200)}px`;
-                }
+// メモ化された個別チャットメッセージコンポーネント（親コンポーネントのタイマー更新等による再レンダリング・iframe再マウントを完全抑止）
+const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onSaveToKnowledge }) => {
+    // Markdown components の参照同一性を保持し、iframeのアンマウント・再マウントを抑止
+    const markdownComponents = useMemo(() => ({
+        code({ node, inline, className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const codeStr = String(children).replace(/\n$/, '');
+            const isHtmlBlock = (!inline && match && (match[1] === 'html' || match[1] === 'htm')) ||
+                                (!inline && (codeStr.startsWith('<!DOCTYPE html') || codeStr.includes('<html') || codeStr.startsWith('<div class=') || codeStr.startsWith('<div id=') || codeStr.includes('cdn.tailwindcss.com')));
+            if (isHtmlBlock) {
+                return <HtmlPreviewCodeBlock code={codeStr} onSaveToKnowledge={onSaveToKnowledge} />;
             }
-        } catch {
-            // Ignore iframe access error
+            return <code className={className} {...props}>{children}</code>;
         }
-    };
-
-    useEffect(() => {
-        if (viewMode === 'preview') {
-            const timer = setTimeout(updateHeight, 400);
-            return () => clearTimeout(timer);
-        }
-    }, [viewMode, code, isExpanded]);
-
-    // 自動修復: もし <script> が開いているのに </script> が閉じていない場合、安全に閉じタグを補完
-    const safeCode = React.useMemo(() => {
-        if (!code) return '';
-        let sanitized = code;
-        const scriptOpenCount = (sanitized.match(/<script\b[^>]*>/gi) || []).length;
-        const scriptCloseCount = (sanitized.match(/<\/script>/gi) || []).length;
-        if (scriptOpenCount > scriptCloseCount) {
-            sanitized += '\n</script></body></html>';
-        }
-        return sanitized;
-    }, [code]);
-
-    const openInNewTab = () => {
-        const blob = new Blob([safeCode], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-    };
+    }), [onSaveToKnowledge]);
 
     return (
-        <div className={`my-4 border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white not-prose transition-all ${isExpanded ? 'ring-2 ring-indigo-400' : ''}`}>
-            <div className="bg-gray-100/80 backdrop-blur px-3 py-2 border-b border-gray-200 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                    <span className="text-base">⚡</span>
-                    <span className="font-semibold text-gray-700">Generative UI Widget</span>
-                    <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 font-medium">Interactive Preview</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => onSaveToKnowledge && onSaveToKnowledge(safeCode)}
-                        className="px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 text-xs font-semibold transition-colors border border-indigo-200 flex items-center gap-1.5 shadow-xs"
-                        title="このダッシュボードをナレッジベースに保存してチームで共有"
+        <div className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+            {/* Avatar */}
+            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-indigo-600 shadow-sm'}`}>
+                {msg.role === 'user' ? (
+                    <span className="text-xs font-semibold">Me</span>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                        <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.06 1.06a.75.75 0 101.06 1.06l1.06-1.06zM5.466 19.08a.75.75 0 01-1.06-1.06l1.06-1.06a.75.75 0 011.06 1.06l-1.06 1.06zM20.25 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM6.75 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM18.894 17.834a.75.75 0 10-1.06 1.06l1.06 1.06a.75.75 0 101.06-1.06l-1.06-1.06zM5.466 4.92a.75.75 0 001.06-1.06l-1.06-1.06a.75.75 0 00-1.06 1.06l1.06 1.06z" clipRule="evenodd" />
+                    </svg>
+                )}
+            </div>
+            
+            {/* Bubble */}
+            <div className={`group relative ${msg.role === 'user' ? 'max-w-[85%] sm:max-w-[75%] bg-indigo-600 text-white rounded-2xl rounded-tr-none px-4 py-3' : 'w-full bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none p-5 sm:p-6'} text-[15px] leading-relaxed shadow-sm overflow-x-auto`}>
+                {msg.role === 'model' && (
+                    <button 
+                        onClick={() => onCopy(msg.text, `model-${index}`)}
+                        className="absolute top-3 right-3 p-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10 flex items-center justify-center"
+                        title="回答をコピー"
                     >
-                        <span>📚</span>
-                        <span>ナレッジに保存</span>
+                        {isCopied ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
+                                <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                            </svg>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                        )}
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        className="px-2 py-1 rounded-md text-gray-600 hover:text-indigo-600 hover:bg-white text-xs font-medium transition-colors border border-transparent hover:border-gray-200"
-                        title={isExpanded ? "通常サイズに戻す" : "ウィジェットを縦に拡大表示"}
-                    >
-                        {isExpanded ? "縮小" : "拡大"}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={openInNewTab}
-                        className="px-2 py-1 rounded-md text-gray-600 hover:text-indigo-600 hover:bg-white text-xs font-medium transition-colors border border-transparent hover:border-gray-200"
-                        title="別タブで全画面表示"
-                    >
-                        別タブ
-                    </button>
-                    <div className="flex bg-gray-200 p-0.5 rounded-lg text-xs">
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('preview')}
-                            className={`px-3 py-1 rounded-md transition-all font-medium ${viewMode === 'preview' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                )}
+                {msg.role === 'user' && (
+                    <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button 
+                            onClick={() => onCopy(msg.text, `user-${index}`)}
+                            className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
+                            title="プロンプトをクリップボードにコピー"
                         >
-                            プレビュー
+                            {isCopied ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-emerald-300">
+                                    <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                </svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                </svg>
+                            )}
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('code')}
-                            className={`px-3 py-1 rounded-md transition-all font-medium ${viewMode === 'code' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                        <button 
+                            onClick={() => onReuse(msg.text)}
+                            className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
+                            title="入力欄に再セットして編集"
                         >
-                            HTMLコード
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                            </svg>
                         </button>
                     </div>
-                </div>
+                )}
+                {msg.role === 'user' ? (
+                    <p className="whitespace-pre-wrap pr-16">{msg.text}</p>
+                ) : (
+                    <div className="prose prose-indigo max-w-none prose-p:leading-relaxed prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-th:bg-gray-100 prose-th:px-4 prose-th:py-2.5 prose-th:whitespace-nowrap prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2.5 prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-200">
+                        <ReactMarkdown
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[rehypeKatex]}
+                            components={markdownComponents}
+                        >
+                            {msg.text}
+                        </ReactMarkdown>
+                    </div>
+                )}
+                {msg.role === 'model' && renderContextUsage(msg.usage)}
             </div>
-            {viewMode === 'preview' ? (
-                <div className="w-full bg-slate-900/5 p-2 overflow-auto">
-                    <iframe
-                        ref={iframeRef}
-                        onLoad={updateHeight}
-                        srcDoc={safeCode}
-                        className={`w-full rounded-lg border border-gray-200 bg-white transition-all ${isExpanded ? 'h-[800px]' : 'min-h-[500px] h-[520px]'}`}
-                        sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads"
-                        title="GenUI Preview"
-                    />
-                </div>
-            ) : (
-                <pre className="p-4 bg-gray-900 text-gray-100 text-xs overflow-x-auto m-0">
-                    <code>{code}</code>
-                </pre>
-            )}
         </div>
     );
-};
+});
 
 const McpChat = () => {
     const [messages, setMessages] = useState([]);
@@ -176,12 +153,15 @@ const McpChat = () => {
     const [saveKnowledgeDefaultTitle, setSaveKnowledgeDefaultTitle] = useState('');
     const [toastMessage, setToastMessage] = useState('');
 
-    const handleSaveToKnowledge = (code) => {
+    const handleSaveToKnowledge = useCallback((code) => {
         setCodeToSave(code);
-        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-        setSaveKnowledgeDefaultTitle(lastUserMsg ? lastUserMsg.text.slice(0, 60) : '');
+        setMessages(prev => {
+            const lastUserMsg = [...prev].reverse().find(m => m.role === 'user');
+            setSaveKnowledgeDefaultTitle(lastUserMsg ? lastUserMsg.text.slice(0, 60) : '');
+            return prev;
+        });
         setSaveKnowledgeModalOpen(true);
-    };
+    }, []);
 
     const handleSavedToKnowledge = (data) => {
         setToastMessage(`「${data.title || 'ダッシュボード'}」をナレッジベースに保存しました！`);
@@ -191,7 +171,7 @@ const McpChat = () => {
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
-    const handleCopy = async (text, id) => {
+    const handleCopy = useCallback(async (text, id) => {
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
@@ -211,14 +191,14 @@ const McpChat = () => {
         } catch (err) {
             console.error('Failed to copy text:', err);
         }
-    };
+    }, []);
 
-    const handleReusePrompt = (text) => {
+    const handleReusePrompt = useCallback((text) => {
         setInput(text);
         if (inputRef.current) {
             inputRef.current.focus();
         }
-    };
+    }, []);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -256,12 +236,16 @@ const McpChat = () => {
 
     useEffect(() => {
         fetchMcpMetadata();
+        fetchQuickPrompts();
     }, []);
 
+    const prevMessageCountRef = useRef(0);
     useEffect(() => {
-        scrollToBottom();
-        fetchQuickPrompts();
-    }, [messages]);
+        if (messages.length > prevMessageCountRef.current) {
+            scrollToBottom();
+        }
+        prevMessageCountRef.current = messages.length;
+    }, [messages.length]);
 
     const stopTaskPolling = () => {
         if (pollingIntervalRef.current) {
@@ -288,14 +272,14 @@ const McpChat = () => {
         stopTaskPolling();
         setIsLoading(false);
         setActiveTask(null);
-        setMessages(prev => [...prev, { role: 'model', text: "⚠️ タスクの実行がユーザーにより中断されました。" }]);
+        setMessages(prev => [...prev, { id: `cancel-${Date.now()}`, role: 'model', text: "⚠️ タスクの実行がユーザーにより中断されました。" }]);
     };
 
     const handleSend = async () => {
         const textToSend = input.trim();
         if (!textToSend) return;
 
-        const userMessage = { role: 'user', text: textToSend };
+        const userMessage = { id: `user-${Date.now()}`, role: 'user', text: textToSend };
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
@@ -363,9 +347,9 @@ const McpChat = () => {
                             if (res.environmentId) setEnvironmentId(res.environmentId);
 
                             if (res.reply) {
-                                setMessages(prev => [...prev, { role: 'model', text: res.reply, usage: res.usageMetadata }]);
+                                setMessages(prev => [...prev, { id: `model-${Date.now()}`, role: 'model', text: res.reply, usage: res.usageMetadata }]);
                             } else {
-                                setMessages(prev => [...prev, { role: 'model', text: "Operation completed.", usage: res.usageMetadata }]);
+                                setMessages(prev => [...prev, { id: `model-${Date.now()}`, role: 'model', text: "Operation completed.", usage: res.usageMetadata }]);
                             }
 
                             if (res.artifacts && res.artifacts.length > 0) {
@@ -384,12 +368,12 @@ const McpChat = () => {
                             stopTaskPolling();
                             setIsLoading(false);
                             setActiveTask(null);
-                            setMessages(prev => [...prev, { role: 'model', text: `❌ エラー: ${taskData.error || 'タスクの実行に失敗しました'}` }]);
+                            setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: 'model', text: `❌ エラー: ${taskData.error || 'タスクの実行に失敗しました'}` }]);
                         } else if (taskData.status === 'cancelled') {
                             stopTaskPolling();
                             setIsLoading(false);
                             setActiveTask(null);
-                            setMessages(prev => [...prev, { role: 'model', text: "⚠️ タスクがキャンセルされました。" }]);
+                            setMessages(prev => [...prev, { id: `cancel-${Date.now()}`, role: 'model', text: "⚠️ タスクがキャンセルされました。" }]);
                         }
                     } catch (pollErr) {
                         console.error("Polling task error:", pollErr);
@@ -401,7 +385,7 @@ const McpChat = () => {
                 stopTaskPolling();
                 setIsLoading(false);
                 if (data.reply) {
-                    setMessages(prev => [...prev, { role: 'model', text: data.reply, usage: data.usageMetadata }]);
+                    setMessages(prev => [...prev, { id: `model-${Date.now()}`, role: 'model', text: data.reply, usage: data.usageMetadata }]);
                 }
             }
 
@@ -410,7 +394,7 @@ const McpChat = () => {
             stopTaskPolling();
             setIsLoading(false);
             setActiveTask(null);
-            setMessages(prev => [...prev, { role: 'model', text: `❌ Error: ${error.message}` }]);
+            setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: 'model', text: `❌ Error: ${error.message}` }]);
         }
     };
 
@@ -556,90 +540,15 @@ const McpChat = () => {
 
                     <div className="w-full max-w-[96%] mx-auto space-y-6">
                         {messages.map((msg, index) => (
-                            <div key={index} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} animate-fadeIn`}>
-                                {/* Avatar */}
-                                <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-indigo-600 shadow-sm'}`}>
-                                    {msg.role === 'user' ? (
-                                        <span className="text-xs font-semibold">Me</span>
-                                    ) : (
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                                            <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.06 1.06a.75.75 0 101.06 1.06l1.06-1.06zM5.466 19.08a.75.75 0 01-1.06-1.06l1.06-1.06a.75.75 0 011.06 1.06l-1.06 1.06zM20.25 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM6.75 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM18.894 17.834a.75.75 0 10-1.06 1.06l1.06 1.06a.75.75 0 101.06-1.06l-1.06-1.06zM5.466 4.92a.75.75 0 001.06-1.06l-1.06-1.06a.75.75 0 00-1.06 1.06l1.06 1.06z" clipRule="evenodd" />
-                                        </svg>
-                                    )}
-                                </div>
-                                
-                                {/* Bubble */}
-                                <div className={`group relative ${msg.role === 'user' ? 'max-w-[85%] sm:max-w-[75%] bg-indigo-600 text-white rounded-2xl rounded-tr-none px-4 py-3' : 'w-full bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none p-5 sm:p-6'} text-[15px] leading-relaxed shadow-sm overflow-x-auto`}>
-                                    {msg.role === 'model' && (
-                                        <button 
-                                            onClick={() => handleCopy(msg.text, `model-${index}`)}
-                                            className="absolute top-3 right-3 p-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10 flex items-center justify-center"
-                                            title="回答をコピー"
-                                        >
-                                            {copiedId === `model-${index}` ? (
-                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
-                                                    <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
-                                                </svg>
-                                            ) : (
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                                            )}
-                                        </button>
-                                    )}
-                                    {msg.role === 'user' && (
-                                        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                            <button 
-                                                onClick={() => handleCopy(msg.text, `user-${index}`)}
-                                                className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
-                                                title="プロンプトをクリップボードにコピー"
-                                            >
-                                                {copiedId === `user-${index}` ? (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-emerald-300">
-                                                        <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
-                                                    </svg>
-                                                ) : (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                                                    </svg>
-                                                )}
-                                            </button>
-                                            <button 
-                                                onClick={() => handleReusePrompt(msg.text)}
-                                                className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
-                                                title="入力欄に再セットして編集"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    )}
-                                    {msg.role === 'user' ? (
-                                        <p className="whitespace-pre-wrap pr-16">{msg.text}</p>
-                                    ) : (
-                                        <div className="prose prose-indigo max-w-none prose-p:leading-relaxed prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-th:bg-gray-100 prose-th:px-4 prose-th:py-2.5 prose-th:whitespace-nowrap prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2.5 prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-200">
-                                            <ReactMarkdown
-                                                remarkPlugins={[remarkGfm, remarkMath]}
-                                                rehypePlugins={[rehypeKatex]}
-                                                components={{
-                                                    code({ node, inline, className, children, ...props }) {
-                                                        const match = /language-(\w+)/.exec(className || '');
-                                                        const codeStr = String(children).replace(/\n$/, '');
-                                                        const isHtmlBlock = (!inline && match && (match[1] === 'html' || match[1] === 'htm')) ||
-                                                                            (!inline && (codeStr.startsWith('<!DOCTYPE html') || codeStr.includes('<html') || codeStr.startsWith('<div class=') || codeStr.startsWith('<div id=') || codeStr.includes('cdn.tailwindcss.com')));
-                                                        if (isHtmlBlock) {
-                                                            return <HtmlPreviewCodeBlock code={codeStr} onSaveToKnowledge={handleSaveToKnowledge} />;
-                                                        }
-                                                        return <code className={className} {...props}>{children}</code>;
-                                                    }
-                                                }}
-                                            >
-                                                {msg.text}
-                                            </ReactMarkdown>
-                                        </div>
-                                    )}
-                                    {msg.role === 'model' && renderContextUsage(msg.usage)}
-                                </div>
-                            </div>
+                            <ChatMessageItem
+                                key={msg.id || `msg-${index}-${msg.role}`}
+                                msg={msg}
+                                index={index}
+                                isCopied={copiedId === (msg.role === 'user' ? `user-${index}` : `model-${index}`)}
+                                onCopy={handleCopy}
+                                onReuse={handleReusePrompt}
+                                onSaveToKnowledge={handleSaveToKnowledge}
+                            />
                         ))}
 
                         {isLoading && (

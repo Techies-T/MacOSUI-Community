@@ -31,9 +31,16 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
         window.open(url, '_blank');
     };
 
-    // srcDoc 用に DOMContentLoaded が既に発火済みでも初期化が実行されるセーフティスクリプトを注入
+    // srcDoc 用に未完結スクリプトの自動補完および DOMContentLoaded セーフティスクリプトを注入
     const preparedCode = React.useMemo(() => {
         if (!code) return '';
+        let sanitized = code;
+        const scriptOpenCount = (sanitized.match(/<script\b[^>]*>/gi) || []).length;
+        const scriptCloseCount = (sanitized.match(/<\/script>/gi) || []).length;
+        if (scriptOpenCount > scriptCloseCount) {
+            sanitized += '\n</script></body></html>';
+        }
+
         const safetyScript = `
 <script>
 (function() {
@@ -53,10 +60,10 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
 })();
 </script>
 `;
-        if (code.includes('</body>')) {
-            return code.replace('</body>', `${safetyScript}</body>`);
+        if (sanitized.includes('</body>')) {
+            return sanitized.replace('</body>', `${safetyScript}</body>`);
         }
-        return code + safetyScript;
+        return sanitized + safetyScript;
     }, [code]);
 
     return (
@@ -133,4 +140,4 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
     );
 };
 
-export default HtmlPreviewCodeBlock;
+export default React.memo(HtmlPreviewCodeBlock);
