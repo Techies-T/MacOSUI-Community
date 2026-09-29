@@ -125,54 +125,94 @@ const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onS
     );
 });
 
-// 独立したタスク進捗インジケーター（内部で経過時間タイマーを自律管理し、親の再レンダリングを完全抑止）
-const TaskProgressIndicator = React.memo(({ activeTask, onCancel }) => {
+// 独立したタスク進捗インジケーター（内部でポーリングおよびタイマーを自律管理し、親コンポーネントの再レンダリングを完全ゼロ化）
+const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCancel }) => {
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [progress, setProgress] = useState('タスク受付完了。処理を開始します...');
+    const isCancelledRef = useRef(false);
 
     useEffect(() => {
         const startTime = Date.now();
         const timer = setInterval(() => {
             setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
         }, 1000);
-        return () => clearInterval(timer);
-    }, []);
+
+        const pollTimer = setInterval(async () => {
+            if (isCancelledRef.current) return;
+            try {
+                const res = await fetch(`/api/mcp/tasks/${taskId}`);
+                if (!res.ok) return;
+                const taskData = await res.json();
+
+                if (taskData.status === 'running') {
+                    setProgress(taskData.progress || 'エージェントが推論中...');
+                } else if (taskData.status === 'completed') {
+                    clearInterval(timer);
+                    clearInterval(pollTimer);
+                    onComplete(taskData.result || {});
+                } else if (taskData.status === 'failed') {
+                    clearInterval(timer);
+                    clearInterval(pollTimer);
+                    onError(taskData.error || 'タスクの実行に失敗しました');
+                } else if (taskData.status === 'cancelled') {
+                    clearInterval(timer);
+                    clearInterval(pollTimer);
+                    onCancel();
+                }
+            } catch (e) {
+                console.error('[TaskProgressIndicator] Polling error:', e);
+            }
+        }, 1500);
+
+        return () => {
+            clearInterval(timer);
+            clearInterval(pollTimer);
+        };
+    }, [taskId, onComplete, onError, onCancel]);
+
+    const handleCancel = () => {
+        isCancelledRef.current = true;
+        onCancel();
+    };
 
     return (
-        <div className="flex gap-4 flex-row animate-fadeIn">
+        <div className="flex gap-4 flex-row">
             <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md text-white">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 animate-spin">
                     <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
                 </svg>
             </div>
-            <div className="w-full max-w-xl bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md">
-                <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <span className="relative flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
-                        </span>
-                        <span className="text-xs font-semibold text-indigo-900 tracking-wide">
-                            MCP Tasks 非同期エージェント自律実行中
-                        </span>
-                        <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
-                            {elapsedTime}s
+            <div className="w-full max-w-xl min-h-[96px] bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md flex flex-col justify-between">
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                            <span className="relative flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
+                            </span>
+                            <span className="text-xs font-semibold text-indigo-900 tracking-wide">
+                                MCP Tasks 非同期エージェント自律実行中
+                            </span>
+                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
+                                {elapsedTime}s
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleCancel}
+                            className="px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium transition-colors"
+                        >
+                            中断 (Cancel)
+                        </button>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                        <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
+                            ⚙️
+                        </div>
+                        <span className="font-medium animate-pulse">
+                            {progress}
                         </span>
                     </div>
-                    <button
-                        type="button"
-                        onClick={onCancel}
-                        className="px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium transition-colors"
-                    >
-                        中断 (Cancel)
-                    </button>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-700">
-                    <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
-                        ⚙️
-                    </div>
-                    <span className="font-medium animate-pulse">
-                        {activeTask?.progress || 'バックグラウンドで処理を実行中...'}
-                    </span>
                 </div>
                 <div className="mt-2 text-[11px] text-gray-400">
                     ※ SEP-2663 準拠: CloudFront の 60秒制限を受けず、大規模分析・ダッシュボード生成をバックグラウンドで確実に完遂します。
@@ -188,8 +228,7 @@ const McpChat = () => {
     const [environmentId, setEnvironmentId] = useState(null);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [activeTask, setActiveTask] = useState(null); // { taskId, status, progress, currentTurn }
-    const pollingIntervalRef = useRef(null);
+    const [currentTaskId, setCurrentTaskId] = useState(null);
     
     // Artifact Viewer State
     const [activeArtifact, setActiveArtifact] = useState(null); // The artifact to display on the right pane
@@ -308,29 +347,70 @@ const McpChat = () => {
         prevMessageCountRef.current = messages.length;
     }, [messages.length, scrollToBottom]);
 
-    const stopTaskPolling = () => {
-        if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-        }
-    };
-
     useEffect(() => {
-        return () => stopTaskPolling();
+        if (currentTaskId) {
+            const timer = setTimeout(() => scrollToBottom(true), 50);
+            return () => clearTimeout(timer);
+        }
+    }, [currentTaskId, scrollToBottom]);
+
+    // タスク完了ハンドラ（子コンポーネントの自律ポーリング完了時にのみ1回だけ発火）
+    const handleTaskComplete = useCallback((res) => {
+        setIsLoading(false);
+        setCurrentTaskId(null);
+
+        if (res?.interactionId) setPreviousInteractionId(res.interactionId);
+        if (res?.environmentId) setEnvironmentId(res.environmentId);
+
+        const replyText = res?.reply || "Operation completed.";
+        setMessages(prev => [...prev, {
+            id: `model-${Date.now()}`,
+            role: 'model',
+            text: replyText,
+            usage: res?.usageMetadata
+        }]);
+
+        if (res?.artifacts && res.artifacts.length > 0) {
+            const newArtifacts = res.artifacts.map((art, idx) => ({
+                id: Date.now() + idx,
+                tool: art.tool,
+                args: art.args,
+                result: art.result,
+                timestamp: new Date().toLocaleTimeString()
+            }));
+            setAllArtifacts(prev => [...prev, ...newArtifacts]);
+            setActiveArtifact(newArtifacts[newArtifacts.length - 1]);
+        }
     }, []);
 
-    const handleCancelTask = useCallback(async () => {
-        if (!activeTask?.taskId) return;
-        try {
-            await fetch(`/api/mcp/tasks/${activeTask.taskId}/cancel`, { method: 'POST' });
-        } catch (e) {
-            console.error("Cancel task error:", e);
-        }
-        stopTaskPolling();
+    // タスクエラーハンドラ
+    const handleTaskError = useCallback((errorMsg) => {
         setIsLoading(false);
-        setActiveTask(null);
-        setMessages(prev => [...prev, { id: `cancel-${Date.now()}`, role: 'model', text: "⚠️ タスクの実行がユーザーにより中断されました。" }]);
-    }, [activeTask?.taskId]);
+        setCurrentTaskId(null);
+        setMessages(prev => [...prev, {
+            id: `err-${Date.now()}`,
+            role: 'model',
+            text: `❌ エラー: ${errorMsg || 'タスクの実行に失敗しました'}`
+        }]);
+    }, []);
+
+    // タスク中断ハンドラ
+    const handleTaskCancel = useCallback(async () => {
+        if (currentTaskId) {
+            try {
+                await fetch(`/api/mcp/tasks/${currentTaskId}/cancel`, { method: 'POST' });
+            } catch (e) {
+                console.error("Cancel task error:", e);
+            }
+        }
+        setIsLoading(false);
+        setCurrentTaskId(null);
+        setMessages(prev => [...prev, {
+            id: `cancel-${Date.now()}`,
+            role: 'model',
+            text: "⚠️ タスクの実行がユーザーにより中断されました。"
+        }]);
+    }, [currentTaskId]);
 
     const handleSend = async () => {
         const textToSend = input.trim();
@@ -340,7 +420,6 @@ const McpChat = () => {
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
-        stopTaskPolling();
 
         try {
             // SEP-2663 Tasks 拡張機能: 即時非同期タスク作成
@@ -362,77 +441,11 @@ const McpChat = () => {
 
             const data = await response.json();
 
-            // 202 Accepted: 非同期タスク開始
+            // 202 Accepted: 非同期タスク開始（taskIdをセットするだけで親は一切ポーリングせず静止）
             if (data.taskId) {
-                const taskId = data.taskId;
-                setActiveTask({
-                    taskId,
-                    status: 'pending',
-                    progress: 'タスク受付完了。処理を開始します...',
-                    currentTurn: 0
-                });
-
-                // ポーリング開始 (1.5秒間隔)
-                pollingIntervalRef.current = setInterval(async () => {
-                    try {
-                        const statusRes = await fetch(`/api/mcp/tasks/${taskId}`);
-                        if (!statusRes.ok) return;
-
-                        const taskData = await statusRes.json();
-                        
-                        if (taskData.status === 'running') {
-                            setActiveTask(prev => ({
-                                ...prev,
-                                status: 'running',
-                                progress: taskData.progress || 'エージェントが推論中...',
-                                currentTurn: taskData.currentTurn || 0
-                            }));
-                        } else if (taskData.status === 'completed') {
-                            stopTaskPolling();
-                            setIsLoading(false);
-                            setActiveTask(null);
-
-                            const res = taskData.result || {};
-                            if (res.interactionId) setPreviousInteractionId(res.interactionId);
-                            if (res.environmentId) setEnvironmentId(res.environmentId);
-
-                            if (res.reply) {
-                                setMessages(prev => [...prev, { id: `model-${Date.now()}`, role: 'model', text: res.reply, usage: res.usageMetadata }]);
-                            } else {
-                                setMessages(prev => [...prev, { id: `model-${Date.now()}`, role: 'model', text: "Operation completed.", usage: res.usageMetadata }]);
-                            }
-
-                            if (res.artifacts && res.artifacts.length > 0) {
-                                const newArtifacts = res.artifacts.map((art, idx) => ({
-                                    id: Date.now() + idx,
-                                    tool: art.tool,
-                                    args: art.args,
-                                    result: art.result,
-                                    timestamp: new Date().toLocaleTimeString()
-                                }));
-                                setAllArtifacts(prev => [...prev, ...newArtifacts]);
-                                setActiveArtifact(newArtifacts[newArtifacts.length - 1]);
-                            }
-
-                        } else if (taskData.status === 'failed') {
-                            stopTaskPolling();
-                            setIsLoading(false);
-                            setActiveTask(null);
-                            setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: 'model', text: `❌ エラー: ${taskData.error || 'タスクの実行に失敗しました'}` }]);
-                        } else if (taskData.status === 'cancelled') {
-                            stopTaskPolling();
-                            setIsLoading(false);
-                            setActiveTask(null);
-                            setMessages(prev => [...prev, { id: `cancel-${Date.now()}`, role: 'model', text: "⚠️ タスクがキャンセルされました。" }]);
-                        }
-                    } catch (pollErr) {
-                        console.error("Polling task error:", pollErr);
-                    }
-                }, 1500);
-
+                setCurrentTaskId(data.taskId);
             } else {
-                // フォールバック（同期返却の場合）
-                stopTaskPolling();
+                // 同期フォールバック
                 setIsLoading(false);
                 if (data.reply) {
                     setMessages(prev => [...prev, { id: `model-${Date.now()}`, role: 'model', text: data.reply, usage: data.usageMetadata }]);
@@ -441,9 +454,8 @@ const McpChat = () => {
 
         } catch (error) {
             console.error("MCP Chat Error:", error);
-            stopTaskPolling();
             setIsLoading(false);
-            setActiveTask(null);
+            setCurrentTaskId(null);
             setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: 'model', text: `❌ Error: ${error.message}` }]);
         }
     };
@@ -605,10 +617,12 @@ const McpChat = () => {
                             />
                         ))}
 
-                        {isLoading && (
+                        {isLoading && currentTaskId && (
                             <TaskProgressIndicator 
-                                activeTask={activeTask}
-                                onCancel={handleCancelTask}
+                                taskId={currentTaskId}
+                                onComplete={handleTaskComplete}
+                                onError={handleTaskError}
+                                onCancel={handleTaskCancel}
                             />
                         )}
                     </div>
