@@ -294,15 +294,27 @@ const McpChat = () => {
     }, []);
 
     const messagesContainerRef = useRef(null);
+    const messagesEndRef = useRef(null);
 
     const scrollToBottom = useCallback((instant = true) => {
-        if (messagesContainerRef.current) {
-            messagesContainerRef.current.scrollTo({
-                top: messagesContainerRef.current.scrollHeight,
-                behavior: instant ? 'auto' : 'smooth'
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({
+                behavior: instant ? 'auto' : 'smooth',
+                block: 'end'
             });
+        } else if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
         }
     }, []);
+
+    const triggerScrollToBottom = useCallback((instant = true) => {
+        scrollToBottom(instant);
+        requestAnimationFrame(() => {
+            scrollToBottom(instant);
+            setTimeout(() => scrollToBottom(instant), 60);
+            setTimeout(() => scrollToBottom(instant), 250);
+        });
+    }, [scrollToBottom]);
 
     const fetchMcpMetadata = async () => {
         setIsLoadingMeta(true);
@@ -342,17 +354,16 @@ const McpChat = () => {
     const prevMessageCountRef = useRef(0);
     useEffect(() => {
         if (messages.length > prevMessageCountRef.current) {
-            scrollToBottom(true);
+            triggerScrollToBottom(true);
         }
         prevMessageCountRef.current = messages.length;
-    }, [messages.length, scrollToBottom]);
+    }, [messages.length, triggerScrollToBottom]);
 
     useEffect(() => {
         if (currentTaskId) {
-            const timer = setTimeout(() => scrollToBottom(true), 50);
-            return () => clearTimeout(timer);
+            triggerScrollToBottom(true);
         }
-    }, [currentTaskId, scrollToBottom]);
+    }, [currentTaskId, triggerScrollToBottom]);
 
     // タスク完了ハンドラ（子コンポーネントの自律ポーリング完了時にのみ1回だけ発火）
     const handleTaskComplete = useCallback((res) => {
@@ -420,6 +431,9 @@ const McpChat = () => {
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
 
         try {
             // SEP-2663 Tasks 拡張機能: 即時非同期タスク作成
@@ -576,7 +590,6 @@ const McpChat = () => {
                 {/* Messages List */}
                 <div 
                     ref={messagesContainerRef}
-                    style={{ overflowAnchor: 'none' }}
                     className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 scrollbar-thin"
                 >
                     {messages.length === 0 && (
@@ -625,6 +638,7 @@ const McpChat = () => {
                                 onCancel={handleTaskCancel}
                             />
                         )}
+                        <div ref={messagesEndRef} className="h-px w-full" />
                     </div>
                 </div>
 
