@@ -125,6 +125,63 @@ const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onS
     );
 });
 
+// 独立したタスク進捗インジケーター（内部で経過時間タイマーを自律管理し、親の再レンダリングを完全抑止）
+const TaskProgressIndicator = React.memo(({ activeTask, onCancel }) => {
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    useEffect(() => {
+        const startTime = Date.now();
+        const timer = setInterval(() => {
+            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    return (
+        <div className="flex gap-4 flex-row animate-fadeIn">
+            <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 animate-spin">
+                    <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
+                </svg>
+            </div>
+            <div className="w-full max-w-xl bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md">
+                <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
+                        </span>
+                        <span className="text-xs font-semibold text-indigo-900 tracking-wide">
+                            MCP Tasks 非同期エージェント自律実行中
+                        </span>
+                        <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
+                            {elapsedTime}s
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium transition-colors"
+                    >
+                        中断 (Cancel)
+                    </button>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-700">
+                    <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
+                        ⚙️
+                    </div>
+                    <span className="font-medium animate-pulse">
+                        {activeTask?.progress || 'バックグラウンドで処理を実行中...'}
+                    </span>
+                </div>
+                <div className="mt-2 text-[11px] text-gray-400">
+                    ※ SEP-2663 準拠: CloudFront の 60秒制限を受けず、大規模分析・ダッシュボード生成をバックグラウンドで確実に完遂します。
+                </div>
+            </div>
+        </div>
+    );
+});
+
 const McpChat = () => {
     const [messages, setMessages] = useState([]);
     const [previousInteractionId, setPreviousInteractionId] = useState(null);
@@ -132,9 +189,7 @@ const McpChat = () => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [activeTask, setActiveTask] = useState(null); // { taskId, status, progress, currentTurn }
-    const [elapsedTime, setElapsedTime] = useState(0);
     const pollingIntervalRef = useRef(null);
-    const timerIntervalRef = useRef(null);
     
     // Artifact Viewer State
     const [activeArtifact, setActiveArtifact] = useState(null); // The artifact to display on the right pane
@@ -168,7 +223,6 @@ const McpChat = () => {
         setTimeout(() => setToastMessage(''), 4000);
     };
 
-    const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
     const handleCopy = useCallback(async (text, id) => {
@@ -200,9 +254,16 @@ const McpChat = () => {
         }
     }, []);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    const messagesContainerRef = useRef(null);
+
+    const scrollToBottom = useCallback((instant = true) => {
+        if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTo({
+                top: messagesContainerRef.current.scrollHeight,
+                behavior: instant ? 'auto' : 'smooth'
+            });
+        }
+    }, []);
 
     const fetchMcpMetadata = async () => {
         setIsLoadingMeta(true);
@@ -242,19 +303,15 @@ const McpChat = () => {
     const prevMessageCountRef = useRef(0);
     useEffect(() => {
         if (messages.length > prevMessageCountRef.current) {
-            scrollToBottom();
+            scrollToBottom(true);
         }
         prevMessageCountRef.current = messages.length;
-    }, [messages.length]);
+    }, [messages.length, scrollToBottom]);
 
     const stopTaskPolling = () => {
         if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current);
             pollingIntervalRef.current = null;
-        }
-        if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current);
-            timerIntervalRef.current = null;
         }
     };
 
@@ -262,7 +319,7 @@ const McpChat = () => {
         return () => stopTaskPolling();
     }, []);
 
-    const handleCancelTask = async () => {
+    const handleCancelTask = useCallback(async () => {
         if (!activeTask?.taskId) return;
         try {
             await fetch(`/api/mcp/tasks/${activeTask.taskId}/cancel`, { method: 'POST' });
@@ -273,7 +330,7 @@ const McpChat = () => {
         setIsLoading(false);
         setActiveTask(null);
         setMessages(prev => [...prev, { id: `cancel-${Date.now()}`, role: 'model', text: "⚠️ タスクの実行がユーザーにより中断されました。" }]);
-    };
+    }, [activeTask?.taskId]);
 
     const handleSend = async () => {
         const textToSend = input.trim();
@@ -283,14 +340,7 @@ const McpChat = () => {
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
-        setElapsedTime(0);
-
-        // タイマースタート
         stopTaskPolling();
-        const startTime = Date.now();
-        timerIntervalRef.current = setInterval(() => {
-            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
-        }, 1000);
 
         try {
             // SEP-2663 Tasks 拡張機能: 即時非同期タスク作成
@@ -512,7 +562,11 @@ const McpChat = () => {
                 </div>
 
                 {/* Messages List */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 scrollbar-thin">
+                <div 
+                    ref={messagesContainerRef}
+                    style={{ overflowAnchor: 'none' }}
+                    className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 scrollbar-thin"
+                >
                     {messages.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto animate-fadeIn">
                             <div className="w-16 h-16 bg-white border border-gray-200 rounded-2xl flex items-center justify-center shadow-sm mb-6">
@@ -552,49 +606,11 @@ const McpChat = () => {
                         ))}
 
                         {isLoading && (
-                            <div className="flex gap-4 flex-row animate-fadeIn">
-                                <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md text-white">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 animate-spin">
-                                        <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
-                                    </svg>
-                                </div>
-                                <div className="w-full max-w-xl bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <span className="relative flex h-2.5 w-2.5">
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
-                                            </span>
-                                            <span className="text-xs font-semibold text-indigo-900 tracking-wide">
-                                                MCP Tasks 非同期エージェント自律実行中
-                                            </span>
-                                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
-                                                {elapsedTime}s
-                                            </span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={handleCancelTask}
-                                            className="px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium transition-colors"
-                                        >
-                                            中断 (Cancel)
-                                        </button>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                                        <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
-                                            ⚙️
-                                        </div>
-                                        <span className="font-medium animate-pulse">
-                                            {activeTask?.progress || 'バックグラウンドで処理を実行中...'}
-                                        </span>
-                                    </div>
-                                    <div className="mt-2 text-[11px] text-gray-400">
-                                        ※ SEP-2663 準拠: CloudFront の 60秒制限を受けず、大規模分析・ダッシュボード生成をバックグラウンドで確実に完遂します。
-                                    </div>
-                                </div>
-                            </div>
+                            <TaskProgressIndicator 
+                                activeTask={activeTask}
+                                onCancel={handleCancelTask}
+                            />
                         )}
-                        <div ref={messagesEndRef} />
                     </div>
                 </div>
 
