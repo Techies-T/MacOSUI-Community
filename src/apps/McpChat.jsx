@@ -297,13 +297,15 @@ const McpChat = () => {
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = useCallback((instant = true) => {
-        if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({
-                behavior: instant ? 'auto' : 'smooth',
-                block: 'end'
-            });
-        } else if (messagesContainerRef.current) {
-            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        if (messagesContainerRef.current) {
+            const container = messagesContainerRef.current;
+            // Safari/WebKit 対応: scrollIntoView は祖先コンテナまで巻き込んでスクロール位置を破壊・リセットするため、
+            // コンテナ自身の scrollTop を直接セットする
+            if (instant) {
+                container.scrollTop = container.scrollHeight;
+            } else {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+            }
         }
     }, []);
 
@@ -538,7 +540,7 @@ const McpChat = () => {
         <div className="flex h-full w-full bg-white overflow-hidden">
             
             {/* Left Pane: Chat Interface */}
-            <div className={`flex flex-col h-full border-r border-gray-200 transition-all duration-300 ${activeArtifact ? 'w-1/2' : 'w-full border-r-0'}`}>
+            <div className={`flex flex-col h-full min-h-0 border-r border-gray-200 transition-all duration-300 ${activeArtifact ? 'w-1/2' : 'w-full border-r-0'}`}>
                 
                 {/* Header */}
                 <div className="flex-none h-14 border-b border-gray-200 bg-white flex items-center px-6 justify-between shadow-sm z-10">
@@ -590,7 +592,7 @@ const McpChat = () => {
                 {/* Messages List */}
                 <div 
                     ref={messagesContainerRef}
-                    className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 scrollbar-thin"
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 bg-gray-50/50 scrollbar-thin"
                 >
                     {messages.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto animate-fadeIn">
