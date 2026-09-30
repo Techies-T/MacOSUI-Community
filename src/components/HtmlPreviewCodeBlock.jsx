@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 // Generative UI: HTML Live Preview Component
-const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
+const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge, onOpen }) => {
     const [viewMode, setViewMode] = useState('preview'); // 'preview' or 'code'
     const [isExpanded, setIsExpanded] = useState(false);
     const iframeRef = useRef(null);
@@ -29,6 +29,20 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
         const blob = new Blob([code], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank');
+    };
+
+    const openInBrowserWindow = () => {
+        if (onOpen) {
+            const windowId = `analytics-dashboard-${Date.now()}`;
+            let title = 'AI Analytics ダッシュボード';
+            const titleMatch = code.match(/<title>([^<]+)<\/title>/i) || code.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
+            if (titleMatch && titleMatch[1]) {
+                title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+            }
+            onOpen(windowId, 'browser', title, { liveContent: code });
+        } else {
+            openInNewTab();
+        }
     };
 
     // srcDoc 用に未完結スクリプトの自動補完および DOMContentLoaded セーフティスクリプトを注入
@@ -94,6 +108,17 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
                     >
                         {isExpanded ? "縮小" : "拡大"}
                     </button>
+                    {onOpen && (
+                        <button
+                            type="button"
+                            onClick={openInBrowserWindow}
+                            className="px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition-colors border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-1.5 shadow-xs"
+                            title="MacOSUIデスクトップ内のBrowserウィンドウとして開く（リサイズ・スクロール対応）"
+                        >
+                            <span>🖥️</span>
+                            <span>デスクトップで開く</span>
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={openInNewTab}
