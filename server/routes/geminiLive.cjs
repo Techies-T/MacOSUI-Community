@@ -1,6 +1,15 @@
+const express = require('express');
+const router = express.Router();
 const { WebSocketServer, WebSocket } = require('ws');
 const jwt = require('jsonwebtoken');
 const db = require('../db.cjs');
+
+// Live API 専用のモデルプリセット一覧 (他機能の通常モデル一覧とは完全分離)
+const LIVE_MODEL_PRESETS = [
+    { id: 'gemini-3.8-flash-exp', name: 'Gemini 3.8 Flash Live (最新・高速推論 / 推奨)' },
+    { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash Live (マルチモーダル実験)' },
+    { id: 'gemini-2.0-flash-realtime-exp', name: 'Gemini 2.0 Realtime Exp' }
+];
 
 /**
  * 簡易 Cookie パーサー (外部依存なしで安全に抽出)
@@ -42,6 +51,41 @@ async function authenticateRequest(request) {
         });
     });
 }
+
+/**
+ * REST API: Liveチャット専用の設定取得 (他機能の GEMINI_MODEL には一切干渉しない)
+ */
+router.get('/settings', async (req, res) => {
+    try {
+        const liveModel = await db.getSetting('GEMINI_LIVE_MODEL') || 'gemini-3.8-flash-exp';
+        res.json({
+            currentModel: liveModel,
+            presets: LIVE_MODEL_PRESETS
+        });
+    } catch (err) {
+        console.error('[Gemini Live API] Failed to fetch settings:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * REST API: Liveチャット専用のモデル保存 (他機能の GEMINI_MODEL には一切干渉しない)
+ */
+router.post('/settings', async (req, res) => {
+    try {
+        const { model } = req.body;
+        if (!model || typeof model !== 'string') {
+            return res.status(400).json({ error: 'Model name is required' });
+        }
+        const cleanModel = model.replace(/^models\//, '').trim();
+        await db.setSetting('GEMINI_LIVE_MODEL', cleanModel);
+        console.log(`[Gemini Live API] Saved dedicated live model: ${cleanModel} (GEMINI_MODEL unchanged)`);
+        res.json({ success: true, model: cleanModel });
+    } catch (err) {
+        console.error('[Gemini Live API] Failed to save settings:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 /**
  * Gemini 3.8 Multimodal Live API WebSocket プロキシのセットアップ
@@ -86,16 +130,14 @@ function setupGeminiLiveWebSocket(server) {
             return;
         }
 
-        // 2. モデル名を動的に取得 (ハードコード禁止)
+        // 2. Liveチャット専用のモデル名を動的に取得 (GEMINI_LIVE_MODEL を最優先、他機能の GEMINI_MODEL と完全分離)
         const dbLiveModel = await db.getSetting('GEMINI_LIVE_MODEL');
-        const dbGlobalModel = await db.getSetting('GEMINI_MODEL');
-        // Live API は専用モデル (gemini-2.0-flash-exp / gemini-3.8-flash-exp 等)
-        let liveModel = dbLiveModel || dbGlobalModel || 'gemini-2.0-flash-exp';
+        let liveModel = dbLiveModel || 'gemini-3.8-flash-exp';
         if (liveModel.startsWith('models/')) {
             liveModel = liveModel.replace('models/', '');
         }
 
-        console.log(`[Gemini Live WS] Connecting upstream to Google Multimodal Live API (model: ${liveModel})...`);
+        console.log(`[Gemini Live WS] Connecting upstream to Google Multimodal Live API (dedicated live model: ${liveModel})...`);
 
         const upstreamUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
         let upstreamWs = null;
@@ -113,14 +155,14 @@ function setupGeminiLiveWebSocket(server) {
 
         // Google への接続確立
         upstreamWs.on('open', () => {
-            console.log('[Gemini Live WS] Connected to Google Multimodal Live API successfully.');
+            console.log(`[Gemini Live WS] Connected to Google Multimodal Live API (model: ${liveModel}) successfully.`);
             isUpstreamOpen = true;
 
             // クライアントへ接続完了を通知
             clientWs.send(JSON.stringify({
                 type: 'ready',
                 model: liveModel,
-                message: 'Gemini 3.8 Live API に接続しました。画面共有および音声の送信を開始できます。'
+                message: `Gemini Live API (${liveModel}) に接続しました。画面共有および音声の送信を開始できます。`
             }));
 
             // 保留中のメッセージを送信
@@ -134,7 +176,6 @@ function setupGeminiLiveWebSocket(server) {
         upstreamWs.on('message', (data) => {
             try {
                 if (clientWs.readyState === WebSocket.OPEN) {
-                    // Googleから届いたメッセージ（音声PCM 24kHz / テキスト字幕 / ターン完了）をそのままクライアントへ
                     const text = data.toString();
                     clientWs.send(text);
                 }
@@ -161,15 +202,20 @@ function setupGeminiLiveWebSocket(server) {
         });
 
         // クライアント（ブラウザ）からのメッセージを Google へ転送
-        clientWs.on('message', (message) => {
+        clientWs.on('message', async (message) => {
             try {
                 let payload = message.toString();
-                // クライアントから届いたJSONをパースして確認
                 const parsed = JSON.parse(payload);
 
                 // カスタムアクションのインターセプト
                 if (parsed.type === 'init_session') {
-                    // 初期セットアップメッセージの構築
+                    // クライアントが明示的にモデルを指定した場合、専用モデル設定を更新
+                    if (parsed.model && typeof parsed.model === 'string') {
+                        liveModel = parsed.model.replace(/^models\//, '').trim();
+                        await db.setSetting('GEMINI_LIVE_MODEL', liveModel);
+                        console.log(`[Gemini Live WS] Updated dedicated live model via init_session: ${liveModel}`);
+                    }
+
                     const systemPrompt = parsed.systemInstruction || 
                         `あなたはMacOSUI（WebOSデスクトップ環境）の専属AIコンシェルジュ「MacOSUI Live」です。
 ユーザーが共有している画面のリアルタイム映像を見ながら、親切、簡潔、フレンドリーな日本語音声で対話してください。
@@ -229,4 +275,4 @@ function setupGeminiLiveWebSocket(server) {
     console.log('[Gemini Live WS] WebSocket proxy initialized on /ws/gemini-live');
 }
 
-module.exports = { setupGeminiLiveWebSocket };
+module.exports = { setupGeminiLiveWebSocket, router };

@@ -9,12 +9,23 @@ const AVAILABLE_VOICES = [
     { id: 'Fenrir', name: 'Fenrir (重厚で信頼感のある男声)' }
 ];
 
+const DEFAULT_LIVE_MODELS = [
+    { id: 'gemini-3.8-flash-exp', name: 'Gemini 3.8 Flash Live (最新・推奨)' },
+    { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash Live (マルチモーダル実験)' },
+    { id: 'gemini-2.0-flash-realtime-exp', name: 'Gemini 2.0 Realtime Exp' },
+    { id: 'custom', name: '＋ カスタムモデル指定...' }
+];
+
 const LiveConcierge = () => {
     // 接続状態
     const [connectionStatus, setConnectionStatus] = useState('disconnected'); // 'disconnected' | 'connecting' | 'connected' | 'error'
     const [statusMessage, setStatusMessage] = useState('接続待機中');
-    const [activeModel, setActiveModel] = useState('');
+    const [activeModel, setActiveModel] = useState('gemini-3.8-flash-exp');
+    const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash-exp');
+    const [customModelName, setCustomModelName] = useState('');
+    const [isCustomMode, setIsCustomMode] = useState(false);
     const [selectedVoice, setSelectedVoice] = useState('Kore');
+    const [isConfigOpen, setIsConfigOpen] = useState(false);
 
     // デバイス状態
     const [isMicActive, setIsMicActive] = useState(false);
@@ -49,12 +60,71 @@ const LiveConcierge = () => {
         transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [transcripts, currentAiStreamingText]);
 
+    // 初期化: Live専用設定のロード
+    useEffect(() => {
+        fetch('/api/gemini-live/settings')
+            .then(res => res.json())
+            .then(data => {
+                if (data.currentModel) {
+                    setSelectedModel(data.currentModel);
+                    setActiveModel(data.currentModel);
+                    const isPreset = DEFAULT_LIVE_MODELS.some(m => m.id === data.currentModel);
+                    if (!isPreset) {
+                        setIsCustomMode(true);
+                        setCustomModelName(data.currentModel);
+                    }
+                }
+            })
+            .catch(err => console.error('[LiveConcierge] Failed to load settings:', err));
+    }, []);
+
+    const saveLiveModelSetting = async (modelName) => {
+        try {
+            await fetch('/api/gemini-live/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: modelName })
+            });
+            console.log(`[LiveConcierge] Dedicated Live model saved: ${modelName} (GEMINI_MODEL unchanged)`);
+
+            // 接続中のセッションにも再適用
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({
+                    type: 'init_session',
+                    model: modelName,
+                    voiceName: selectedVoice
+                }));
+            }
+        } catch (err) {
+            console.error('[LiveConcierge] Error saving dedicated live model:', err);
+        }
+    };
+
+    const handleModelSelect = async (modelId) => {
+        if (modelId === 'custom') {
+            setIsCustomMode(true);
+            return;
+        }
+        setIsCustomMode(false);
+        setSelectedModel(modelId);
+        setActiveModel(modelId);
+        await saveLiveModelSetting(modelId);
+    };
+
+    const handleCustomModelApply = async () => {
+        if (!customModelName.trim()) return;
+        const clean = customModelName.trim();
+        setSelectedModel(clean);
+        setActiveModel(clean);
+        await saveLiveModelSetting(clean);
+    };
+
     // WebSocket 接続確立
-    const connectWebSocket = () => {
+    const connectWebSocket = (overrideModel = null) => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
         setConnectionStatus('connecting');
-        setStatusMessage('Gemini 3.8 Live API に接続中...');
+        setStatusMessage('Gemini Live API に接続中...');
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/gemini-live`;
@@ -67,9 +137,11 @@ const LiveConcierge = () => {
             setConnectionStatus('connected');
             setStatusMessage('接続完了。初期セットアップを送信中...');
 
-            // 初期セッションパラメータを送信
+            const modelToUse = overrideModel || selectedModel;
+            // 初期セッションパラメータを送信 (専用Liveモデルを指定)
             ws.send(JSON.stringify({
                 type: 'init_session',
+                model: modelToUse,
                 voiceName: selectedVoice
             }));
         };
@@ -346,6 +418,55 @@ const LiveConcierge = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* Live 専用モデルセレクター (他機能の通常モデル設定とは完全独立) */}
+                    <div className="flex items-center gap-1.5 text-xs bg-gray-900/90 px-2.5 py-1 rounded-lg border border-gray-800" title="Live Concierge 専用モデル（他の通常チャット等の設定には一切影響しません）">
+                        <span className="text-gray-400 text-[11px] flex items-center gap-1">
+                            <span className="text-emerald-400">⚡</span>
+                            <span>Liveモデル:</span>
+                        </span>
+                        {!isCustomMode ? (
+                            <select
+                                value={selectedModel}
+                                onChange={(e) => handleModelSelect(e.target.value)}
+                                className="bg-transparent text-emerald-300 font-mono text-xs focus:outline-none cursor-pointer"
+                            >
+                                {DEFAULT_LIVE_MODELS.map(m => (
+                                    <option key={m.id} value={m.id} className="bg-gray-900 text-gray-200">
+                                        {m.name}
+                                    </option>
+                                ))}
+                            </select>
+                        ) : (
+                            <div className="flex items-center gap-1">
+                                <input
+                                    type="text"
+                                    value={customModelName}
+                                    onChange={(e) => setCustomModelName(e.target.value)}
+                                    placeholder="gemini-3.8-flash-exp"
+                                    className="bg-gray-950 text-emerald-300 font-mono text-[11px] px-1.5 py-0.5 rounded border border-gray-700 w-36 focus:outline-none"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleCustomModelApply}
+                                    className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] rounded font-medium"
+                                >
+                                    適用
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleModelSelect('gemini-3.8-flash-exp')}
+                                    className="text-gray-400 hover:text-gray-200 text-[10px]"
+                                    title="プリセット選択に戻る"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        )}
+                        <span className="text-[9px] bg-emerald-950/80 text-emerald-400 border border-emerald-800/40 px-1 py-0.2 rounded font-medium hidden lg:inline" title="この設定は本ウィジェット専用です">
+                            独立設定
+                        </span>
+                    </div>
+
                     {/* Voice Selector */}
                     <div className="flex items-center gap-1.5 text-xs bg-gray-900/80 px-2.5 py-1 rounded-lg border border-gray-800">
                         <span className="text-gray-400 text-[11px]">音声:</span>
