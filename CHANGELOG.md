@@ -3,6 +3,25 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v2.8.0] - 2026-09-30
+
+### 🚀 Gemini 3.8 Multimodal Live Concierge & AI Analytics iframe 統合リリース
+
+#### ✨ Added (新機能・機能追加)
+- **🎙️ 👁️ Gemini 3.8 Multimodal Live Concierge（画面認識・リアルタイム音声対話AI）**:
+  - Google の最新マルチモーダルリアルタイムストリーミング技術「Gemini 3.8 Multimodal Live API（BidiGenerateContent）」を統合した新アプリ『Live Concierge』を新設。
+  - **ブラウザ標準画面共有 API (`getDisplayMedia`)**: 特別なプラグインや外部ソフト不要で、ユーザーのデスクトップ画面を Canvas 経由で毎秒1回（1 FPS）の軽量 JPEG フレームとしてストリーミング送信。
+  - **Web Audio API 双方向ストリーミング**: マイク入力（PCM 16kHz リサンプル）および Gemini からの音声レスポンス（PCM 24kHz キュー再生）を低遅延で処理。ユーザー発話時の自動割り込み（バージイン）にも完全対応。
+  - **セキュアなバックエンド WebSocket プロキシ (`/ws/gemini-live`)**: APIキーをフロントエンドに露出させず、ZTA認証（JWT/Cookie）のもと Google アップストリーム WebSocket とセキュアに相互中継。
+  - **ビジュアル・オーディオインターフェース**: AIが見ている視野のミニプレビュー小窓、発話状態に応じた動的波形ビジュアライザー、リアルタイム字幕ログ、声質（Puck, Kore, Aoede, Fenrir）の動的切替を完備。
+- **🖥️ AI Analytics ダッシュボードの MacOSUI 内 Browser（iframe）統合**:
+  - MCP Chat で生成された GenUI ダッシュボードにおいて、従来の「別タブ」ボタンを完全維持しつつ、新たに **「🖥️ デスクトップで開く」** ボタンを新設。
+  - MacOSUI のウィンドウマネージャーを通じて独立した Browser（iframe）ウィンドウとして起動。
+  - ウィンドウの自由なリサイズ、フルスクリーン最大化、上下左右のスムーズなスクロール、Chart.js や D3.js 等のベクター SVG 描画を完全にサポート。
+  - Live Concierge と同一デスクトップ上で並列配置し、ダッシュボードを見ながらのリアルタイム音声FAQ・データ解説が可能に。
+
+---
+
 ## [v2.7.3] - 2026-09-28
 
 ### 🚀 Personal RAG 情報ソース可視化・同期強化 & 参照ドキュメント追跡リリース

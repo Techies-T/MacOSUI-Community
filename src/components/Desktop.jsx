@@ -164,6 +164,9 @@ const Desktop = ({ user, onLogout, config }) => {
       } else if (type === 'mcp-chat') {
         width = 1000;
         height = 650;
+      } else if (type === 'live-concierge') {
+        width = 760;
+        height = 620;
       } else if (type === 'knowledge-base') {
         width = 900;
         height = 650;
@@ -353,6 +356,7 @@ const Desktop = ({ user, onLogout, config }) => {
             'knowledge-base': 'Knowledge Base',
             'deep-research': 'Deep Research',
             'mcp-chat': 'MCP Chat Client',
+            'live-concierge': 'Live Concierge',
             'virtual-office': 'Virtual Office',
             settings: 'System Settings',
             browser: 'Safari',
