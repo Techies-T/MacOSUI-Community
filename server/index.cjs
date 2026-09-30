@@ -4989,6 +4989,10 @@ const server = app.listen(port, () => {
     console.log("Gemini API endpoint configured with @google/genai");
 });
 
+// Gemini 3.8 Multimodal Live API WebSocket Proxy
+const { setupGeminiLiveWebSocket } = require('./routes/geminiLive.cjs');
+setupGeminiLiveWebSocket(server);
+
 // Graceful shutdown
 async function gracefulShutdown(signal) {
     console.log(`\n${signal} signal received. Cancelling background jobs and shutting down...`);
