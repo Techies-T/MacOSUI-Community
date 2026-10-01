@@ -82,17 +82,60 @@ function base64ToFloat32Array(base64) {
 }
 
 /**
- * マイク音声レコーダー (PCM 16kHz ストリーミング & 自動リサンプリング)
+ * マイク音声レコーダー (PCM 16kHz ストリーミング & スマート VAD 自動発話区間検知)
  */
 export class AudioRecorder {
-    constructor({ onAudioData, onVolumeChange }) {
+    constructor({ onAudioData, onVolumeChange, onSpeechTurnComplete, speechThreshold = 6, silenceDurationMs = 850 }) {
         this.onAudioData = onAudioData;
         this.onVolumeChange = onVolumeChange;
+        this.onSpeechTurnComplete = onSpeechTurnComplete;
+        this.speechThreshold = speechThreshold;
+        this.silenceDurationMs = silenceDurationMs;
         this.audioContext = null;
         this.mediaStream = null;
         this.processor = null;
         this.source = null;
         this.isRecording = false;
+
+        // スマート VAD 状態
+        this.isSpeaking = false;
+        this.speechChunks = [];
+        this.preRollBuffer = [];
+        this.silenceTimer = null;
+    }
+
+    commitSpeechTurn() {
+        if (!this.isSpeaking || this.speechChunks.length === 0) return;
+        this.isSpeaking = false;
+        if (this.silenceTimer) {
+            clearTimeout(this.silenceTimer);
+            this.silenceTimer = null;
+        }
+
+        let totalLen = 0;
+        for (const chunk of this.speechChunks) {
+            totalLen += chunk.length;
+        }
+
+        // 最低 0.4 秒以上 (~6400 samples at 16kHz) の発話がある場合にターンコミット
+        if (totalLen >= 16000 * 0.4) {
+            const combined = new Float32Array(totalLen);
+            let offset = 0;
+            for (const chunk of this.speechChunks) {
+                combined.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            const pcmBytes = floatTo16BitPCM(combined);
+            const base64Data = arrayBufferToBase64(pcmBytes);
+
+            if (this.onSpeechTurnComplete) {
+                console.log(`[AudioRecorder] VAD Speech turn complete: ${totalLen} samples (~${(totalLen / 16000).toFixed(2)}s). Triggering response.`);
+                this.onSpeechTurnComplete(base64Data);
+            }
+        }
+
+        this.speechChunks = [];
     }
 
     async start() {
@@ -126,25 +169,52 @@ export class AudioRecorder {
                 const inputData = e.inputBuffer.getChannelData(0);
 
                 // 音量 (RMS) の計算
+                let sum = 0;
+                for (let i = 0; i < inputData.length; i++) {
+                    sum += inputData[i] * inputData[i];
+                }
+                const rms = Math.sqrt(sum / inputData.length);
+                const volume = Math.min(100, Math.round(rms * 300));
                 if (this.onVolumeChange) {
-                    let sum = 0;
-                    for (let i = 0; i < inputData.length; i++) {
-                        sum += inputData[i] * inputData[i];
-                    }
-                    const rms = Math.sqrt(sum / inputData.length);
-                    const volume = Math.min(100, Math.round(rms * 300));
                     this.onVolumeChange(volume);
                 }
 
                 // 入力レート (48k/44.1k等) から 16kHz へ正確にリサンプリング
                 const resampled16k = downsampleBuffer(inputData, inputRate, 16000);
 
-                // PCM 16-bit 変換 & Base64 送信
+                // リアルタイム波形・ストリーミング用の即時送信
                 const pcmBytes = floatTo16BitPCM(resampled16k);
                 const base64Data = arrayBufferToBase64(pcmBytes);
-
                 if (this.onAudioData) {
                     this.onAudioData(base64Data);
+                }
+
+                // スマート VAD ロジック
+                this.preRollBuffer.push(new Float32Array(resampled16k));
+                if (this.preRollBuffer.length > 2) {
+                    this.preRollBuffer.shift();
+                }
+
+                if (volume > this.speechThreshold) {
+                    if (!this.isSpeaking) {
+                        this.isSpeaking = true;
+                        this.speechChunks = [...this.preRollBuffer];
+                    } else {
+                        this.speechChunks.push(new Float32Array(resampled16k));
+                    }
+
+                    if (this.silenceTimer) {
+                        clearTimeout(this.silenceTimer);
+                        this.silenceTimer = null;
+                    }
+                } else if (this.isSpeaking) {
+                    this.speechChunks.push(new Float32Array(resampled16k));
+
+                    if (!this.silenceTimer) {
+                        this.silenceTimer = setTimeout(() => {
+                            this.commitSpeechTurn();
+                        }, this.silenceDurationMs);
+                    }
                 }
             };
 
@@ -152,7 +222,7 @@ export class AudioRecorder {
             this.processor.connect(this.audioContext.destination);
 
             this.isRecording = true;
-            console.log('[AudioRecorder] Recording started with live 16kHz resampling.');
+            console.log('[AudioRecorder] Recording started with live 16kHz resampling and Smart VAD.');
         } catch (err) {
             console.error('[AudioRecorder] Failed to start microphone:', err);
             throw err;
@@ -160,6 +230,13 @@ export class AudioRecorder {
     }
 
     stop() {
+        if (this.isSpeaking) {
+            this.commitSpeechTurn();
+        }
+        if (this.silenceTimer) {
+            clearTimeout(this.silenceTimer);
+            this.silenceTimer = null;
+        }
         this.isRecording = false;
         if (this.processor) {
             this.processor.disconnect();

@@ -210,6 +210,8 @@ function setupGeminiLiveWebSocket(server) {
         let upstreamWs = null;
         let isUpstreamOpen = false;
         let isSetupSent = false;
+        let currentConnectedModel = null;
+        let currentConnectedVoice = null;
         let selectedVoice = 'Puck';
         const pendingClientQueue = [];
 
@@ -222,108 +224,153 @@ function setupGeminiLiveWebSocket(server) {
 2. AI Analytics解説: 画面にダッシュボードやグラフ（Chart.js、SVG、テーブル）が表示されている場合、各チャートのトレンドや異常値、注目すべきKPIの意味を分かりやすく解説してください。
 3. 簡潔な応答: 音声対話のため、1回の発話は1〜3文程度で端的に返し、ユーザーの反応を待ちながらテンポよく会話を進めてください。`;
 
+            const isExtendedThinking = modelName.includes('extended-thinking') || modelName.includes('thinking');
+
+            const generationConfig = {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: {
+                            voiceName: voiceName || "Puck"
+                        }
+                    }
+                }
+            };
+
+            // Extended Thinking モデル必須要件: thinkingLevel (Google Live API 仕様)
+            if (isExtendedThinking) {
+                generationConfig.thinkingConfig = {
+                    thinkingLevel: "low"
+                };
+            }
+
             return {
                 setup: {
                     model: `models/${modelName}`,
-                    generationConfig: {
-                        responseModalities: ["AUDIO"],
-                        speechConfig: {
-                            voiceConfig: {
-                                prebuiltVoiceConfig: {
-                                    voiceName: voiceName || "Puck"
-                                }
-                            }
-                        }
-                    },
+                    generationConfig,
                     systemInstruction: {
                         parts: [{ text: systemPrompt }]
-                    }
+                    },
+                    inputAudioTranscription: {},
+                    outputAudioTranscription: {}
                 }
             };
         };
 
-        const sendSetupIfNeeded = () => {
-            if (!isSetupSent && isUpstreamOpen && upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
-                const setupMsg = createSetupMessage(liveModel, selectedVoice);
+        // Google Live API との接続確立・切替 (Google仕様上 setup は接続直後に1度しか送信できないため)
+        const connectOrSwitchUpstream = (targetModel, targetVoice, customPrompt) => {
+            // 既に同じモデル・声質で接続済みの場合は setup を再送せず維持
+            if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN && 
+                currentConnectedModel === targetModel && currentConnectedVoice === targetVoice) {
+                console.log(`[Gemini Live WS] Upstream already connected with model=${targetModel}, voice=${targetVoice}. Keeping session.`);
+                return;
+            }
+
+            // 以前の Upstream があれば安全に切断
+            if (upstreamWs) {
+                console.log(`[Gemini Live WS] Closing previous upstream (was model=${currentConnectedModel}, new model=${targetModel})...`);
+                try {
+                    upstreamWs.removeAllListeners();
+                    upstreamWs.close();
+                } catch (_) {}
+                upstreamWs = null;
+            }
+
+            isUpstreamOpen = false;
+            isSetupSent = false;
+            currentConnectedModel = targetModel;
+            currentConnectedVoice = targetVoice;
+
+            console.log(`[Gemini Live WS] Connecting upstream to Google Multimodal Live API (model: ${targetModel}, voice: ${targetVoice})...`);
+
+            try {
+                upstreamWs = new WebSocket(upstreamUrl);
+            } catch (err) {
+                console.error('[Gemini Live WS] Failed to create upstream WebSocket:', err);
+                if (clientWs.readyState === WebSocket.OPEN) {
+                    clientWs.send(JSON.stringify({ type: 'error', message: 'Google Live API への接続初期化に失敗しました。' }));
+                }
+                return;
+            }
+
+            upstreamWs.on('open', () => {
+                console.log(`[Gemini Live WS] Connected to Google Multimodal Live API (model: ${targetModel}) successfully.`);
+                isUpstreamOpen = true;
+
+                // 最初の一手として setup メッセージを単一送信 (重複送信厳禁)
+                const setupMsg = createSetupMessage(targetModel, targetVoice, customPrompt);
                 upstreamWs.send(JSON.stringify(setupMsg));
                 isSetupSent = true;
-                console.log(`[Gemini Live WS] Sent mandatory setup message first: model=${liveModel}, voice=${selectedVoice}`);
-                
+                console.log(`[Gemini Live WS] Sent initial setup message: model=${targetModel}, voice=${targetVoice}`);
+
                 // 保留キューの中身をフラッシュ
                 while (pendingClientQueue.length > 0) {
                     const queued = pendingClientQueue.shift();
                     upstreamWs.send(queued);
                 }
-            }
+
+                // クライアントへ接続完了を通知
+                if (clientWs.readyState === WebSocket.OPEN) {
+                    clientWs.send(JSON.stringify({
+                        type: 'ready',
+                        model: targetModel,
+                        message: `Gemini Live API (${targetModel}) に接続しました。画面共有および音声の送信を開始できます。`
+                    }));
+                }
+            });
+
+            // Google からのレスポンスをクライアントへ転送
+            upstreamWs.on('message', (data) => {
+                try {
+                    if (clientWs.readyState === WebSocket.OPEN) {
+                        const text = data.toString();
+                        clientWs.send(text);
+                    }
+                } catch (err) {
+                    console.error('[Gemini Live WS] Error forwarding upstream message to client:', err);
+                }
+            });
+
+            upstreamWs.on('error', (err) => {
+                console.error('[Gemini Live WS] Upstream Google WebSocket error:', err.message || err);
+                if (clientWs.readyState === WebSocket.OPEN) {
+                    clientWs.send(JSON.stringify({
+                        type: 'error',
+                        message: `Google Live API エラー: ${err.message || '接続に問題が発生しました'}`
+                    }));
+                }
+            });
+
+            upstreamWs.on('close', (code, reason) => {
+                const reasonStr = reason ? reason.toString() : '';
+                console.log(`[Gemini Live WS] Upstream Google WebSocket closed: code=${code}, reason=${reasonStr}`);
+                if (clientWs.readyState === WebSocket.OPEN) {
+                    clientWs.send(JSON.stringify({
+                        type: 'error',
+                        message: `Google Live API 切断 (code: ${code}): ${reasonStr || '接続が切断されました'}`
+                    }));
+                }
+            });
         };
 
-        try {
-            upstreamWs = new WebSocket(upstreamUrl);
-        } catch (err) {
-            console.error('[Gemini Live WS] Failed to create upstream WebSocket:', err);
-            clientWs.send(JSON.stringify({ type: 'error', message: 'Google Live API への接続初期化に失敗しました。' }));
-            clientWs.close();
-            return;
-        }
-
-        // Google への接続確立
-        upstreamWs.on('open', () => {
-            console.log(`[Gemini Live WS] Connected to Google Multimodal Live API (model: ${liveModel}) successfully.`);
-            isUpstreamOpen = true;
-
-            // Google Multimodal Live API の絶対要件: 最初の一手として必ず setup メッセージを送信
-            sendSetupIfNeeded();
-
-            // クライアントへ接続完了を通知
-            clientWs.send(JSON.stringify({
-                type: 'ready',
-                model: liveModel,
-                message: `Gemini Live API (${liveModel}) に接続しました。画面共有および音声の送信を開始できます。`
-            }));
-        });
-
-        // Google からのレスポンスをクライアントへ転送
-        upstreamWs.on('message', (data) => {
-            try {
-                if (clientWs.readyState === WebSocket.OPEN) {
-                    const text = data.toString();
-                    clientWs.send(text);
-                }
-            } catch (err) {
-                console.error('[Gemini Live WS] Error forwarding upstream message to client:', err);
+        // クライアントからの最初のメッセージ待機（500ms 内に init_session が来ない場合はデフォルトで接続）
+        const autoConnectTimer = setTimeout(() => {
+            if (!upstreamWs) {
+                console.log(`[Gemini Live WS] autoConnectTimer fired, connecting with defaults (model=${liveModel}, voice=${selectedVoice})...`);
+                connectOrSwitchUpstream(liveModel, selectedVoice);
             }
-        });
+        }, 300);
 
-        upstreamWs.on('error', (err) => {
-            console.error('[Gemini Live WS] Upstream Google WebSocket error:', err.message || err);
-            if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.send(JSON.stringify({
-                    type: 'error',
-                    message: `Google Live API エラー: ${err.message || '接続に問題が発生しました'}`
-                }));
-            }
-        });
-
-        upstreamWs.on('close', (code, reason) => {
-            const reasonStr = reason ? reason.toString() : '';
-            console.log(`[Gemini Live WS] Upstream Google WebSocket closed: code=${code}, reason=${reasonStr}`);
-            if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.send(JSON.stringify({
-                    type: 'error',
-                    message: `Google Live API 切断 (code: ${code}): ${reasonStr || '接続が切断されました'}`
-                }));
-                clientWs.close(code, reasonStr);
-            }
-        });
-
-        // クライアント（ブラウザ）からのメッセージを Google へ転送
+        // クライアント（ブラウザ）からのメッセージ処理
         clientWs.on('message', async (message) => {
             try {
                 let payload = message.toString();
                 const parsed = JSON.parse(payload);
 
-                // カスタムアクションのインターセプト
+                // カスタムアクション: セッション初期化・モデル切り替え
                 if (parsed.type === 'init_session') {
+                    clearTimeout(autoConnectTimer);
+
                     if (parsed.model && typeof parsed.model === 'string') {
                         let reqModel = parsed.model.replace(/^models\//, '').trim();
                         if (reqModel === 'gemini-3.8-flash' || reqModel === 'gemini-3.8-flash-exp') {
@@ -337,22 +384,18 @@ function setupGeminiLiveWebSocket(server) {
                         selectedVoice = parsed.voiceName;
                     }
 
-                    // setup を再送/送信
-                    if (isUpstreamOpen && upstreamWs.readyState === WebSocket.OPEN) {
-                        const setupMsg = createSetupMessage(liveModel, selectedVoice, parsed.systemInstruction);
-                        upstreamWs.send(JSON.stringify(setupMsg));
-                        isSetupSent = true;
-                        console.log(`[Gemini Live WS] Sent updated setup message: model=${liveModel}, voice=${selectedVoice}`);
-                    }
+                    // 指定されたモデルと声質で Upstream を確立/切替
+                    connectOrSwitchUpstream(liveModel, selectedVoice, parsed.systemInstruction);
                     return;
                 }
 
-                // setup がまだ送られていなければ最優先で送信
-                if (!isSetupSent && isUpstreamOpen && upstreamWs.readyState === WebSocket.OPEN) {
-                    sendSetupIfNeeded();
+                // Upstream がまだ初期化されていない場合は初期化
+                if (!upstreamWs) {
+                    clearTimeout(autoConnectTimer);
+                    connectOrSwitchUpstream(liveModel, selectedVoice);
                 }
 
-                if (isSetupSent && isUpstreamOpen && upstreamWs.readyState === WebSocket.OPEN) {
+                if (isSetupSent && isUpstreamOpen && upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
                     upstreamWs.send(payload);
                 } else {
                     pendingClientQueue.push(payload);
@@ -363,16 +406,26 @@ function setupGeminiLiveWebSocket(server) {
         });
 
         clientWs.on('close', () => {
+            clearTimeout(autoConnectTimer);
             console.log(`[Gemini Live WS] Client disconnected: ${user.email}`);
-            if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
-                upstreamWs.close();
+            if (upstreamWs) {
+                try {
+                    upstreamWs.removeAllListeners();
+                    upstreamWs.close();
+                } catch (_) {}
+                upstreamWs = null;
             }
         });
 
         clientWs.on('error', (err) => {
+            clearTimeout(autoConnectTimer);
             console.error('[Gemini Live WS] Client WebSocket error:', err);
-            if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
-                upstreamWs.close();
+            if (upstreamWs) {
+                try {
+                    upstreamWs.removeAllListeners();
+                    upstreamWs.close();
+                } catch (_) {}
+                upstreamWs = null;
             }
         });
     });

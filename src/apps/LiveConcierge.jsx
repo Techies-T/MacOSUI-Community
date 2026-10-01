@@ -298,6 +298,38 @@ const LiveConcierge = () => {
                                 }));
                             }
                         },
+                        onSpeechTurnComplete: (base64Pcm) => {
+                            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                                console.log('[LiveConcierge] Committing voice turn via clientContent...');
+                                setStatusMessage('発話を検出しました。AIが音声応答を生成中...');
+                                setTranscripts(prev => [
+                                    ...prev,
+                                    {
+                                        role: 'user',
+                                        text: '🎙️ (音声発話)',
+                                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                    }
+                                ]);
+                                wsRef.current.send(JSON.stringify({
+                                    clientContent: {
+                                        turns: [
+                                            {
+                                                role: 'user',
+                                                parts: [
+                                                    {
+                                                        inlineData: {
+                                                            mimeType: 'audio/pcm;rate=16000',
+                                                            data: base64Pcm
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        turnComplete: true
+                                    }
+                                }));
+                            }
+                        },
                         onVolumeChange: (vol) => setUserVolume(vol)
                     });
                 }
