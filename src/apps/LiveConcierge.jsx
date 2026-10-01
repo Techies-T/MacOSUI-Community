@@ -9,19 +9,14 @@ const AVAILABLE_VOICES = [
     { id: 'Fenrir', name: 'Fenrir (重厚で信頼感のある男声)' }
 ];
 
-const DEFAULT_LIVE_MODELS = [
-    { id: 'gemini-3.8-flash-exp', name: 'Gemini 3.8 Flash Live (最新・推奨)' },
-    { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash Live (マルチモーダル実験)' },
-    { id: 'gemini-2.0-flash-realtime-exp', name: 'Gemini 2.0 Realtime Exp' },
-    { id: 'custom', name: '＋ カスタムモデル指定...' }
-];
-
 const LiveConcierge = () => {
     // 接続状態
     const [connectionStatus, setConnectionStatus] = useState('disconnected'); // 'disconnected' | 'connecting' | 'connected' | 'error'
     const [statusMessage, setStatusMessage] = useState('接続待機中');
-    const [activeModel, setActiveModel] = useState('gemini-3.8-flash-exp');
-    const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash-exp');
+    const [activeModel, setActiveModel] = useState('');
+    const [selectedModel, setSelectedModel] = useState('');
+    const [availableModels, setAvailableModels] = useState([]);
+    const [isLoadingModels, setIsLoadingModels] = useState(false);
     const [customModelName, setCustomModelName] = useState('');
     const [isCustomMode, setIsCustomMode] = useState(false);
     const [selectedVoice, setSelectedVoice] = useState('Kore');
@@ -60,22 +55,32 @@ const LiveConcierge = () => {
         transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [transcripts, currentAiStreamingText]);
 
-    // 初期化: Live専用設定のロード
+    // 初期化: Gemini API から動的にモデル一覧を取得 (ハードコード禁止原則に準拠)
     useEffect(() => {
-        fetch('/api/gemini-live/settings')
+        setIsLoadingModels(true);
+        fetch('/api/gemini-live/models')
             .then(res => res.json())
             .then(data => {
-                if (data.currentModel) {
-                    setSelectedModel(data.currentModel);
-                    setActiveModel(data.currentModel);
-                    const isPreset = DEFAULT_LIVE_MODELS.some(m => m.id === data.currentModel);
-                    if (!isPreset) {
+                if (data.models && Array.isArray(data.models)) {
+                    setAvailableModels(data.models);
+                }
+                const initialModel = data.currentModel || (data.models && data.models[0]?.id) || '';
+                if (initialModel) {
+                    setSelectedModel(initialModel);
+                    setActiveModel(initialModel);
+                    const matched = (data.models || []).some(m => m.id === initialModel);
+                    if (!matched && initialModel) {
                         setIsCustomMode(true);
-                        setCustomModelName(data.currentModel);
+                        setCustomModelName(initialModel);
                     }
                 }
             })
-            .catch(err => console.error('[LiveConcierge] Failed to load settings:', err));
+            .catch(err => {
+                console.error('[LiveConcierge] Failed to load models from API:', err);
+            })
+            .finally(() => {
+                setIsLoadingModels(false);
+            });
     }, []);
 
     const saveLiveModelSetting = async (modelName) => {
@@ -256,6 +261,9 @@ const LiveConcierge = () => {
 
     // マイクのトグル
     const toggleMic = async () => {
+        // Safari 等の AudioContext をアンロック
+        audioPlayerRef.current?.ensureContext();
+
         if (isMicActive) {
             if (audioRecorderRef.current) audioRecorderRef.current.stop();
             setIsMicActive(false);
@@ -294,6 +302,9 @@ const LiveConcierge = () => {
 
     // 画面共有のトグル
     const toggleScreen = async () => {
+        // Safari 等の AudioContext をアンロック
+        audioPlayerRef.current?.ensureContext();
+
         if (isScreenActive) {
             if (screenCaptureRef.current) screenCaptureRef.current.stopCapture();
             setIsScreenActive(false);
@@ -404,7 +415,7 @@ const LiveConcierge = () => {
                         <div className="flex items-center gap-2">
                             <h2 className="text-xs font-bold text-gray-100 tracking-wide">MacOSUI Live Concierge</h2>
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 font-mono border border-indigo-700/50">
-                                {activeModel || 'Gemini 3.8 Live'}
+                                {activeModel || 'Gemini 3.8 Flash Live'}
                             </span>
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
@@ -428,13 +439,19 @@ const LiveConcierge = () => {
                             <select
                                 value={selectedModel}
                                 onChange={(e) => handleModelSelect(e.target.value)}
-                                className="bg-transparent text-emerald-300 font-mono text-xs focus:outline-none cursor-pointer"
+                                disabled={isLoadingModels}
+                                className="bg-transparent text-emerald-300 font-mono text-xs focus:outline-none cursor-pointer max-w-[280px] truncate"
                             >
-                                {DEFAULT_LIVE_MODELS.map(m => (
+                                {isLoadingModels && <option value="" className="bg-gray-900 text-gray-400">APIからモデル読込中...</option>}
+                                {!isLoadingModels && availableModels.length === 0 && (
+                                    <option value={selectedModel} className="bg-gray-900 text-gray-200">{selectedModel || 'モデル未選択'}</option>
+                                )}
+                                {availableModels.map(m => (
                                     <option key={m.id} value={m.id} className="bg-gray-900 text-gray-200">
-                                        {m.name}
+                                        {m.isLiveOptimized ? `⚡ ${m.displayName || m.name}` : (m.displayName || m.name)}
                                     </option>
                                 ))}
+                                <option value="custom" className="bg-gray-900 text-gray-400">＋ 手動指定...</option>
                             </select>
                         ) : (
                             <div className="flex items-center gap-1">
@@ -442,7 +459,7 @@ const LiveConcierge = () => {
                                     type="text"
                                     value={customModelName}
                                     onChange={(e) => setCustomModelName(e.target.value)}
-                                    placeholder="gemini-3.8-flash-exp"
+                                    placeholder="モデル名を入力..."
                                     className="bg-gray-950 text-emerald-300 font-mono text-[11px] px-1.5 py-0.5 rounded border border-gray-700 w-36 focus:outline-none"
                                 />
                                 <button
@@ -454,9 +471,9 @@ const LiveConcierge = () => {
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => handleModelSelect('gemini-3.8-flash-exp')}
+                                    onClick={() => handleModelSelect(availableModels[0]?.id || '')}
                                     className="text-gray-400 hover:text-gray-200 text-[10px]"
-                                    title="プリセット選択に戻る"
+                                    title="一覧選択に戻る"
                                 >
                                     ✕
                                 </button>

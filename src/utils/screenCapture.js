@@ -23,21 +23,31 @@ export class ScreenCaptureManager {
         if (this.isCapturing) return;
 
         try {
-            // 画面共有 API の呼び出し (ブラウザ標準)
-            this.mediaStream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    cursor: "always",
-                    frameRate: Math.max(1, Math.min(fps, 5))
-                },
-                audio: false
-            });
+            // 画面共有 API の呼び出し (Safari 互換フォールバック付き)
+            try {
+                this.mediaStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        frameRate: { ideal: fps, max: 5 }
+                    },
+                    audio: false
+                });
+            } catch (err) {
+                console.warn('[ScreenCapture] Detailed constraints failed, falling back to basic constraints (Safari compatibility):', err);
+                this.mediaStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true,
+                    audio: false
+                });
+            }
 
             // 不可視の Video 要素を生成
             this.videoElement = document.createElement('video');
             this.videoElement.srcObject = this.mediaStream;
             this.videoElement.muted = true;
+            this.videoElement.autoplay = true;
             this.videoElement.playsInline = true;
-            await this.videoElement.play();
+            this.videoElement.setAttribute('playsinline', '');
+            this.videoElement.setAttribute('webkit-playsinline', '');
+            await this.videoElement.play().catch(e => console.warn('[ScreenCapture] video play error:', e));
 
             // 不可視の Canvas 要素を生成
             this.canvasElement = document.createElement('canvas');

@@ -187,6 +187,26 @@ app.get('/api/config', async (req, res) => {
         const localAiModel = (await db.getSetting('LOCAL_AI_MODEL')) || 'gemma4:26b-mlx';
         const localAiTemperature = (await db.getSetting('LOCAL_AI_TEMPERATURE')) || '0.7';
 
+        // Gemini Live Concierge Settings
+        let geminiLiveAvailableModels;
+        try {
+            const liveModelsRaw = await db.getSetting('GEMINI_LIVE_AVAILABLE_MODELS');
+            if (liveModelsRaw) {
+                geminiLiveAvailableModels = JSON.parse(liveModelsRaw);
+            } else {
+                geminiLiveAvailableModels = [
+                    { id: 'gemini-3.8-live', name: 'Gemini 3.8 Flash Live', description: '最新・音声リアルタイム対話 / 推奨' },
+                    { id: 'gemini-3.8-live-extended-thinking', name: 'Gemini 3.8 Flash Live (Extended Thinking)', description: '深層推論対応 Live 対話モデル' }
+                ];
+            }
+        } catch (_) {
+            geminiLiveAvailableModels = [
+                { id: 'gemini-3.8-live', name: 'Gemini 3.8 Flash Live', description: '最新・音声リアルタイム対話 / 推奨' },
+                { id: 'gemini-3.8-live-extended-thinking', name: 'Gemini 3.8 Flash Live (Extended Thinking)', description: '深層推論対応 Live 対話モデル' }
+            ];
+        }
+        const geminiLiveDefaultModel = await db.getSetting('GEMINI_LIVE_DEFAULT_MODEL') || 'gemini-3.8-live';
+
         res.json({
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
@@ -221,7 +241,9 @@ app.get('/api/config', async (req, res) => {
             localAiEnabled,
             localAiHost,
             localAiModel,
-            localAiTemperature
+            localAiTemperature,
+            geminiLiveAvailableModels,
+            geminiLiveDefaultModel
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -246,7 +268,7 @@ async function requireAuthIfConfigured(req, res, next) {
 }
 
 app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature, geminiLiveAvailableModels, geminiLiveDefaultModel } = req.body;
 
     try {
         const isConfigured = !!(await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID);
@@ -275,7 +297,7 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             await db.setSetting('COMPANY_WORK_POLICY', companyWorkPolicy);
         }
 
-        // Manage System Settings fields (including Antigravity Agent Settings)
+        // Manage System Settings fields (including Antigravity Agent Settings & Live Concierge Settings)
         if (hasSysSettings) {
             if (googleClientId && !googleClientId.includes('...')) {
                 const currentClientId = await db.getSetting('GOOGLE_CLIENT_ID');
@@ -314,6 +336,15 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             if (antigravityAgentSafetyPolicy !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_SAFETY_POLICY', antigravityAgentSafetyPolicy);
             if (antigravityAgentExternalPolicyEnabled !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_EXTERNAL_POLICY_ENABLED', antigravityAgentExternalPolicyEnabled.toString());
             if (antigravityAgentMcpServers !== undefined) await db.setSetting('ANTIGRAVITY_AGENT_MCP_SERVERS', antigravityAgentMcpServers);
+
+            // Gemini Live Concierge Settings (Admin only)
+            if (geminiLiveAvailableModels !== undefined) {
+                const liveModelsStr = typeof geminiLiveAvailableModels === 'string' ? geminiLiveAvailableModels : JSON.stringify(geminiLiveAvailableModels);
+                await db.setSetting('GEMINI_LIVE_AVAILABLE_MODELS', liveModelsStr);
+            }
+            if (geminiLiveDefaultModel !== undefined) {
+                await db.setSetting('GEMINI_LIVE_DEFAULT_MODEL', geminiLiveDefaultModel);
+            }
         }
 
         const allowedWidgets = req.user.allowed_widgets || [];

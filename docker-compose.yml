@@ -8,12 +8,11 @@ services:
       - "8080:8080"
     volumes:
       - ${DATA_DIR:-./data}:/app/data
+    env_file:
+      - server/development.env
     environment:
       - PORT=8080
       - DB_TYPE=sqlite
-      # In local development, missing DB_ENCRYPTION_KEY will trigger auto-generation.
-      # If you want a fixed key, uncomment and set the below:
-      # - DB_ENCRYPTION_KEY=your_secure_32_byte_hex_string_here
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
