@@ -176,12 +176,19 @@ const LiveConcierge = () => {
                             // 音声チャンクの再生
                             if (part.inlineData && part.inlineData.data) {
                                 if (audioPlayerRef.current) {
+                                    audioPlayerRef.current.ensureContext();
                                     audioPlayerRef.current.playChunk(part.inlineData.data);
                                 }
+                                setIsAiSpeaking(true);
+                                // テキストが未受信の場合のプレースホルダー案内
+                                setCurrentAiStreamingText(prev => prev || '🔊 [AI音声応答中...]');
                             }
                             // テキスト字幕のストリーミング蓄積
                             if (part.text) {
-                                setCurrentAiStreamingText(prev => prev + part.text);
+                                setCurrentAiStreamingText(prev => {
+                                    if (prev === '🔊 [AI音声応答中...]') return part.text;
+                                    return prev + part.text;
+                                });
                             }
                         }
                     }
@@ -192,23 +199,25 @@ const LiveConcierge = () => {
                         if (audioPlayerRef.current) {
                             audioPlayerRef.current.stop();
                         }
+                        setIsAiSpeaking(false);
+                        setCurrentAiStreamingText('');
                     }
 
                     // ターン完了（AIの発話完了）
                     if (data.serverContent.turnComplete) {
                         setCurrentAiStreamingText(prev => {
-                            if (prev.trim()) {
-                                setTranscripts(list => [
-                                    ...list,
-                                    {
-                                        role: 'assistant',
-                                        text: prev.trim(),
-                                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                    }
-                                ]);
-                            }
+                            const textToRecord = prev.trim() || '🔊 [音声応答完了]';
+                            setTranscripts(list => [
+                                ...list,
+                                {
+                                    role: 'assistant',
+                                    text: textToRecord,
+                                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                }
+                            ]);
                             return '';
                         });
+                        setTimeout(() => setIsAiSpeaking(false), 500);
                     }
                 }
             } catch (err) {
@@ -363,15 +372,20 @@ const LiveConcierge = () => {
             }
         ]);
 
-        if (connectionStatus !== 'connected') {
-            connectWebSocket();
-        }
+        // Safari 等の AudioContext をアンロック
+        audioPlayerRef.current?.ensureContext();
 
-        // Gemini Live へテキスト送信
+        // Gemini Live へテキスト送信 (Google Multimodal Live API clientContent 仕様準拠)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({
-                realtimeInput: {
-                    parts: [{ text: textToSend }]
+                clientContent: {
+                    turns: [
+                        {
+                            role: 'user',
+                            parts: [{ text: textToSend }]
+                        }
+                    ],
+                    turnComplete: true
                 }
             }));
         }
@@ -404,7 +418,10 @@ const LiveConcierge = () => {
     };
 
     return (
-        <div className="w-full h-full flex flex-col bg-[#18181b] text-gray-100 font-sans select-none overflow-hidden">
+        <div 
+            onClick={() => audioPlayerRef.current?.ensureContext()}
+            className="w-full h-full flex flex-col bg-[#18181b] text-gray-100 font-sans select-none overflow-hidden"
+        >
             {/* Header Toolbar */}
             <div className="flex-none px-4 py-3 bg-[#202024] border-b border-gray-800 flex items-center justify-between shadow-xs">
                 <div className="flex items-center gap-2.5">

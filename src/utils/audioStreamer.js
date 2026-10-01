@@ -18,6 +18,38 @@ function floatTo16BitPCM(float32Array) {
 }
 
 /**
+ * Float32 サンプル列を指定の入力サンプルレートから出力サンプルレート (デフォルト 16000Hz) へリサンプリング
+ * (Safari / macOS 等でハードウェア標準の 48kHz / 44.1kHz で取得された音声を正確に 16kHz に変換)
+ */
+function downsampleBuffer(buffer, inputSampleRate, outputSampleRate = 16000) {
+    if (inputSampleRate === outputSampleRate) {
+        return buffer;
+    }
+    if (inputSampleRate < outputSampleRate) {
+        return buffer;
+    }
+    const sampleRateRatio = inputSampleRate / outputSampleRate;
+    const newLength = Math.round(buffer.length / sampleRateRatio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+        // 平均化ダウンサンプリング (アンチエイリアシング効果)
+        let accum = 0;
+        let count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+            accum += buffer[i];
+            count++;
+        }
+        result[offsetResult] = count > 0 ? accum / count : 0;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
+}
+
+/**
  * Uint8Array (バイナリ) を Base64 文字列へ変換
  */
 function arrayBufferToBase64(bytes) {
@@ -50,7 +82,7 @@ function base64ToFloat32Array(base64) {
 }
 
 /**
- * マイク音声レコーダー (PCM 16kHz ストリーミング)
+ * マイク音声レコーダー (PCM 16kHz ストリーミング & 自動リサンプリング)
  */
 export class AudioRecorder {
     constructor({ onAudioData, onVolumeChange }) {
@@ -70,7 +102,6 @@ export class AudioRecorder {
             this.mediaStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     channelCount: 1,
-                    sampleRate: 16000,
                     echoCancellation: true,
                     noiseSuppression: true,
                     autoGainControl: true
@@ -78,10 +109,16 @@ export class AudioRecorder {
             });
 
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-            this.audioContext = new AudioContextClass({ sampleRate: 16000 });
+            this.audioContext = new AudioContextClass();
+            if (this.audioContext.state === 'suspended') {
+                await this.audioContext.resume();
+            }
+
+            const inputRate = this.audioContext.sampleRate;
+            console.log(`[AudioRecorder] Hardware input sampleRate: ${inputRate}Hz. Will resample to 16000Hz.`);
 
             this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
-            // 4096 サンプルバッファ (~250ms)
+            // 4096 サンプルバッファ (~85ms at 48kHz, ~250ms at 16kHz)
             this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
             this.processor.onaudioprocess = (e) => {
@@ -95,12 +132,15 @@ export class AudioRecorder {
                         sum += inputData[i] * inputData[i];
                     }
                     const rms = Math.sqrt(sum / inputData.length);
-                    const volume = Math.min(100, Math.round(rms * 250));
+                    const volume = Math.min(100, Math.round(rms * 300));
                     this.onVolumeChange(volume);
                 }
 
+                // 入力レート (48k/44.1k等) から 16kHz へ正確にリサンプリング
+                const resampled16k = downsampleBuffer(inputData, inputRate, 16000);
+
                 // PCM 16-bit 変換 & Base64 送信
-                const pcmBytes = floatTo16BitPCM(inputData);
+                const pcmBytes = floatTo16BitPCM(resampled16k);
                 const base64Data = arrayBufferToBase64(pcmBytes);
 
                 if (this.onAudioData) {
@@ -112,7 +152,7 @@ export class AudioRecorder {
             this.processor.connect(this.audioContext.destination);
 
             this.isRecording = true;
-            console.log('[AudioRecorder] Recording started at 16kHz.');
+            console.log('[AudioRecorder] Recording started with live 16kHz resampling.');
         } catch (err) {
             console.error('[AudioRecorder] Failed to start microphone:', err);
             throw err;
