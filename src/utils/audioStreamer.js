@@ -262,7 +262,29 @@ export class AudioRecorder {
 }
 
 /**
- * 音声ストリーミングプレイヤー (Gemini PCM 24kHz スケジュール再生)
+ * Float32 サンプル列を指定の入力サンプルレートから出力サンプルレートへ線形補間リサンプリング
+ * (Gemini の 24kHz 出力を Safari/Mac ネイティブの 48kHz / 44.1kHz 出力へ滑らかに変換)
+ */
+function resampleFloat32(buffer, inputSampleRate, outputSampleRate) {
+    if (!buffer || buffer.length === 0) return new Float32Array(0);
+    if (inputSampleRate === outputSampleRate) {
+        return buffer;
+    }
+    const ratio = inputSampleRate / outputSampleRate;
+    const newLength = Math.round(buffer.length / ratio);
+    const result = new Float32Array(newLength);
+    for (let i = 0; i < newLength; i++) {
+        const originIndex = i * ratio;
+        const leftIndex = Math.floor(originIndex);
+        const rightIndex = Math.min(leftIndex + 1, buffer.length - 1);
+        const fraction = originIndex - leftIndex;
+        result[i] = buffer[leftIndex] * (1 - fraction) + buffer[rightIndex] * fraction;
+    }
+    return result;
+}
+
+/**
+ * 音声ストリーミングプレイヤー (Gemini PCM 24kHz ➔ Safari/Mac ネイティブリサンプリング再生)
  */
 export class AudioPlayer {
     constructor({ onVolumeChange, onPlaybackStateChange }) {
@@ -271,23 +293,89 @@ export class AudioPlayer {
         this.audioContext = null;
         this.nextStartTime = 0;
         this.activeSources = [];
-        this.sampleRate = 24000;
+        this.sourceSampleRate = 24000; // Gemini Live API 出力レート
         this.isPlaying = false;
+        this.isUnlocked = false;
+    }
+
+    /**
+     * Safari / WebKit 向けの AudioContext アンロック & 初期化
+     * - 引数なしで AudioContext を作成 (ハードウェアネイティブレート対応)
+     * - サイレントバッファを再生して Safari の自動再生制限を解除
+     */
+    unlock() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!this.audioContext || this.audioContext.state === 'closed') {
+            try {
+                this.audioContext = new AudioContextClass();
+                console.log(`[AudioPlayer] AudioContext created. Native hardware sampleRate: ${this.audioContext.sampleRate}Hz`);
+            } catch (err) {
+                console.error('[AudioPlayer] Failed to create AudioContext:', err);
+                return;
+            }
+        }
+
+        if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume().catch(e => console.warn('[AudioPlayer] AudioContext resume failed:', e));
+        }
+
+        // Safari 向けサイレントバッファ再生アンロック (Autoplay Policy 解除)
+        try {
+            const silentBuffer = this.audioContext.createBuffer(1, 1, this.audioContext.sampleRate);
+            const source = this.audioContext.createBufferSource();
+            source.buffer = silentBuffer;
+            source.connect(this.audioContext.destination);
+            source.start(0);
+            this.isUnlocked = true;
+            console.log('[AudioPlayer] AudioContext unlocked via silent buffer.');
+        } catch (e) {
+            console.warn('[AudioPlayer] Silent buffer unlock error:', e);
+        }
     }
 
     ensureContext() {
         if (!this.audioContext || this.audioContext.state === 'closed') {
-            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-            this.audioContext = new AudioContextClass({ sampleRate: this.sampleRate });
+            this.unlock();
+        } else if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume().catch(() => {});
         }
-        if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume();
+    }
+
+    /**
+     * 動作確認用のチャイム音 (ピロリン♪) を再生して Safari のスピーカー出力を即時検証
+     */
+    playTestSound() {
+        this.unlock();
+        if (!this.audioContext) return;
+
+        try {
+            const now = this.audioContext.currentTime;
+            const osc = this.audioContext.createOscillator();
+            const gain = this.audioContext.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(523.25, now); // C5
+            osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.12); // G5
+            osc.frequency.exponentialRampToValueAtTime(1046.50, now + 0.25); // C6
+
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+            osc.connect(gain);
+            gain.connect(this.audioContext.destination);
+
+            osc.start(now);
+            osc.stop(now + 0.45);
+            console.log('[AudioPlayer] Test chime played successfully.');
+        } catch (err) {
+            console.error('[AudioPlayer] Failed to play test chime:', err);
         }
     }
 
     playChunk(base64Pcm) {
         if (!base64Pcm) return;
         this.ensureContext();
+        if (!this.audioContext) return;
 
         try {
             const float32Data = base64ToFloat32Array(base64Pcm);
@@ -304,8 +392,13 @@ export class AudioPlayer {
                 this.onVolumeChange(volume);
             }
 
-            const audioBuffer = this.audioContext.createBuffer(1, float32Data.length, this.sampleRate);
-            audioBuffer.copyToChannel(float32Data, 0);
+            // 24kHz から AudioContext の native sampleRate (48kHz/44.1kHz等) へ高品質リサンプリング
+            const targetRate = this.audioContext.sampleRate;
+            const resampledData = resampleFloat32(float32Data, this.sourceSampleRate, targetRate);
+
+            const audioBuffer = this.audioContext.createBuffer(1, resampledData.length, targetRate);
+            // Safari 互換: getChannelData(0).set() を使用
+            audioBuffer.getChannelData(0).set(resampledData);
 
             const source = this.audioContext.createBufferSource();
             source.buffer = audioBuffer;

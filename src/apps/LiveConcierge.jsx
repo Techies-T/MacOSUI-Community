@@ -270,8 +270,8 @@ const LiveConcierge = () => {
 
     // マイクのトグル
     const toggleMic = async () => {
-        // Safari 等の AudioContext をアンロック
-        audioPlayerRef.current?.ensureContext();
+        // Safari 等の AudioContext を同期的にアンロック
+        audioPlayerRef.current?.unlock();
 
         if (isMicActive) {
             if (audioRecorderRef.current) audioRecorderRef.current.stop();
@@ -344,7 +344,7 @@ const LiveConcierge = () => {
     // 画面共有のトグル
     const toggleScreen = async () => {
         // Safari 等の AudioContext をアンロック
-        audioPlayerRef.current?.ensureContext();
+        audioPlayerRef.current?.unlock();
 
         if (isScreenActive) {
             if (screenCaptureRef.current) screenCaptureRef.current.stopCapture();
@@ -405,7 +405,7 @@ const LiveConcierge = () => {
         ]);
 
         // Safari 等の AudioContext をアンロック
-        audioPlayerRef.current?.ensureContext();
+        audioPlayerRef.current?.unlock();
 
         // Gemini Live へテキスト送信 (Google Multimodal Live API clientContent 仕様準拠)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -451,7 +451,7 @@ const LiveConcierge = () => {
 
     return (
         <div 
-            onClick={() => audioPlayerRef.current?.ensureContext()}
+            onClick={() => audioPlayerRef.current?.unlock()}
             className="w-full h-full flex flex-col bg-[#18181b] text-gray-100 font-sans select-none overflow-hidden"
         >
             {/* Header Toolbar */}
@@ -548,6 +548,20 @@ const LiveConcierge = () => {
                             ))}
                         </select>
                     </div>
+
+                    {/* 音声テスト (Safari Web Audio アンロック用) */}
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            audioPlayerRef.current?.playTestSound();
+                        }}
+                        className="text-xs px-2.5 py-1 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 transition-colors border border-indigo-700/60 flex items-center gap-1.5 shadow-xs font-medium cursor-pointer"
+                        title="クリックしてMacのスピーカーからテスト音（ピロリン♪）を鳴らします。Safariの自動再生制限も同時に解除されます。"
+                    >
+                        <span>🔊</span>
+                        <span>音声テスト</span>
+                    </button>
 
                     {connectionStatus === 'connected' ? (
                         <button
