@@ -39,8 +39,20 @@ if [ -d "$DATA_VOLUME" ]; then
     fi
     ln -sfn "$DATA_VOLUME" ./data
     echo "✅ Symlink verified: $(ls -ld ./data)"
+
+    # 4. Ensure server/development.env links to $DATA_VOLUME/development.env
+    if [ -f "$DATA_VOLUME/development.env" ]; then
+        ln -sfn "$DATA_VOLUME/development.env" "$REPO_DIR/server/development.env"
+        echo "✅ Linked server/development.env to $DATA_VOLUME/development.env"
+    elif [ ! -f "$REPO_DIR/server/development.env" ]; then
+        touch "$REPO_DIR/server/development.env"
+        echo "✅ Created empty server/development.env fallback"
+    fi
 else
     echo "ℹ️ Local development environment detected ($DATA_VOLUME not present)."
+    if [ ! -f "$REPO_DIR/server/development.env" ]; then
+        touch "$REPO_DIR/server/development.env"
+    fi
 fi
 
 echo "=================================================="
