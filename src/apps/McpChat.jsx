@@ -33,7 +33,7 @@ const renderContextUsage = (usage) => {
 };
 
 // メモ化された個別チャットメッセージコンポーネント（親コンポーネントのタイマー更新等による再レンダリング・iframe再マウントを完全抑止）
-const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onSaveToKnowledge }) => {
+const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onSaveToKnowledge, onOpen }) => {
     // Markdown components の参照同一性を保持し、iframeのアンマウント・再マウントを抑止
     const markdownComponents = useMemo(() => ({
         code({ node, inline, className, children, ...props }) {
@@ -42,11 +42,11 @@ const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onS
             const isHtmlBlock = (!inline && match && (match[1] === 'html' || match[1] === 'htm')) ||
                                 (!inline && (codeStr.startsWith('<!DOCTYPE html') || codeStr.includes('<html') || codeStr.startsWith('<div class=') || codeStr.startsWith('<div id=') || codeStr.includes('cdn.tailwindcss.com')));
             if (isHtmlBlock) {
-                return <HtmlPreviewCodeBlock code={codeStr} onSaveToKnowledge={onSaveToKnowledge} />;
+                return <HtmlPreviewCodeBlock code={codeStr} onSaveToKnowledge={onSaveToKnowledge} onOpen={onOpen} />;
             }
             return <code className={className} {...props}>{children}</code>;
         }
-    }), [onSaveToKnowledge]);
+    }), [onSaveToKnowledge, onOpen]);
 
     return (
         <div className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -222,7 +222,7 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
     );
 });
 
-const McpChat = () => {
+const McpChat = ({ onOpen }) => {
     const [messages, setMessages] = useState([]);
     const [previousInteractionId, setPreviousInteractionId] = useState(null);
     const [environmentId, setEnvironmentId] = useState(null);
@@ -629,6 +629,7 @@ const McpChat = () => {
                                 onCopy={handleCopy}
                                 onReuse={handleReusePrompt}
                                 onSaveToKnowledge={handleSaveToKnowledge}
+                                onOpen={onOpen}
                             />
                         ))}
 
