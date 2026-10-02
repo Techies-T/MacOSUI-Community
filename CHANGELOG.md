@@ -3,22 +3,35 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
-## [v2.8.0] - 2026-09-30
+## [v2.8.0] - 2026-10-02
 
-### 🚀 Gemini 3.8 Multimodal Live Concierge & AI Analytics iframe 統合リリース
+### 🚀 Gemini 3.8 Multimodal Live Concierge & 動的モデル管理 & Safari 完全互換リリース
 
 #### ✨ Added (新機能・機能追加)
 - **🎙️ 👁️ Gemini 3.8 Multimodal Live Concierge（画面認識・リアルタイム音声対話AI）**:
-  - Google の最新マルチモーダルリアルタイムストリーミング技術「Gemini 3.8 Multimodal Live API（BidiGenerateContent）」を統合した新アプリ『Live Concierge』を新設。
+  - Google の最新マルチモーダルリアルタイムストリーミング技術「Gemini 3.8 Multimodal Live API（`BidiGenerateContent`）」を統合した新アプリ『Live Concierge』を新設。
   - **ブラウザ標準画面共有 API (`getDisplayMedia`)**: 特別なプラグインや外部ソフト不要で、ユーザーのデスクトップ画面を Canvas 経由で毎秒1回（1 FPS）の軽量 JPEG フレームとしてストリーミング送信。
-  - **Web Audio API 双方向ストリーミング**: マイク入力（PCM 16kHz リサンプル）および Gemini からの音声レスポンス（PCM 24kHz キュー再生）を低遅延で処理。ユーザー発話時の自動割り込み（バージイン）にも完全対応。
+  - **スマート VAD (Voice Activity Detection)**: ユーザーの発声を検出し、発話終了時の静寂（約 850ms）を自動検知して `clientContent` として即時コミット。高速かつ確実な音声ターン対話を実現。
+  - **Safari / Web Audio API 完全互換**: Google Live API の 24kHz 音声を Mac / Safari のハードウェア標準レート（48kHz）へ滑らかにリアルタイム変換する高品質リサンプリング（`resampleFloat32`）およびサイレントアンロックを実装。
+  - **🔊 音声テスト機能**: ヘッダーにワンクリックでテストチャイム音を再生するボタンを新設。Safari の自動再生ポリシー（Autoplay Policy）を解除し、音声出力の正常性を即時確認可能に。
   - **セキュアなバックエンド WebSocket プロキシ (`/ws/gemini-live`)**: APIキーをフロントエンドに露出させず、ZTA認証（JWT/Cookie）のもと Google アップストリーム WebSocket とセキュアに相互中継。
   - **ビジュアル・オーディオインターフェース**: AIが見ている視野のミニプレビュー小窓、発話状態に応じた動的波形ビジュアライザー、リアルタイム字幕ログ、声質（Puck, Kore, Aoede, Fenrir）の動的切替を完備。
+- **⚙️ Admin 専用 Live Concierge 動的モデル設定管理タブ (`LiveConciergeTab.jsx`)**:
+  - `.agents/AGENTS.md` の開発原則（ハードコード禁止）を徹底遵守し、System Settings 画面に管理者限定の専用設定タブを新設。
+  - 将来の新モデル（Gemini 4 Live 等）登場時にもコード修正不要で、管理者がモデル ID・表示名・Extended Thinking 有無をデータベースへ動的登録・管理可能に。
 - **🖥️ AI Analytics ダッシュボードの MacOSUI 内 Browser（iframe）統合**:
   - MCP Chat で生成された GenUI ダッシュボードにおいて、従来の「別タブ」ボタンを完全維持しつつ、新たに **「🖥️ デスクトップで開く」** ボタンを新設。
   - MacOSUI のウィンドウマネージャーを通じて独立した Browser（iframe）ウィンドウとして起動。
   - ウィンドウの自由なリサイズ、フルスクリーン最大化、上下左右のスムーズなスクロール、Chart.js や D3.js 等のベクター SVG 描画を完全にサポート。
   - Live Concierge と同一デスクトップ上で並列配置し、ダッシュボードを見ながらのリアルタイム音声FAQ・データ解説が可能に。
+
+#### 🐛 Fixed (バグ修正・安定性向上)
+- **🔌 Google Live API 重複 setup 送信の防止 (`connectOrSwitchUpstream`)**:
+  - セッション接続時に setup メッセージが二重送信されることによる Google サーバー側からの切断（code 1006）を完全解消。
+- **🧠 Extended Thinking モデルの必須パラメータ対応**:
+  - `gemini-3.8-live-extended-thinking` 利用時に必須となる `thinkingConfig: { thinkingLevel: "low" }` を自動付与し、code 1007 切断を防止。
+- **🔇 Safari での音声再生ミュート・サンプルレート不一致の解消**:
+  - Safari の Autoplay Policy によるサイレントブロックを解消し、`getChannelData(0).set()` と 48kHz アップサンプリングにより Mac のスピーカーからクリアな日本語音声を再生可能に。
 
 ---
 
