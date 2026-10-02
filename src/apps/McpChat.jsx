@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import SaveToKnowledgeModal from '../components/SaveToKnowledgeModal';
+import HtmlPreviewCodeBlock from '../components/HtmlPreviewCodeBlock';
 
 const renderContextUsage = (usage) => {
     if (!usage) return null;
@@ -31,133 +32,203 @@ const renderContextUsage = (usage) => {
     );
 };
 
-// Generative UI: HTML Live Preview Component
-const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge }) => {
-    const [viewMode, setViewMode] = useState('preview'); // 'preview' or 'code'
-    const [isExpanded, setIsExpanded] = useState(false);
-    const iframeRef = useRef(null);
-
-    const updateHeight = () => {
-        try {
-            if (iframeRef.current && iframeRef.current.contentWindow) {
-                const doc = iframeRef.current.contentWindow.document;
-                if (doc && doc.body) {
-                    const scrollH = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 500);
-                    iframeRef.current.style.height = `${Math.min(scrollH + 30, 1200)}px`;
-                }
+// メモ化された個別チャットメッセージコンポーネント（親コンポーネントのタイマー更新等による再レンダリング・iframe再マウントを完全抑止）
+const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onSaveToKnowledge, onOpen }) => {
+    // Markdown components の参照同一性を保持し、iframeのアンマウント・再マウントを抑止
+    const markdownComponents = useMemo(() => ({
+        code({ node, inline, className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const codeStr = String(children).replace(/\n$/, '');
+            const isHtmlBlock = (!inline && match && (match[1] === 'html' || match[1] === 'htm')) ||
+                                (!inline && (codeStr.startsWith('<!DOCTYPE html') || codeStr.includes('<html') || codeStr.startsWith('<div class=') || codeStr.startsWith('<div id=') || codeStr.includes('cdn.tailwindcss.com')));
+            if (isHtmlBlock) {
+                return <HtmlPreviewCodeBlock code={codeStr} onSaveToKnowledge={onSaveToKnowledge} onOpen={onOpen} />;
             }
-        } catch {
-            // Ignore iframe access error
+            return <code className={className} {...props}>{children}</code>;
         }
-    };
+    }), [onSaveToKnowledge, onOpen]);
+
+    return (
+        <div className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+            {/* Avatar */}
+            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-indigo-600 shadow-sm'}`}>
+                {msg.role === 'user' ? (
+                    <span className="text-xs font-semibold">Me</span>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                        <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.06 1.06a.75.75 0 101.06 1.06l1.06-1.06zM5.466 19.08a.75.75 0 01-1.06-1.06l1.06-1.06a.75.75 0 011.06 1.06l-1.06 1.06zM20.25 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM6.75 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM18.894 17.834a.75.75 0 10-1.06 1.06l1.06 1.06a.75.75 0 101.06-1.06l-1.06-1.06zM5.466 4.92a.75.75 0 001.06-1.06l-1.06-1.06a.75.75 0 00-1.06 1.06l1.06 1.06z" clipRule="evenodd" />
+                    </svg>
+                )}
+            </div>
+            
+            {/* Bubble */}
+            <div className={`group relative ${msg.role === 'user' ? 'max-w-[85%] sm:max-w-[75%] bg-indigo-600 text-white rounded-2xl rounded-tr-none px-4 py-3' : 'w-full bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none p-5 sm:p-6'} text-[15px] leading-relaxed shadow-sm overflow-x-auto`}>
+                {msg.role === 'model' && (
+                    <button 
+                        onClick={() => onCopy(msg.text, `model-${index}`)}
+                        className="absolute top-3 right-3 p-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10 flex items-center justify-center"
+                        title="回答をコピー"
+                    >
+                        {isCopied ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
+                                <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                            </svg>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+                        )}
+                    </button>
+                )}
+                {msg.role === 'user' && (
+                    <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button 
+                            onClick={() => onCopy(msg.text, `user-${index}`)}
+                            className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
+                            title="プロンプトをクリップボードにコピー"
+                        >
+                            {isCopied ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-emerald-300">
+                                    <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                </svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                </svg>
+                            )}
+                        </button>
+                        <button 
+                            onClick={() => onReuse(msg.text)}
+                            className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
+                            title="入力欄に再セットして編集"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
+                {msg.role === 'user' ? (
+                    <p className="whitespace-pre-wrap pr-16">{msg.text}</p>
+                ) : (
+                    <div className="prose prose-indigo max-w-none prose-p:leading-relaxed prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-th:bg-gray-100 prose-th:px-4 prose-th:py-2.5 prose-th:whitespace-nowrap prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2.5 prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-200">
+                        <ReactMarkdown
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[rehypeKatex]}
+                            components={markdownComponents}
+                        >
+                            {msg.text}
+                        </ReactMarkdown>
+                    </div>
+                )}
+                {msg.role === 'model' && renderContextUsage(msg.usage)}
+            </div>
+        </div>
+    );
+});
+
+// 独立したタスク進捗インジケーター（内部でポーリングおよびタイマーを自律管理し、親コンポーネントの再レンダリングを完全ゼロ化）
+const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCancel }) => {
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const [progress, setProgress] = useState('タスク受付完了。処理を開始します...');
+    const isCancelledRef = useRef(false);
 
     useEffect(() => {
-        if (viewMode === 'preview') {
-            const timer = setTimeout(updateHeight, 400);
-            return () => clearTimeout(timer);
-        }
-    }, [viewMode, code, isExpanded]);
+        const startTime = Date.now();
+        const timer = setInterval(() => {
+            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+        }, 1000);
 
-    // 自動修復: もし <script> が開いているのに </script> が閉じていない場合、安全に閉じタグを補完
-    const safeCode = React.useMemo(() => {
-        if (!code) return '';
-        let sanitized = code;
-        const scriptOpenCount = (sanitized.match(/<script\b[^>]*>/gi) || []).length;
-        const scriptCloseCount = (sanitized.match(/<\/script>/gi) || []).length;
-        if (scriptOpenCount > scriptCloseCount) {
-            sanitized += '\n</script></body></html>';
-        }
-        return sanitized;
-    }, [code]);
+        const pollTimer = setInterval(async () => {
+            if (isCancelledRef.current) return;
+            try {
+                const res = await fetch(`/api/mcp/tasks/${taskId}`);
+                if (!res.ok) return;
+                const taskData = await res.json();
 
-    const openInNewTab = () => {
-        const blob = new Blob([safeCode], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
+                if (taskData.status === 'running') {
+                    setProgress(taskData.progress || 'エージェントが推論中...');
+                } else if (taskData.status === 'completed') {
+                    clearInterval(timer);
+                    clearInterval(pollTimer);
+                    onComplete(taskData.result || {});
+                } else if (taskData.status === 'failed') {
+                    clearInterval(timer);
+                    clearInterval(pollTimer);
+                    onError(taskData.error || 'タスクの実行に失敗しました');
+                } else if (taskData.status === 'cancelled') {
+                    clearInterval(timer);
+                    clearInterval(pollTimer);
+                    onCancel();
+                }
+            } catch (e) {
+                console.error('[TaskProgressIndicator] Polling error:', e);
+            }
+        }, 1500);
+
+        return () => {
+            clearInterval(timer);
+            clearInterval(pollTimer);
+        };
+    }, [taskId, onComplete, onError, onCancel]);
+
+    const handleCancel = () => {
+        isCancelledRef.current = true;
+        onCancel();
     };
 
     return (
-        <div className={`my-4 border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white not-prose transition-all ${isExpanded ? 'ring-2 ring-indigo-400' : ''}`}>
-            <div className="bg-gray-100/80 backdrop-blur px-3 py-2 border-b border-gray-200 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                    <span className="text-base">⚡</span>
-                    <span className="font-semibold text-gray-700">Generative UI Widget</span>
-                    <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 font-medium">Interactive Preview</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => onSaveToKnowledge && onSaveToKnowledge(safeCode)}
-                        className="px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 text-xs font-semibold transition-colors border border-indigo-200 flex items-center gap-1.5 shadow-xs"
-                        title="このダッシュボードをナレッジベースに保存してチームで共有"
-                    >
-                        <span>📚</span>
-                        <span>ナレッジに保存</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        className="px-2 py-1 rounded-md text-gray-600 hover:text-indigo-600 hover:bg-white text-xs font-medium transition-colors border border-transparent hover:border-gray-200"
-                        title={isExpanded ? "通常サイズに戻す" : "ウィジェットを縦に拡大表示"}
-                    >
-                        {isExpanded ? "縮小" : "拡大"}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={openInNewTab}
-                        className="px-2 py-1 rounded-md text-gray-600 hover:text-indigo-600 hover:bg-white text-xs font-medium transition-colors border border-transparent hover:border-gray-200"
-                        title="別タブで全画面表示"
-                    >
-                        別タブ
-                    </button>
-                    <div className="flex bg-gray-200 p-0.5 rounded-lg text-xs">
+        <div className="flex gap-4 flex-row">
+            <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 animate-spin">
+                    <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
+                </svg>
+            </div>
+            <div className="w-full max-w-xl min-h-[96px] bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md flex flex-col justify-between">
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                            <span className="relative flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
+                            </span>
+                            <span className="text-xs font-semibold text-indigo-900 tracking-wide">
+                                MCP Tasks 非同期エージェント自律実行中
+                            </span>
+                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
+                                {elapsedTime}s
+                            </span>
+                        </div>
                         <button
                             type="button"
-                            onClick={() => setViewMode('preview')}
-                            className={`px-3 py-1 rounded-md transition-all font-medium ${viewMode === 'preview' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                            onClick={handleCancel}
+                            className="px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium transition-colors"
                         >
-                            プレビュー
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('code')}
-                            className={`px-3 py-1 rounded-md transition-all font-medium ${viewMode === 'code' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-                        >
-                            HTMLコード
+                            中断 (Cancel)
                         </button>
                     </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                        <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
+                            ⚙️
+                        </div>
+                        <span className="font-medium animate-pulse">
+                            {progress}
+                        </span>
+                    </div>
+                </div>
+                <div className="mt-2 text-[11px] text-gray-400">
+                    ※ SEP-2663 準拠: CloudFront の 60秒制限を受けず、大規模分析・ダッシュボード生成をバックグラウンドで確実に完遂します。
                 </div>
             </div>
-            {viewMode === 'preview' ? (
-                <div className="w-full bg-slate-900/5 p-2 overflow-auto">
-                    <iframe
-                        ref={iframeRef}
-                        onLoad={updateHeight}
-                        srcDoc={safeCode}
-                        className={`w-full rounded-lg border border-gray-200 bg-white transition-all ${isExpanded ? 'h-[800px]' : 'min-h-[500px] h-[520px]'}`}
-                        sandbox="allow-scripts allow-same-origin allow-popups allow-modals allow-forms allow-downloads"
-                        title="GenUI Preview"
-                    />
-                </div>
-            ) : (
-                <pre className="p-4 bg-gray-900 text-gray-100 text-xs overflow-x-auto m-0">
-                    <code>{code}</code>
-                </pre>
-            )}
         </div>
     );
-};
+});
 
-const McpChat = () => {
+const McpChat = ({ onOpen }) => {
     const [messages, setMessages] = useState([]);
     const [previousInteractionId, setPreviousInteractionId] = useState(null);
     const [environmentId, setEnvironmentId] = useState(null);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [activeTask, setActiveTask] = useState(null); // { taskId, status, progress, currentTurn }
-    const [elapsedTime, setElapsedTime] = useState(0);
-    const pollingIntervalRef = useRef(null);
-    const timerIntervalRef = useRef(null);
+    const [currentTaskId, setCurrentTaskId] = useState(null);
     
     // Artifact Viewer State
     const [activeArtifact, setActiveArtifact] = useState(null); // The artifact to display on the right pane
@@ -176,22 +247,24 @@ const McpChat = () => {
     const [saveKnowledgeDefaultTitle, setSaveKnowledgeDefaultTitle] = useState('');
     const [toastMessage, setToastMessage] = useState('');
 
-    const handleSaveToKnowledge = (code) => {
+    const handleSaveToKnowledge = useCallback((code) => {
         setCodeToSave(code);
-        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-        setSaveKnowledgeDefaultTitle(lastUserMsg ? lastUserMsg.text.slice(0, 60) : '');
+        setMessages(prev => {
+            const lastUserMsg = [...prev].reverse().find(m => m.role === 'user');
+            setSaveKnowledgeDefaultTitle(lastUserMsg ? lastUserMsg.text.slice(0, 60) : '');
+            return prev;
+        });
         setSaveKnowledgeModalOpen(true);
-    };
+    }, []);
 
     const handleSavedToKnowledge = (data) => {
         setToastMessage(`「${data.title || 'ダッシュボード'}」をナレッジベースに保存しました！`);
         setTimeout(() => setToastMessage(''), 4000);
     };
 
-    const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
-    const handleCopy = async (text, id) => {
+    const handleCopy = useCallback(async (text, id) => {
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(text);
@@ -211,18 +284,39 @@ const McpChat = () => {
         } catch (err) {
             console.error('Failed to copy text:', err);
         }
-    };
+    }, []);
 
-    const handleReusePrompt = (text) => {
+    const handleReusePrompt = useCallback((text) => {
         setInput(text);
         if (inputRef.current) {
             inputRef.current.focus();
         }
-    };
+    }, []);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    const messagesContainerRef = useRef(null);
+    const messagesEndRef = useRef(null);
+
+    const scrollToBottom = useCallback((instant = true) => {
+        if (messagesContainerRef.current) {
+            const container = messagesContainerRef.current;
+            // Safari/WebKit 対応: scrollIntoView は祖先コンテナまで巻き込んでスクロール位置を破壊・リセットするため、
+            // コンテナ自身の scrollTop を直接セットする
+            if (instant) {
+                container.scrollTop = container.scrollHeight;
+            } else {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+            }
+        }
+    }, []);
+
+    const triggerScrollToBottom = useCallback((instant = true) => {
+        scrollToBottom(instant);
+        requestAnimationFrame(() => {
+            scrollToBottom(instant);
+            setTimeout(() => scrollToBottom(instant), 60);
+            setTimeout(() => scrollToBottom(instant), 250);
+        });
+    }, [scrollToBottom]);
 
     const fetchMcpMetadata = async () => {
         setIsLoadingMeta(true);
@@ -256,57 +350,92 @@ const McpChat = () => {
 
     useEffect(() => {
         fetchMcpMetadata();
-    }, []);
-
-    useEffect(() => {
-        scrollToBottom();
         fetchQuickPrompts();
-    }, [messages]);
-
-    const stopTaskPolling = () => {
-        if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-        }
-        if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current);
-            timerIntervalRef.current = null;
-        }
-    };
-
-    useEffect(() => {
-        return () => stopTaskPolling();
     }, []);
 
-    const handleCancelTask = async () => {
-        if (!activeTask?.taskId) return;
-        try {
-            await fetch(`/api/mcp/tasks/${activeTask.taskId}/cancel`, { method: 'POST' });
-        } catch (e) {
-            console.error("Cancel task error:", e);
+    const prevMessageCountRef = useRef(0);
+    useEffect(() => {
+        if (messages.length > prevMessageCountRef.current) {
+            triggerScrollToBottom(true);
         }
-        stopTaskPolling();
+        prevMessageCountRef.current = messages.length;
+    }, [messages.length, triggerScrollToBottom]);
+
+    useEffect(() => {
+        if (currentTaskId) {
+            triggerScrollToBottom(true);
+        }
+    }, [currentTaskId, triggerScrollToBottom]);
+
+    // タスク完了ハンドラ（子コンポーネントの自律ポーリング完了時にのみ1回だけ発火）
+    const handleTaskComplete = useCallback((res) => {
         setIsLoading(false);
-        setActiveTask(null);
-        setMessages(prev => [...prev, { role: 'model', text: "⚠️ タスクの実行がユーザーにより中断されました。" }]);
-    };
+        setCurrentTaskId(null);
+
+        if (res?.interactionId) setPreviousInteractionId(res.interactionId);
+        if (res?.environmentId) setEnvironmentId(res.environmentId);
+
+        const replyText = res?.reply || "Operation completed.";
+        setMessages(prev => [...prev, {
+            id: `model-${Date.now()}`,
+            role: 'model',
+            text: replyText,
+            usage: res?.usageMetadata
+        }]);
+
+        if (res?.artifacts && res.artifacts.length > 0) {
+            const newArtifacts = res.artifacts.map((art, idx) => ({
+                id: Date.now() + idx,
+                tool: art.tool,
+                args: art.args,
+                result: art.result,
+                timestamp: new Date().toLocaleTimeString()
+            }));
+            setAllArtifacts(prev => [...prev, ...newArtifacts]);
+            setActiveArtifact(newArtifacts[newArtifacts.length - 1]);
+        }
+    }, []);
+
+    // タスクエラーハンドラ
+    const handleTaskError = useCallback((errorMsg) => {
+        setIsLoading(false);
+        setCurrentTaskId(null);
+        setMessages(prev => [...prev, {
+            id: `err-${Date.now()}`,
+            role: 'model',
+            text: `❌ エラー: ${errorMsg || 'タスクの実行に失敗しました'}`
+        }]);
+    }, []);
+
+    // タスク中断ハンドラ
+    const handleTaskCancel = useCallback(async () => {
+        if (currentTaskId) {
+            try {
+                await fetch(`/api/mcp/tasks/${currentTaskId}/cancel`, { method: 'POST' });
+            } catch (e) {
+                console.error("Cancel task error:", e);
+            }
+        }
+        setIsLoading(false);
+        setCurrentTaskId(null);
+        setMessages(prev => [...prev, {
+            id: `cancel-${Date.now()}`,
+            role: 'model',
+            text: "⚠️ タスクの実行がユーザーにより中断されました。"
+        }]);
+    }, [currentTaskId]);
 
     const handleSend = async () => {
         const textToSend = input.trim();
         if (!textToSend) return;
 
-        const userMessage = { role: 'user', text: textToSend };
+        const userMessage = { id: `user-${Date.now()}`, role: 'user', text: textToSend };
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
-        setElapsedTime(0);
-
-        // タイマースタート
-        stopTaskPolling();
-        const startTime = Date.now();
-        timerIntervalRef.current = setInterval(() => {
-            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
-        }, 1000);
+        if (inputRef.current) {
+            inputRef.current.focus();
+        }
 
         try {
             // SEP-2663 Tasks 拡張機能: 即時非同期タスク作成
@@ -328,89 +457,22 @@ const McpChat = () => {
 
             const data = await response.json();
 
-            // 202 Accepted: 非同期タスク開始
+            // 202 Accepted: 非同期タスク開始（taskIdをセットするだけで親は一切ポーリングせず静止）
             if (data.taskId) {
-                const taskId = data.taskId;
-                setActiveTask({
-                    taskId,
-                    status: 'pending',
-                    progress: 'タスク受付完了。処理を開始します...',
-                    currentTurn: 0
-                });
-
-                // ポーリング開始 (1.5秒間隔)
-                pollingIntervalRef.current = setInterval(async () => {
-                    try {
-                        const statusRes = await fetch(`/api/mcp/tasks/${taskId}`);
-                        if (!statusRes.ok) return;
-
-                        const taskData = await statusRes.json();
-                        
-                        if (taskData.status === 'running') {
-                            setActiveTask(prev => ({
-                                ...prev,
-                                status: 'running',
-                                progress: taskData.progress || 'エージェントが推論中...',
-                                currentTurn: taskData.currentTurn || 0
-                            }));
-                        } else if (taskData.status === 'completed') {
-                            stopTaskPolling();
-                            setIsLoading(false);
-                            setActiveTask(null);
-
-                            const res = taskData.result || {};
-                            if (res.interactionId) setPreviousInteractionId(res.interactionId);
-                            if (res.environmentId) setEnvironmentId(res.environmentId);
-
-                            if (res.reply) {
-                                setMessages(prev => [...prev, { role: 'model', text: res.reply, usage: res.usageMetadata }]);
-                            } else {
-                                setMessages(prev => [...prev, { role: 'model', text: "Operation completed.", usage: res.usageMetadata }]);
-                            }
-
-                            if (res.artifacts && res.artifacts.length > 0) {
-                                const newArtifacts = res.artifacts.map((art, idx) => ({
-                                    id: Date.now() + idx,
-                                    tool: art.tool,
-                                    args: art.args,
-                                    result: art.result,
-                                    timestamp: new Date().toLocaleTimeString()
-                                }));
-                                setAllArtifacts(prev => [...prev, ...newArtifacts]);
-                                setActiveArtifact(newArtifacts[newArtifacts.length - 1]);
-                            }
-
-                        } else if (taskData.status === 'failed') {
-                            stopTaskPolling();
-                            setIsLoading(false);
-                            setActiveTask(null);
-                            setMessages(prev => [...prev, { role: 'model', text: `❌ エラー: ${taskData.error || 'タスクの実行に失敗しました'}` }]);
-                        } else if (taskData.status === 'cancelled') {
-                            stopTaskPolling();
-                            setIsLoading(false);
-                            setActiveTask(null);
-                            setMessages(prev => [...prev, { role: 'model', text: "⚠️ タスクがキャンセルされました。" }]);
-                        }
-                    } catch (pollErr) {
-                        console.error("Polling task error:", pollErr);
-                    }
-                }, 1500);
-
+                setCurrentTaskId(data.taskId);
             } else {
-                // フォールバック（同期返却の場合）
-                stopTaskPolling();
+                // 同期フォールバック
                 setIsLoading(false);
                 if (data.reply) {
-                    setMessages(prev => [...prev, { role: 'model', text: data.reply, usage: data.usageMetadata }]);
+                    setMessages(prev => [...prev, { id: `model-${Date.now()}`, role: 'model', text: data.reply, usage: data.usageMetadata }]);
                 }
             }
 
         } catch (error) {
             console.error("MCP Chat Error:", error);
-            stopTaskPolling();
             setIsLoading(false);
-            setActiveTask(null);
-            setMessages(prev => [...prev, { role: 'model', text: `❌ Error: ${error.message}` }]);
+            setCurrentTaskId(null);
+            setMessages(prev => [...prev, { id: `err-${Date.now()}`, role: 'model', text: `❌ Error: ${error.message}` }]);
         }
     };
 
@@ -478,7 +540,7 @@ const McpChat = () => {
         <div className="flex h-full w-full bg-white overflow-hidden">
             
             {/* Left Pane: Chat Interface */}
-            <div className={`flex flex-col h-full border-r border-gray-200 transition-all duration-300 ${activeArtifact ? 'w-1/2' : 'w-full border-r-0'}`}>
+            <div className={`flex flex-col h-full min-h-0 border-r border-gray-200 transition-all duration-300 ${activeArtifact ? 'w-1/2' : 'w-full border-r-0'}`}>
                 
                 {/* Header */}
                 <div className="flex-none h-14 border-b border-gray-200 bg-white flex items-center px-6 justify-between shadow-sm z-10">
@@ -528,7 +590,10 @@ const McpChat = () => {
                 </div>
 
                 {/* Messages List */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 scrollbar-thin">
+                <div 
+                    ref={messagesContainerRef}
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 bg-gray-50/50 scrollbar-thin"
+                >
                     {messages.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto animate-fadeIn">
                             <div className="w-16 h-16 bg-white border border-gray-200 rounded-2xl flex items-center justify-center shadow-sm mb-6">
@@ -556,136 +621,27 @@ const McpChat = () => {
 
                     <div className="w-full max-w-[96%] mx-auto space-y-6">
                         {messages.map((msg, index) => (
-                            <div key={index} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} animate-fadeIn`}>
-                                {/* Avatar */}
-                                <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-indigo-600 shadow-sm'}`}>
-                                    {msg.role === 'user' ? (
-                                        <span className="text-xs font-semibold">Me</span>
-                                    ) : (
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                                            <path fillRule="evenodd" d="M12 2.25a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.06 1.06a.75.75 0 101.06 1.06l1.06-1.06zM5.466 19.08a.75.75 0 01-1.06-1.06l1.06-1.06a.75.75 0 011.06 1.06l-1.06 1.06zM20.25 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM6.75 12a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5a.75.75 0 01.75.75zM18.894 17.834a.75.75 0 10-1.06 1.06l1.06 1.06a.75.75 0 101.06-1.06l-1.06-1.06zM5.466 4.92a.75.75 0 001.06-1.06l-1.06-1.06a.75.75 0 00-1.06 1.06l1.06 1.06z" clipRule="evenodd" />
-                                        </svg>
-                                    )}
-                                </div>
-                                
-                                {/* Bubble */}
-                                <div className={`group relative ${msg.role === 'user' ? 'max-w-[85%] sm:max-w-[75%] bg-indigo-600 text-white rounded-2xl rounded-tr-none px-4 py-3' : 'w-full bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-tl-none p-5 sm:p-6'} text-[15px] leading-relaxed shadow-sm overflow-x-auto`}>
-                                    {msg.role === 'model' && (
-                                        <button 
-                                            onClick={() => handleCopy(msg.text, `model-${index}`)}
-                                            className="absolute top-3 right-3 p-1.5 bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10 flex items-center justify-center"
-                                            title="回答をコピー"
-                                        >
-                                            {copiedId === `model-${index}` ? (
-                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
-                                                    <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
-                                                </svg>
-                                            ) : (
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                                            )}
-                                        </button>
-                                    )}
-                                    {msg.role === 'user' && (
-                                        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                            <button 
-                                                onClick={() => handleCopy(msg.text, `user-${index}`)}
-                                                className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
-                                                title="プロンプトをクリップボードにコピー"
-                                            >
-                                                {copiedId === `user-${index}` ? (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5 text-emerald-300">
-                                                        <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
-                                                    </svg>
-                                                ) : (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                                                    </svg>
-                                                )}
-                                            </button>
-                                            <button 
-                                                onClick={() => handleReusePrompt(msg.text)}
-                                                className="p-1.5 bg-indigo-700/90 hover:bg-indigo-800 text-indigo-100 hover:text-white rounded-lg border border-indigo-500/40 shadow-sm transition-all flex items-center justify-center"
-                                                title="入力欄に再セットして編集"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    )}
-                                    {msg.role === 'user' ? (
-                                        <p className="whitespace-pre-wrap pr-16">{msg.text}</p>
-                                    ) : (
-                                        <div className="prose prose-indigo max-w-none prose-p:leading-relaxed prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-th:bg-gray-100 prose-th:px-4 prose-th:py-2.5 prose-th:whitespace-nowrap prose-td:border prose-td:border-gray-200 prose-td:px-4 prose-td:py-2.5 prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-200">
-                                            <ReactMarkdown
-                                                remarkPlugins={[remarkGfm, remarkMath]}
-                                                rehypePlugins={[rehypeKatex]}
-                                                components={{
-                                                    code({ node, inline, className, children, ...props }) {
-                                                        const match = /language-(\w+)/.exec(className || '');
-                                                        const codeStr = String(children).replace(/\n$/, '');
-                                                        const isHtmlBlock = (!inline && match && (match[1] === 'html' || match[1] === 'htm')) ||
-                                                                            (!inline && (codeStr.startsWith('<!DOCTYPE html') || codeStr.includes('<html') || codeStr.startsWith('<div class=') || codeStr.startsWith('<div id=') || codeStr.includes('cdn.tailwindcss.com')));
-                                                        if (isHtmlBlock) {
-                                                            return <HtmlPreviewCodeBlock code={codeStr} onSaveToKnowledge={handleSaveToKnowledge} />;
-                                                        }
-                                                        return <code className={className} {...props}>{children}</code>;
-                                                    }
-                                                }}
-                                            >
-                                                {msg.text}
-                                            </ReactMarkdown>
-                                        </div>
-                                    )}
-                                    {msg.role === 'model' && renderContextUsage(msg.usage)}
-                                </div>
-                            </div>
+                            <ChatMessageItem
+                                key={msg.id || `msg-${index}-${msg.role}`}
+                                msg={msg}
+                                index={index}
+                                isCopied={copiedId === (msg.role === 'user' ? `user-${index}` : `model-${index}`)}
+                                onCopy={handleCopy}
+                                onReuse={handleReusePrompt}
+                                onSaveToKnowledge={handleSaveToKnowledge}
+                                onOpen={onOpen}
+                            />
                         ))}
 
-                        {isLoading && (
-                            <div className="flex gap-4 flex-row animate-fadeIn">
-                                <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md text-white">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 animate-spin">
-                                        <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
-                                    </svg>
-                                </div>
-                                <div className="w-full max-w-xl bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <span className="relative flex h-2.5 w-2.5">
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
-                                            </span>
-                                            <span className="text-xs font-semibold text-indigo-900 tracking-wide">
-                                                MCP Tasks 非同期エージェント自律実行中
-                                            </span>
-                                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
-                                                {elapsedTime}s
-                                            </span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={handleCancelTask}
-                                            className="px-2 py-0.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium transition-colors"
-                                        >
-                                            中断 (Cancel)
-                                        </button>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                                        <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
-                                            ⚙️
-                                        </div>
-                                        <span className="font-medium animate-pulse">
-                                            {activeTask?.progress || 'バックグラウンドで処理を実行中...'}
-                                        </span>
-                                    </div>
-                                    <div className="mt-2 text-[11px] text-gray-400">
-                                        ※ SEP-2663 準拠: CloudFront の 60秒制限を受けず、大規模分析・ダッシュボード生成をバックグラウンドで確実に完遂します。
-                                    </div>
-                                </div>
-                            </div>
+                        {isLoading && currentTaskId && (
+                            <TaskProgressIndicator 
+                                taskId={currentTaskId}
+                                onComplete={handleTaskComplete}
+                                onError={handleTaskError}
+                                onCancel={handleTaskCancel}
+                            />
                         )}
-                        <div ref={messagesEndRef} />
+                        <div ref={messagesEndRef} className="h-px w-full" />
                     </div>
                 </div>
 
