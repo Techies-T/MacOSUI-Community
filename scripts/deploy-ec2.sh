@@ -64,7 +64,7 @@ find . -name "._*" -delete 2>/dev/null || true
 echo "=================================================="
 echo "🚀 [Step 3/5] Pull Latest Code (VUP)"
 echo "=================================================="
-git fetch origin --tags
+git fetch origin --tags -f
 git checkout main
 git pull origin main
 echo "Current Commit: $(git log -1 --oneline)"
