@@ -32,9 +32,9 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'browser': return <Browser {...win.props} />;
             case 'html-editor': return <HtmlEditor onOpen={onOpen} {...win.props} />;
             case 'deep-research': return <DeepResearch onOpen={onOpen} />;
-            case 'knowledge-base': return <KnowledgeBase />;
+            case 'knowledge-base': return <KnowledgeBase onOpen={onOpen} user={user} {...win.props} />;
             case 'mcp-chat': return <McpChat onOpen={onOpen} />;
-            case 'live-concierge': return <LiveConcierge onOpen={onOpen} user={user} />;
+            case 'live-concierge': return <LiveConcierge onOpen={onOpen} user={user} {...win.props} />;
             case 'virtual-office': return <VirtualOffice onOpen={onOpen} user={user} />;
             case 'dm-chat': return <DmChat {...win.props} />;
             case 'external-skill': return <ExternalWidget url={win.props.url} title={win.title} widgetId={win.id || 'external-skill'} />;
