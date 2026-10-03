@@ -60,6 +60,7 @@ echo "🧹 [Step 2/5] Clean OS Metadata & Stash"
 echo "=================================================="
 cd "$REPO_DIR"
 find . -name "._*" -delete 2>/dev/null || true
+sudo chown -R ec2-user:ec2-user "$REPO_DIR" 2>/dev/null || true
 
 echo "=================================================="
 echo "🚀 [Step 3/5] Pull Latest Code (VUP)"
