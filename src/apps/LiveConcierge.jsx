@@ -9,7 +9,7 @@ const AVAILABLE_VOICES = [
     { id: 'Fenrir', name: 'Fenrir (重厚で信頼感のある男声)' }
 ];
 
-const LiveConcierge = () => {
+const LiveConcierge = ({ onOpen: _onOpen, user: _user, initialKnowledgeId, initialKnowledgeTitle }) => {
     // 接続状態
     const [connectionStatus, setConnectionStatus] = useState('disconnected'); // 'disconnected' | 'connecting' | 'connected' | 'error'
     const [statusMessage, setStatusMessage] = useState('接続待機中');
@@ -21,6 +21,15 @@ const LiveConcierge = () => {
     const [isCustomMode, setIsCustomMode] = useState(false);
     const [selectedVoice, setSelectedVoice] = useState('Kore');
     const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+    // ナレッジデータベース連携状態
+    const [knowledgeList, setKnowledgeList] = useState([]);
+    const [selectedKnowledgeId, setSelectedKnowledgeId] = useState(initialKnowledgeId ? String(initialKnowledgeId) : '');
+    const [currentKnowledge, setCurrentKnowledge] = useState(
+        initialKnowledgeId ? { id: initialKnowledgeId, title: initialKnowledgeTitle || '読み込み中...' } : null
+    );
+    const [isToolExecuting, setIsToolExecuting] = useState(false);
+    const [executingToolLabel, setExecutingToolLabel] = useState('');
 
     // デバイス状態
     const [isMicActive, setIsMicActive] = useState(false);
@@ -36,7 +45,9 @@ const LiveConcierge = () => {
     const [transcripts, setTranscripts] = useState([
         {
             role: 'assistant',
-            text: 'こんにちは！MacOSUI Live Concierge です。画面を共有してマイクをONにすると、あなたの操作している画面を見ながら音声でご案内します。',
+            text: initialKnowledgeTitle
+                ? `ナレッジ「${initialKnowledgeTitle}」を読み込んでいます。マイクをONにして会話を始めましょう。`
+                : 'こんにちは！MacOSUI Live Concierge です。画面を共有してマイクをONにすると、あなたの操作している画面を見ながら音声でご案内します。ナレッジレポートの解説もお任せください。',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
     ]);
@@ -83,6 +94,59 @@ const LiveConcierge = () => {
             });
     }, []);
 
+    // 初期化: 参照可能なナレッジ記事一覧の取得
+    useEffect(() => {
+        fetch('/api/gemini-live/knowledge/list')
+            .then(res => res.json())
+            .then(data => {
+                if (data.articles && Array.isArray(data.articles)) {
+                    setKnowledgeList(data.articles);
+                    if (selectedKnowledgeId) {
+                        const matched = data.articles.find(a => a.id === Number(selectedKnowledgeId));
+                        if (matched) setCurrentKnowledge(matched);
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('[LiveConcierge] Failed to load knowledge list:', err);
+            });
+    }, []);
+
+    // 外部 props (initialKnowledgeId) が変更された場合の動的ロード
+    useEffect(() => {
+        if (initialKnowledgeId && String(initialKnowledgeId) !== selectedKnowledgeId) {
+            setSelectedKnowledgeId(String(initialKnowledgeId));
+            handleSelectKnowledge(String(initialKnowledgeId), true);
+        }
+    }, [initialKnowledgeId]);
+
+    const handleSelectKnowledge = (knowledgeId, isSwitch = false) => {
+        setSelectedKnowledgeId(knowledgeId);
+        if (!knowledgeId) {
+            setCurrentKnowledge(null);
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({
+                    type: 'load_knowledge',
+                    knowledgeId: null
+                }));
+            }
+            return;
+        }
+
+        const matched = knowledgeList.find(k => k.id === Number(knowledgeId));
+        if (matched) {
+            setCurrentKnowledge(matched);
+        }
+
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'load_knowledge',
+                knowledgeId: Number(knowledgeId),
+                isSwitch
+            }));
+        }
+    };
+
     const saveLiveModelSetting = async (modelName) => {
         try {
             await fetch('/api/gemini-live/settings', {
@@ -97,7 +161,8 @@ const LiveConcierge = () => {
                 wsRef.current.send(JSON.stringify({
                     type: 'init_session',
                     model: modelName,
-                    voiceName: selectedVoice
+                    voiceName: selectedVoice,
+                    initialKnowledgeId: selectedKnowledgeId ? Number(selectedKnowledgeId) : undefined
                 }));
             }
         } catch (err) {
@@ -143,11 +208,12 @@ const LiveConcierge = () => {
             setStatusMessage('接続完了。初期セットアップを送信中...');
 
             const modelToUse = overrideModel || selectedModel;
-            // 初期セッションパラメータを送信 (専用Liveモデルを指定)
+            // 初期セッションパラメータを送信 (専用Liveモデルと対象ナレッジを指定)
             ws.send(JSON.stringify({
                 type: 'init_session',
                 model: modelToUse,
-                voiceName: selectedVoice
+                voiceName: selectedVoice,
+                initialKnowledgeId: selectedKnowledgeId ? Number(selectedKnowledgeId) : undefined
             }));
         };
 
@@ -165,6 +231,30 @@ const LiveConcierge = () => {
                     console.error('[LiveConcierge] Error from server:', data.message);
                     setStatusMessage(`エラー: ${data.message}`);
                     setConnectionStatus('error');
+                    return;
+                }
+
+                if (data.type === 'knowledge_loaded') {
+                    setCurrentKnowledge(data.knowledge);
+                    setStatusMessage(`ナレッジ「${data.knowledge.title}」を読み込みました`);
+                    return;
+                }
+
+                if (data.type === 'knowledge_unloaded') {
+                    setCurrentKnowledge(null);
+                    setStatusMessage('ナレッジ選択を解除しました');
+                    return;
+                }
+
+                if (data.type === 'tool_execution') {
+                    const toolNames = (data.functionCalls || []).map(f => f.name);
+                    let label = 'ナレッジを参照中...';
+                    if (toolNames.includes('search_knowledge_articles')) label = 'ナレッジデータベースを検索中...';
+                    if (toolNames.includes('get_knowledge_article')) label = '詳細レポートを取得中...';
+                    if (toolNames.includes('list_recent_knowledge')) label = '最新レポート一覧を取得中...';
+                    setExecutingToolLabel(label);
+                    setIsToolExecuting(true);
+                    setTimeout(() => setIsToolExecuting(false), 3500);
                     return;
                 }
 
@@ -581,6 +671,49 @@ const LiveConcierge = () => {
                         </button>
                     )}
                 </div>
+            </div>
+
+            {/* Knowledge Base Integration Sub-Toolbar */}
+            <div className="flex-none px-4 py-2 bg-[#1c1c20] border-b border-gray-800/80 flex items-center justify-between text-xs flex-wrap gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="flex items-center gap-1.5 text-indigo-400 font-medium shrink-0">
+                        <span>📚</span>
+                        <span>対象ナレッジ:</span>
+                    </span>
+                    <select
+                        value={selectedKnowledgeId}
+                        onChange={(e) => handleSelectKnowledge(e.target.value, true)}
+                        className="bg-gray-900 text-gray-200 border border-gray-700 rounded-md px-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 max-w-[360px] truncate cursor-pointer shadow-xs"
+                    >
+                        <option value="">なし（一般的なデスクトップ操作案内）</option>
+                        {knowledgeList.map(k => (
+                            <option key={k.id} value={k.id}>
+                                #{k.id} {k.title}
+                            </option>
+                        ))}
+                    </select>
+                    {currentKnowledge && (
+                        <div className="flex items-center gap-1.5 shrink-0 overflow-hidden text-ellipsis">
+                            <span className="text-[10px] bg-indigo-950/80 text-indigo-300 border border-indigo-800/50 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                                <span>読込完了</span>
+                            </span>
+                            {currentKnowledge.tags && Array.isArray(currentKnowledge.tags) && currentKnowledge.tags.slice(0, 2).map((t, idx) => (
+                                <span key={idx} className="text-[9px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded hidden sm:inline">
+                                    {t}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* ツール実行中インジケーター (AIが自律検索・ナレッジ取得中) */}
+                {isToolExecuting && (
+                    <div className="flex items-center gap-1.5 bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 px-2.5 py-0.5 rounded-full text-[11px] animate-pulse shrink-0">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        <span className="font-medium">{executingToolLabel || 'ナレッジを参照中...'}</span>
+                    </div>
+                )}
             </div>
 
             {/* Main Stage Area: 画面共有プレビュー & 波形ビジュアライザー */}

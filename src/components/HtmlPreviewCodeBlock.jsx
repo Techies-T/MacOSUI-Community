@@ -111,6 +111,23 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge, onOpen }) => {
                     {onOpen && (
                         <button
                             type="button"
+                            onClick={() => {
+                                const titleMatch = code.match(/<title>([^<]+)<\/title>/i) || code.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
+                                const title = (titleMatch && titleMatch[1]) ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'AI Analytics ダッシュボード';
+                                onOpen('live-concierge', 'live-concierge', 'Live Concierge', {
+                                    initialKnowledgeTitle: title
+                                });
+                            }}
+                            className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs"
+                            title="Live Concierge を起動し、音声でこのダッシュボードの解説を聞く"
+                        >
+                            <span>🎙️</span>
+                            <span>Live解説</span>
+                        </button>
+                    )}
+                    {onOpen && (
+                        <button
+                            type="button"
                             onClick={openInBrowserWindow}
                             className="px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition-colors border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-1.5 shadow-xs"
                             title="MacOSUIデスクトップ内のBrowserウィンドウとして開く（リサイズ・スクロール対応）"

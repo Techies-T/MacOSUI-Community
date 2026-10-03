@@ -3,6 +3,29 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v2.8.1] - 2026-10-03
+
+### 🚀 Live Concierge ナレッジデータベース音声解説 & FAQ & 自律ツール連携リリース
+
+#### ✨ Added (新機能・機能追加)
+- **📚 🎙️ Live Concierge ナレッジベース連携 & 音声解説・FAQ機能**:
+  - ナレッジデータベース（`knowledge_articles`）に蓄積された DeepResearch 調査レポートや AI MCP Analytics のデータ分析ダッシュボードを Live Concierge で即座に読み込み、音声で概要やトレンドを分かりやすく解説・FAQ応答する機能を追加。
+  - **Flash 3.8 Live 全二重 (Barge-in / Interrupt) 最適化**: 接続開始時、AI が「『〇〇』のレポートを読み込みました。概要を説明しますが、質問があればいつでも質問が可能です」と発話を開始し、ユーザーが途中で割り込んで質問しても即座に回答へ切り替える高レスポンスな対話を実現。
+  - **画面・ナレッジ切り替え検知 (Dynamic Transition)**: 閲覧中のレポートや共有タブを切り替えた際、「画面が切り替わりました。『〇〇』のレポートを読み込みました。概要を説明します...」と AI 側からシームレスに新しい対象レポートの説明へ切り替える動的コンテキスト注入を実装。
+- **🛠️ Gemini Live 自律ナレッジ参照 & 検索ツール (Function Calling)**:
+  - Gemini Multimodal Live API の `setup.tools` に専用のナレッジ参照ツール（`get_knowledge_article`, `search_knowledge_articles`, `list_recent_knowledge`）を装備。
+  - 音声対話中にユーザーが「他の関連レポートはある？」「前回の調査結果と比較して」と尋ねた場合、Gemini Live が自律的にツールを呼び出して DB を検索・参照し、即答する高度なエージェント挙動を実現。
+  - ツール実行中は UI 上に「📚 ナレッジデータベースを検索中...」等のインジケーターをアニメーション表示。
+- **🧩 ナレッジ・セマンティック抽出ユーティリティ (`knowledgeExtractor.cjs`)**:
+  - 長大な Markdown 本文、HTML 見出し、データテーブル、Chart.js のデータセット定義（labels, data）、SVG テキストから、AI が高密度に理解できる要約コンテキストを自動抽出・構造化。
+- **🎯 ナレッジベース & GenUI プレビューからのワンクリック連携**:
+  - `KnowledgeBase.jsx`（詳細ヘッダーおよび GenUI ツールバー）に **「🎙️ Live解説」** ボタンを新設。ワンクリックで対象ナレッジを紐付けた状態で Live Concierge が起動。
+  - `HtmlPreviewCodeBlock.jsx`（MCP Chat 等の GenUI ダッシュボード）にも **「🎙️ Live解説」** ボタンを設置。
+- **🧭 Live Concierge 内 ナレッジセレクター & サブツールバー**:
+  - Live Concierge ウィジェットの上部に、参照可能なナレッジ記事をプルダウン選択できるサブツールバーを配置。読込ステータスやタグバッジを視覚的に表示。
+
+---
+
 ## [v2.8.0] - 2026-10-02
 
 ### 🚀 Gemini 3.8 Multimodal Live Concierge & 動的モデル管理 & Safari 完全互換リリース
