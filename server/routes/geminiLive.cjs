@@ -3,8 +3,135 @@ const router = express.Router();
 const { WebSocketServer, WebSocket } = require('ws');
 const jwt = require('jsonwebtoken');
 const db = require('../db.cjs');
+const { extractKnowledgeContext } = require('../utils/knowledgeExtractor.cjs');
 
 const { GoogleGenAI } = require('@google/genai');
+
+/**
+ * ユーザーの RBAC 許可 Pod 一覧を取得 (ZTA準拠)
+ */
+async function getAllowedPodsForUser(user) {
+    if (!user) return [];
+    try {
+        const rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+        const roles = (user.role || 'user').split(',').map(r => r.trim());
+        let allowedPods = [];
+        if (roles.includes('admin')) {
+            allowedPods = ['*'];
+        } else {
+            roles.forEach(r => {
+                const policy = rbacPolicies[r] || {};
+                (policy.allowed_pods || []).forEach(p => {
+                    if (!allowedPods.includes(p)) allowedPods.push(p);
+                });
+            });
+        }
+        return allowedPods;
+    } catch (e) {
+        console.error('[Gemini Live] Error reading RBAC policies:', e);
+        return [];
+    }
+}
+
+/**
+ * 指定IDのナレッジ記事をRBAC検証付きで取得
+ */
+async function fetchArticleById(id, user) {
+    const allowedPods = await getAllowedPodsForUser(user);
+    const hasAllAccess = allowedPods.includes('*');
+
+    return new Promise((resolve) => {
+        db.get(`
+            SELECT k.*, u.name as author_name, u.avatar_url as author_avatar 
+            FROM knowledge_articles k
+            LEFT JOIN users u ON k.author_id = u.id
+            WHERE k.id = ?
+        `, [id], (err, row) => {
+            if (err || !row) return resolve(null);
+            if (!hasAllAccess && row.pod_id && !allowedPods.includes(row.pod_id)) {
+                return resolve(null); // アクセス権限なし
+            }
+            resolve(row);
+        });
+    });
+}
+
+/**
+ * キーワードによるナレッジ記事の検索
+ */
+async function searchArticles(query, user, limit = 5) {
+    const allowedPods = await getAllowedPodsForUser(user);
+    const hasAllAccess = allowedPods.includes('*');
+
+    return new Promise((resolve) => {
+        let sql = `
+            SELECT k.id, k.title, k.tags, k.created_at, k.updated_at 
+            FROM knowledge_articles k
+            WHERE (k.title LIKE ? OR k.tags LIKE ? OR k.content LIKE ?)
+        `;
+        const qParam = `%${query}%`;
+        let params = [qParam, qParam, qParam];
+
+        if (!hasAllAccess) {
+            if (allowedPods.length > 0) {
+                const placeholders = allowedPods.map(() => '?').join(',');
+                sql += ` AND (k.pod_id IN (${placeholders}) OR k.pod_id IS NULL OR k.pod_id = '')`;
+                params.push(...allowedPods);
+            } else {
+                sql += ` AND (k.pod_id IS NULL OR k.pod_id = '')`;
+            }
+        }
+        sql += ` ORDER BY k.updated_at DESC LIMIT ?`;
+        params.push(limit);
+
+        db.all(sql, params, (err, rows) => {
+            if (err) return resolve([]);
+            const formatted = (rows || []).map(r => {
+                try { r.tags = JSON.parse(r.tags || '[]'); } catch (_) { r.tags = []; }
+                return r;
+            });
+            resolve(formatted);
+        });
+    });
+}
+
+/**
+ * 最近保存されたナレッジ記事の一覧を取得
+ */
+async function listRecentArticles(limit = 10, user) {
+    const allowedPods = await getAllowedPodsForUser(user);
+    const hasAllAccess = allowedPods.includes('*');
+
+    return new Promise((resolve) => {
+        let sql = `
+            SELECT k.id, k.title, k.tags, k.created_at, k.updated_at 
+            FROM knowledge_articles k
+            WHERE 1=1
+        `;
+        let params = [];
+
+        if (!hasAllAccess) {
+            if (allowedPods.length > 0) {
+                const placeholders = allowedPods.map(() => '?').join(',');
+                sql += ` AND (k.pod_id IN (${placeholders}) OR k.pod_id IS NULL OR k.pod_id = '')`;
+                params.push(...allowedPods);
+            } else {
+                sql += ` AND (k.pod_id IS NULL OR k.pod_id = '')`;
+            }
+        }
+        sql += ` ORDER BY k.updated_at DESC LIMIT ?`;
+        params.push(limit);
+
+        db.all(sql, params, (err, rows) => {
+            if (err) return resolve([]);
+            const formatted = (rows || []).map(r => {
+                try { r.tags = JSON.parse(r.tags || '[]'); } catch (_) { r.tags = []; }
+                return r;
+            });
+            resolve(formatted);
+        });
+    });
+}
 
 /**
  * 簡易 Cookie パーサー (外部依存なしで安全に抽出)
@@ -147,6 +274,78 @@ router.post('/settings', async (req, res) => {
 });
 
 /**
+ * REST API: Live Concierge が参照可能なナレッジ記事一覧の取得
+ */
+router.get('/knowledge/list', async (req, res) => {
+    try {
+        const list = await listRecentArticles(30, req.user);
+        res.json({ articles: list });
+    } catch (err) {
+        console.error('[Gemini Live API] Failed to list knowledge articles:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * REST API: 指定したナレッジ記事のセマンティック抽出サマリーと全文コンテキストの取得
+ */
+router.get('/knowledge/:id', async (req, res) => {
+    try {
+        const article = await fetchArticleById(req.params.id, req.user);
+        if (!article) {
+            return res.status(404).json({ error: '指定されたナレッジ記事が見つからないか、アクセス権限がありません。' });
+        }
+        const extracted = extractKnowledgeContext(article);
+        res.json(extracted);
+    } catch (err) {
+        console.error('[Gemini Live API] Failed to get knowledge article:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Gemini Live API に登録するナレッジ参照 & 検索ツール定義 (Function Calling)
+ */
+const KNOWLEDGE_LIVE_TOOLS = [
+    {
+        functionDeclarations: [
+            {
+                name: 'get_knowledge_article',
+                description: 'ナレッジデータベースから指定した記事IDのタイトル、タグ、要約、主要な分析データ、KPI、グラフ内訳などの詳細を取得します。',
+                parameters: {
+                    type: 'OBJECT',
+                    properties: {
+                        id: { type: 'INTEGER', description: '取得したいナレッジ記事のID番号' }
+                    },
+                    required: ['id']
+                }
+            },
+            {
+                name: 'search_knowledge_articles',
+                description: 'ナレッジデータベースからキーワードやタグに関連する分析レポートやナレッジ記事を検索し、一覧を取得します。',
+                parameters: {
+                    type: 'OBJECT',
+                    properties: {
+                        query: { type: 'STRING', description: '検索キーワード（例: NPB、行政手続、MCP、競合調査、売上推移など）' }
+                    },
+                    required: ['query']
+                }
+            },
+            {
+                name: 'list_recent_knowledge',
+                description: '最近保存された DeepResearch や AI MCP Analytics の最新ナレッジ記事一覧（タイトル、タグ、作成日時）を取得します。',
+                parameters: {
+                    type: 'OBJECT',
+                    properties: {
+                        limit: { type: 'INTEGER', description: '取得件数（デフォルト: 5）' }
+                    }
+                }
+            }
+        ]
+    }
+];
+
+/**
  * Gemini 3.8 Multimodal Live API WebSocket プロキシのセットアップ
  * @param {import('http').Server} server 
  */
@@ -212,17 +411,23 @@ function setupGeminiLiveWebSocket(server) {
         let isSetupSent = false;
         let currentConnectedModel = null;
         let currentConnectedVoice = null;
+        let currentKnowledgeContext = null;
         let selectedVoice = 'Puck';
         const pendingClientQueue = [];
 
-        const createSetupMessage = (modelName, voiceName, customPrompt) => {
-            const systemPrompt = customPrompt || 
+        const createSetupMessage = (modelName, voiceName, customPrompt, initialKnowledge) => {
+            let systemPrompt = customPrompt || 
                 `あなたはMacOSUI（WebOSデスクトップ環境）の専属AIコンシェルジュ「MacOSUI Live」です。
 ユーザーが共有している画面のリアルタイム映像を見ながら、親切、簡潔、フレンドリーな日本語音声で対話してください。
 【あなたの役割】
 1. 操作ガイド: ユーザーが「この機能はどう使うの？」と聞いたら、画面上の具体的なタブ名、ボタンの位置（例:「画面左上の青いボタン」「3番目のタブ」）を視覚的に特定して教えてください。
-2. AI Analytics解説: 画面にダッシュボードやグラフ（Chart.js、SVG、テーブル）が表示されている場合、各チャートのトレンドや異常値、注目すべきKPIの意味を分かりやすく解説してください。
-3. 簡潔な応答: 音声対話のため、1回の発話は1〜3文程度で端的に返し、ユーザーの反応を待ちながらテンポよく会話を進めてください。`;
+2. ナレッジ・AI Analytics解説: 画面にダッシュボードやグラフ（Chart.js、SVG、テーブル）、または読み込まれたナレッジレポートが表示されている場合、各チャートのトレンドや異常値、注目すべきKPIの意味を分かりやすく解説してください。
+3. FAQ対応 & ツール活用: レポート内容に関する質問には的確に回答し、必要に応じてナレッジ取得ツール（get_knowledge_article, search_knowledge_articles等）を活用して詳細データを参照してください。
+4. 全二重対話 (Barge-in対応): 音声対話のため、1回の発話は1〜3文程度で端的に返し、ユーザーの反応を待ちながらテンポよく会話を進めてください。ユーザーが途中で割り込んできた場合、即座にその質問に応答してください。`;
+
+            if (initialKnowledge && initialKnowledge.formattedContext) {
+                systemPrompt += `\n\n【現在開いているナレッジレポート】\n${initialKnowledge.formattedContext}\n\n※ユーザーと会話を開始する際は、「『${initialKnowledge.title}』のレポートを読み込みました。概要を説明しますが、質問があればいつでも質問が可能です」と音声で伝えた上で、続けてこのレポートの要約・重要ポイントを簡潔に話し始めてください。`;
+            }
 
             const isExtendedThinking = modelName.includes('extended-thinking') || modelName.includes('thinking');
 
@@ -251,6 +456,7 @@ function setupGeminiLiveWebSocket(server) {
                     systemInstruction: {
                         parts: [{ text: systemPrompt }]
                     },
+                    tools: KNOWLEDGE_LIVE_TOOLS,
                     inputAudioTranscription: {},
                     outputAudioTranscription: {}
                 }
@@ -258,7 +464,7 @@ function setupGeminiLiveWebSocket(server) {
         };
 
         // Google Live API との接続確立・切替 (Google仕様上 setup は接続直後に1度しか送信できないため)
-        const connectOrSwitchUpstream = (targetModel, targetVoice, customPrompt) => {
+        const connectOrSwitchUpstream = (targetModel, targetVoice, customPrompt, initialKnowledge) => {
             // 既に同じモデル・声質で接続済みの場合は setup を再送せず維持
             if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN && 
                 currentConnectedModel === targetModel && currentConnectedVoice === targetVoice) {
@@ -298,10 +504,10 @@ function setupGeminiLiveWebSocket(server) {
                 isUpstreamOpen = true;
 
                 // 最初の一手として setup メッセージを単一送信 (重複送信厳禁)
-                const setupMsg = createSetupMessage(targetModel, targetVoice, customPrompt);
+                const setupMsg = createSetupMessage(targetModel, targetVoice, customPrompt, initialKnowledge || currentKnowledgeContext);
                 upstreamWs.send(JSON.stringify(setupMsg));
                 isSetupSent = true;
-                console.log(`[Gemini Live WS] Sent initial setup message: model=${targetModel}, voice=${targetVoice}`);
+                console.log(`[Gemini Live WS] Sent initial setup message with Knowledge Tools: model=${targetModel}, voice=${targetVoice}`);
 
                 // 保留キューの中身をフラッシュ
                 while (pendingClientQueue.length > 0) {
@@ -319,11 +525,66 @@ function setupGeminiLiveWebSocket(server) {
                 }
             });
 
-            // Google からのレスポンスをクライアントへ転送
-            upstreamWs.on('message', (data) => {
+            // Google からのレスポンスをクライアントへ転送 & toolCall の自律処理
+            upstreamWs.on('message', async (data) => {
                 try {
+                    const text = data.toString();
+                    let parsed = null;
+                    try {
+                        parsed = JSON.parse(text);
+                    } catch (_) {}
+
+                    // 1. Google Live API からの toolCall (Function Calling) インターセプト
+                    if (parsed && parsed.toolCall && Array.isArray(parsed.toolCall.functionCalls)) {
+                        console.log('[Gemini Live WS] toolCall received from upstream:', parsed.toolCall.functionCalls.map(f => f.name));
+
+                        // クライアントへツール実行中を通知 (UI用)
+                        if (clientWs.readyState === WebSocket.OPEN) {
+                            clientWs.send(JSON.stringify({
+                                type: 'tool_execution',
+                                functionCalls: parsed.toolCall.functionCalls
+                            }));
+                        }
+
+                        // 各ツールの実行
+                        const functionResponses = await Promise.all(parsed.toolCall.functionCalls.map(async (fc) => {
+                            let output = {};
+                            try {
+                                if (fc.name === 'get_knowledge_article') {
+                                    const art = await fetchArticleById(fc.args.id, user);
+                                    output = art ? extractKnowledgeContext(art) : { error: '記事が見つかりません。' };
+                                } else if (fc.name === 'search_knowledge_articles') {
+                                    const results = await searchArticles(fc.args.query, user);
+                                    output = { results };
+                                } else if (fc.name === 'list_recent_knowledge') {
+                                    const articles = await listRecentArticles(fc.args.limit || 5, user);
+                                    output = { articles };
+                                } else {
+                                    output = { error: `未対応のツール呼び出しです: ${fc.name}` };
+                                }
+                            } catch (toolErr) {
+                                console.error(`[Gemini Live WS] Error executing tool ${fc.name}:`, toolErr);
+                                output = { error: toolErr.message };
+                            }
+
+                            return {
+                                id: fc.id,
+                                name: fc.name,
+                                response: { output }
+                            };
+                        }));
+
+                        // Google Upstream へ toolResponse を返送
+                        if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
+                            console.log('[Gemini Live WS] Sending toolResponse back upstream...');
+                            upstreamWs.send(JSON.stringify({
+                                toolResponse: { functionResponses }
+                            }));
+                        }
+                    }
+
+                    // 2. 通常のメッセージ転送
                     if (clientWs.readyState === WebSocket.OPEN) {
-                        const text = data.toString();
                         clientWs.send(text);
                     }
                 } catch (err) {
@@ -384,8 +645,76 @@ function setupGeminiLiveWebSocket(server) {
                         selectedVoice = parsed.voiceName;
                     }
 
+                    // 初期ナレッジIDが指定されていた場合、ロードしてコンテキスト化
+                    if (parsed.initialKnowledgeId) {
+                        const art = await fetchArticleById(parsed.initialKnowledgeId, user);
+                        if (art) {
+                            currentKnowledgeContext = extractKnowledgeContext(art);
+                            console.log(`[Gemini Live WS] Loaded initial knowledge: ${currentKnowledgeContext.title} (#${currentKnowledgeContext.id})`);
+                        }
+                    }
+
                     // 指定されたモデルと声質で Upstream を確立/切替
-                    connectOrSwitchUpstream(liveModel, selectedVoice, parsed.systemInstruction);
+                    connectOrSwitchUpstream(liveModel, selectedVoice, parsed.systemInstruction, currentKnowledgeContext);
+                    return;
+                }
+
+                // カスタムアクション: ナレッジ記事の動的ロード・切り替え
+                if (parsed.type === 'load_knowledge') {
+                    const articleId = parsed.knowledgeId;
+                    const isSwitch = !!parsed.isSwitch;
+
+                    if (!articleId) {
+                        currentKnowledgeContext = null;
+                        if (clientWs.readyState === WebSocket.OPEN) {
+                            clientWs.send(JSON.stringify({ type: 'knowledge_unloaded' }));
+                        }
+                        return;
+                    }
+
+                    const article = await fetchArticleById(articleId, user);
+                    if (!article) {
+                        if (clientWs.readyState === WebSocket.OPEN) {
+                            clientWs.send(JSON.stringify({ type: 'error', message: '指定されたナレッジ記事が見つかりません。' }));
+                        }
+                        return;
+                    }
+
+                    const extracted = extractKnowledgeContext(article);
+                    currentKnowledgeContext = extracted;
+                    console.log(`[Gemini Live WS] Knowledge loaded via load_knowledge: ${extracted.title} (isSwitch: ${isSwitch})`);
+
+                    // Upstream が接続中の場合、clientContent を送信して AI に音声発話をキック
+                    if (isSetupSent && isUpstreamOpen && upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
+                        const promptText = isSwitch
+                            ? `[システム通知: 画面が切り替わりました。ユーザーは新しいレポート『${extracted.title}』を表示しています。ユーザーに「画面が切り替わりました。『${extracted.title}』のレポートを読み込みました。概要を説明しますが、質問があればいつでも質問が可能です」と音声で伝えた上で、続けてこのレポートの要約・主要な発見を簡潔に説明してください。\n\n【新レポート内容】\n${extracted.formattedContext}]`
+                            : `[システム通知: ユーザーはナレッジレポート『${extracted.title}』を開きました。ユーザーに「『${extracted.title}』のレポートを読み込みました。概要を説明しますが、質問があればいつでも質問が可能です」と音声で伝えた上で、続けてこのレポートの要約・主要な発見を簡潔に説明してください。\n\n【レポート内容】\n${extracted.formattedContext}]`;
+
+                        console.log('[Gemini Live WS] Committing knowledge turn to Gemini Live...');
+                        upstreamWs.send(JSON.stringify({
+                            clientContent: {
+                                turns: [
+                                    {
+                                        role: 'user',
+                                        parts: [{ text: promptText }]
+                                    }
+                                ],
+                                turnComplete: true
+                            }
+                        }));
+                    }
+
+                    if (clientWs.readyState === WebSocket.OPEN) {
+                        clientWs.send(JSON.stringify({
+                            type: 'knowledge_loaded',
+                            knowledge: {
+                                id: extracted.id,
+                                title: extracted.title,
+                                tags: extracted.tags,
+                                created_at: extracted.created_at
+                            }
+                        }));
+                    }
                     return;
                 }
 

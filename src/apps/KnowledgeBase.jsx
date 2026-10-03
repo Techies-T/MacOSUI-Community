@@ -30,13 +30,24 @@ const extractHtml = (text) => {
     return null;
 };
 
-const KnowledgeBase = () => {
+const KnowledgeBase = ({ onOpen }) => {
     const [articles, setArticles] = useState([]);
     const [selectedArticleId, setSelectedArticleId] = useState(null);
     const [selectedTag, setSelectedTag] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTab] = useState('auto'); // 'preview' | 'markdown' | 'auto'
     const [isFullWidth, setIsFullWidth] = useState(false);
+    
+    // Live Concierge で音声解説を開始
+    const openInLiveConcierge = (article) => {
+        if (!article) return;
+        if (onOpen) {
+            onOpen('live-concierge', 'live-concierge', 'Live Concierge', {
+                initialKnowledgeId: article.id,
+                initialKnowledgeTitle: article.title
+            });
+        }
+    };
     
     // Pod states
     const [pods, setPods] = useState([]);
@@ -564,7 +575,16 @@ const KnowledgeBase = () => {
                                                 ))}
                                             </div>
                                         </div>
-                                        <div className="flex gap-2 ml-4">
+                                        <div className="flex gap-2 ml-4 items-center">
+                                            <button
+                                                type="button"
+                                                onClick={() => openInLiveConcierge(selectedArticle)}
+                                                className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow flex items-center gap-1.5 transition-colors cursor-pointer"
+                                                title="Live Concierge を起動し、音声でこのレポートの解説を聞く"
+                                            >
+                                                <span>🎙️</span>
+                                                <span>Live解説</span>
+                                            </button>
                                             <button onClick={() => setIsEditing(true)} className="px-3 py-1.5 text-sm bg-[#37373d] hover:bg-[#4d4d54] text-white rounded shadow transition-colors">
                                                 編集
                                             </button>
@@ -605,6 +625,15 @@ const KnowledgeBase = () => {
                                                 </button>
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openInLiveConcierge(selectedArticle)}
+                                                    className="px-2.5 py-1 bg-indigo-950/90 hover:bg-indigo-900 text-indigo-300 rounded text-xs transition-colors flex items-center gap-1.5 border border-indigo-700/60 font-medium cursor-pointer shadow-xs"
+                                                    title="Live Concierge を起動し、音声でこのダッシュボードの解説を聞く"
+                                                >
+                                                    <span>🎙️</span>
+                                                    <span>Live解説</span>
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => {
