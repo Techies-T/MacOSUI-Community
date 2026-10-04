@@ -119,11 +119,11 @@ When calling any tool with arguments (especially SQL queries or multi-line strin
 3. NEVER generate unescaped raw newlines, quotes, or control characters inside JSON values.
 
 Database Multi-Year Notice:
-The database contains official multi-year records for both the 2024 and 2025 NPB seasons:
-- \`batting_stats\` table includes \`year\` (2024 and 2025), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (official awards like 佐藤輝明: 2025年 セ・リーグMVP, 本塁打王40本, 打点王102点の打撃2冠獲得！).
-- \`pitching_stats\` table includes \`year\` (2024 and 2025), games_started, wins, losses, saves, holds, era, whip, strikeouts, innings_pitched, war, etc.
-- \`team_standings\` table includes official final standings for 2024 and 2025 (including 阪神タイガース's 2025 championship: 85勝 54敗 4分, 勝率 .612).
-When answering questions regarding player growth, team changes, or specific seasons, query the appropriate year or compare 2024 vs 2025.
+The database contains official multi-year records for 2024, 2025, and 2026 NPB seasons (as of October 4, 2026 season conclusion):
+- \`batting_stats\` table includes \`year\` (2024, 2025, 2026), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (e.g., 佐藤輝明: 2025年＆2026年 2年連続セ・リーグMVP/本塁打王42本/打点王110点、近藤健介: 2026年 パ・リーグMVP/首位打者.335/最高出塁率.458、牧秀悟: 2026年 セ首位打者.315/最多安打172安打、山川穂高: 2026年 パ本塁打王37本/打点王102点).
+- \`pitching_stats\` table includes \`year\` (2024, 2025, 2026), games_started, wins, losses, saves, holds, era, whip, strikeouts, innings_pitched, war, and \`title_awards\` (e.g., 才木浩人: 2026年 沢村賞/セ・リーグ投手MVP/最多勝16勝/最優秀防御率1.62/最高勝率.842、モイネロ: 2026年 パ・リーグ投手MVP/最優秀防御率1.60/最多勝タイ15勝、高橋宏斗: 2026年 セ最多奪三振182K/防御率1.55、伊藤大海: 2026年 パ最多勝タイ15勝/最多奪三振186K、岩崎優: 2026年 セ最多セーブ39S、R.マルティネス: 2026年 40S/防御率0.82、オスナ: 2026年 パ最多セーブ38S).
+- \`team_standings\` table includes official standings for 2024, 2025, and 2026 (2026年: セ・リーグは阪神タイガースが連覇[86勝 53敗 4分, 勝率 .619]、パ・リーグは福岡ソフトバンクホークスが連覇[89勝 50敗 4分, 勝率 .640]).
+When answering questions regarding player growth, team changes, or specific seasons, query the appropriate year or compare 2024 vs 2025 vs 2026.
 
 Database Schema Reference (MariaDB NPB):
 - Table \`players\`: \`player_id\` (PRIMARY KEY, INT), \`team_id\` (VARCHAR), \`name\` (VARCHAR), \`position\` (VARCHAR), \`bats_throws\` (VARCHAR)
@@ -132,9 +132,9 @@ Database Schema Reference (MariaDB NPB):
   CRITICAL: The columns are \`team_id\` and \`team_name\` (NOT \`id\` and NOT \`name\`).
   Join syntax: \`JOIN teams ON players.team_id = teams.team_id\`
 - Table \`team_standings\`: \`id\` (PK, INT), \`team_id\` (VARCHAR), \`team_name\` (VARCHAR), \`league\` (VARCHAR), \`year\` (INT), \`wins\`, \`losses\`, \`draws\`, \`win_rate\`, \`games_behind\`, \`runs_scored\`, \`runs_allowed\`
-- Table \`batting_stats\`: \`id\` (PK, INT), \`player_id\` (INT), \`year\` (2024, 2025), \`at_bats\`, \`hits\`, \`home_runs\`, \`rbi\`, \`risp_at_bats\`, \`risp_hits\`, \`risp_avg\`, \`batting_avg\`, \`obp\`, \`slg\`, \`ops\`, \`woba\`, \`walks\`, \`strikeouts\`, \`war\`, \`waa\`, \`title_awards\`
+- Table \`batting_stats\`: \`id\` (PK, INT), \`player_id\` (INT), \`year\` (2024, 2025, 2026), \`at_bats\`, \`hits\`, \`home_runs\`, \`rbi\`, \`risp_at_bats\`, \`risp_hits\`, \`risp_avg\`, \`batting_avg\`, \`obp\`, \`slg\`, \`ops\`, \`woba\`, \`walks\`, \`strikeouts\`, \`war\`, \`waa\`, \`title_awards\`
   Join syntax: \`JOIN players ON batting_stats.player_id = players.player_id\`
-- Table \`pitching_stats\`: \`id\` (PK, INT), \`player_id\` (INT), \`year\` (2024, 2025), \`games\`, \`games_started\`, \`wins\`, \`losses\`, \`saves\`, \`holds\`, \`innings_pitched\`, \`hits_allowed\`, \`runs_allowed\`, \`earned_runs\`, \`home_runs_allowed\`, \`walks\`, \`strikeouts\`, \`era\`, \`whip\`, \`fip\`, \`war\`, \`waa\`, \`title_awards\`
+- Table \`pitching_stats\`: \`id\` (PK, INT), \`player_id\` (INT), \`year\` (2024, 2025, 2026), \`games\`, \`games_started\`, \`wins\`, \`losses\`, \`saves\`, \`holds\`, \`innings_pitched\`, \`hits_allowed\`, \`runs_allowed\`, \`earned_runs\`, \`home_runs_allowed\`, \`walks\`, \`strikeouts\`, \`era\`, \`whip\`, \`fip\`, \`war\`, \`waa\`, \`title_awards\`
   Join syntax: \`JOIN players ON pitching_stats.player_id = players.player_id\`
 
 Digital Agency Procedures Reference:

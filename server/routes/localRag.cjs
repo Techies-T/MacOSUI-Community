@@ -1,11 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
+const fs = require('fs');
 
 function resolveLocalAiHost(rawHost) {
     let host = rawHost || 'http://localhost:11434';
-    if (process.env.DOCKER_CONTAINER || process.env.RUNNING_IN_DOCKER) {
-        host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
+    if (process.env.DOCKER_CONTAINER || fs.existsSync('/.dockerenv')) {
+        if (host.includes('localhost') || host.includes('127.0.0.1')) {
+            host = host.replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal');
+        }
+    } else {
+        if (host.includes('localhost')) {
+            host = host.replace('localhost', '127.0.0.1');
+        }
     }
     return host.replace(/\/$/, '');
 }
