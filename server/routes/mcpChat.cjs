@@ -119,10 +119,10 @@ When calling any tool with arguments (especially SQL queries or multi-line strin
 3. NEVER generate unescaped raw newlines, quotes, or control characters inside JSON values.
 
 Database Multi-Year Notice:
-The database contains official multi-year records for 2024, 2025, and 2026 NPB seasons (as of October 4, 2026 season conclusion):
-- \`batting_stats\` table includes \`year\` (2024, 2025, 2026), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (e.g., 佐藤輝明: 2025年＆2026年 2年連続セ・リーグMVP/本塁打王42本/打点王110点、近藤健介: 2026年 パ・リーグMVP/首位打者.335/最高出塁率.458、牧秀悟: 2026年 セ首位打者.315/最多安打172安打、山川穂高: 2026年 パ本塁打王37本/打点王102点).
-- \`pitching_stats\` table includes \`year\` (2024, 2025, 2026), games_started, wins, losses, saves, holds, era, whip, strikeouts, innings_pitched, war, and \`title_awards\` (e.g., 才木浩人: 2026年 沢村賞/セ・リーグ投手MVP/最多勝16勝/最優秀防御率1.62/最高勝率.842、モイネロ: 2026年 パ・リーグ投手MVP/最優秀防御率1.60/最多勝タイ15勝、高橋宏斗: 2026年 セ最多奪三振182K/防御率1.55、伊藤大海: 2026年 パ最多勝タイ15勝/最多奪三振186K、岩崎優: 2026年 セ最多セーブ39S、R.マルティネス: 2026年 40S/防御率0.82、オスナ: 2026年 パ最多セーブ38S).
-- \`team_standings\` table includes official standings for 2024, 2025, and 2026 (2026年: セ・リーグは阪神タイガースが連覇[86勝 53敗 4分, 勝率 .619]、パ・リーグは福岡ソフトバンクホークスが連覇[89勝 50敗 4分, 勝率 .640]).
+The database contains official multi-year records for 2024, 2025, and 2026 NPB seasons (Source: NPB Official npb.jp as of October 2026):
+- \`batting_stats\` table includes \`year\` (2024, 2025, 2026), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (e.g., 佐藤輝明: 2026年 セ・リーグ三冠王[打率.314/39本/105点]・セMVP、栗原陵矢: 2026年 パ本塁打王[40本]・パ打点王[118点]、レイエス: 2026年 パ首位打者[打率.313/32本/82点]、近藤健介: 2026年 打率.310/32本/108点、森下翔太: 2026年 打率.294/35本/84点、大山悠輔: 2026年 打率.281/20本/84点、中野拓夢: 2026年 打率.293/146安打).
+- \`pitching_stats\` table includes \`year\` (2024, 2025, 2026), games_started, wins, losses, saves, holds, era, whip, strikeouts, innings_pitched, war, and \`title_awards\` (e.g., 髙橋遥人: 2026年 セ最多勝[16勝/防御率1.87]、村上頌樹: 2026年 セ最優秀防御率[1.85/10勝]、才木浩人: 2026年 セ最多奪三振[175K/10勝]、平良海馬: 2026年 パ最優秀防御率[1.36]、北山亘基＆エスピノーザ: 2026年 パ最多勝タイ[13勝]、荘司康誠: 2026年 パ最多奪三振[171K]、R.マルティネス: 2026年 セ最多セーブ[42S]、杉山一樹＆マチャド: 2026年 パ最多セーブタイ[35S]).
+- \`team_standings\` table includes official standings for 2024, 2025, and 2026 (2026年: セ・リーグは阪神タイガース優勝[77勝 60敗 2分, 勝率 .562]、パ・リーグは福岡ソフトバンクホークス優勝[91勝 48敗 3分, 勝率 .655]).
 When answering questions regarding player growth, team changes, or specific seasons, query the appropriate year or compare 2024 vs 2025 vs 2026.
 
 Database Schema Reference (MariaDB NPB):
