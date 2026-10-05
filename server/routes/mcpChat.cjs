@@ -44,6 +44,45 @@ async function createInteractionWithRetry(client, params, options, maxRetries = 
 }
 
 /**
+ * interaction オブジェクトから生成テキストを堅牢に抽出するヘルパー関数
+ */
+function extractTextFromInteraction(interaction) {
+    if (!interaction) return "";
+
+    // 1. output_text プロパティ（公式トップレベル出力）
+    if (interaction.output_text && typeof interaction.output_text === 'string' && interaction.output_text.trim()) {
+        return interaction.output_text.trim();
+    }
+
+    // 2. steps 配列の走査（最後の model_output から優先取得）
+    if (Array.isArray(interaction.steps) && interaction.steps.length > 0) {
+        for (let i = interaction.steps.length - 1; i >= 0; i--) {
+            const step = interaction.steps[i];
+            if (step.type === 'model_output') {
+                if (Array.isArray(step.content)) {
+                    const text = step.content
+                        .map(p => (typeof p === 'string' ? p : p?.text || ''))
+                        .filter(Boolean)
+                        .join('\n');
+                    if (text.trim()) return text.trim();
+                } else if (typeof step.content === 'string' && step.content.trim()) {
+                    return step.content.trim();
+                } else if (step.text && typeof step.text === 'string' && step.text.trim()) {
+                    return step.text.trim();
+                }
+            }
+        }
+    }
+
+    // 3. text / outputs プロパティのフォールバック
+    if (interaction.text && typeof interaction.text === 'string' && interaction.text.trim()) {
+        return interaction.text.trim();
+    }
+
+    return "";
+}
+
+/**
  * MCP ワークフロー実行コア関数（同期・非同期共通）
  */
 async function executeMcpWorkflow({ user, message, previous_interaction_id, environment_id, req, onProgress, checkCancelled, pipelineDomain }) {
@@ -200,7 +239,7 @@ ${toolDescriptions}`;
     currentInteractionId = interaction.id;
     currentEnvironmentId = interaction.environment_id;
 
-    let maxTurns = 6;
+    let maxTurns = 15;
     let turnCount = 0;
     let finalResponseText = "";
     let artifacts = [];
@@ -217,10 +256,10 @@ ${toolDescriptions}`;
         const lastStep = steps[steps.length - 1];
         if (!lastStep) break;
 
-        if (lastStep.type === 'model_output') {
-            const textParts = lastStep.content?.filter(p => p.text).map(p => p.text).join('\n') || "";
-            if (textParts) {
-                finalResponseText = textParts;
+        const currentText = extractTextFromInteraction(interaction);
+        if (currentText) {
+            finalResponseText = currentText;
+            if (lastStep.type === 'model_output') {
                 break;
             }
         }
@@ -310,42 +349,46 @@ ${toolDescriptions}`;
     }
 
     if (!finalResponseText) {
-        for (const step of steps) {
-            if (step.type === 'model_output' && step.content) {
-                const textParts = step.content.filter(p => p.text).map(p => p.text).join('\n');
-                if (textParts) {
-                    finalResponseText = textParts;
-                }
-            }
-        }
+        finalResponseText = extractTextFromInteraction(interaction);
     }
 
+    // ツール呼び出し後にテキストが空の場合、取得全データを元に独立したフォールバック合成を実行
     if (!finalResponseText && artifacts.length > 0) {
-        console.log('[MCP Chat] Final response text missing after tool calls. Requesting synthesis without tools...');
+        console.log(`[MCP Chat] Final response text missing after ${artifacts.length} tool calls. Requesting independent synthesis fallback...`);
         if (onProgress) onProgress('ツール実行結果を元にダッシュボードと回答を合成中...', turnCount + 1);
         try {
+            const artifactsContext = artifacts.map((a, idx) => {
+                const queryInfo = a.args?.query || a.args?.sql || JSON.stringify(a.args);
+                const resultStr = typeof a.result === 'string' ? a.result : JSON.stringify(a.result);
+                return `### クエリ ${idx + 1} (${a.tool})\n実行SQL/パラメータ: ${queryInfo}\n取得データ:\n${resultStr.substring(0, 15000)}`;
+            }).join('\n\n');
+
+            const synthesisPrompt = `あなたは高度なデータアナリスト兼システム管理者です。\nユーザーからの要求:\n「${message}」\n\nMCPツールにより取得された以下のデータベース/システム結果を参照してください:\n\n${artifactsContext}\n\n【指示】\n上記の取得実データを詳細に分析し、ユーザーの要求に完全に回答してください。\nインタラクティブなHTMLダッシュボード（必ず\`\`\`html ... \`\`\`コードブロック内）と詳細な解説を必ず日本語で出力してください。`;
+
             const finalSynthesis = await createInteractionWithRetry(client, {
                 model: modelName,
-                input: 'Based on the tool execution results above, please provide the complete answer and interactive HTML dashboard widget inside ```html ... ``` code block as requested.',
-                previous_interaction_id: currentInteractionId,
-                environment: currentEnvironmentId,
+                input: synthesisPrompt,
                 system_instruction: systemInstruction,
                 generation_config: {
                     temperature: 0.2,
                     max_output_tokens: 24576
                 }
             }, { timeout: 600000 });
-            if (finalSynthesis.steps) {
-                for (const step of finalSynthesis.steps) {
-                    if (step.type === 'model_output' && step.content) {
-                        const textParts = step.content.filter(p => p.text).map(p => p.text).join('\n');
-                        if (textParts) finalResponseText = textParts;
-                    }
-                }
+
+            finalResponseText = extractTextFromInteraction(finalSynthesis);
+            if (finalSynthesis?.id) {
+                currentInteractionId = finalSynthesis.id;
             }
+            console.log(`[MCP Chat] Independent synthesis completed. Text length: ${finalResponseText?.length || 0}`);
         } catch (synthErr) {
             console.error('[MCP Chat] Synthesis fallback error:', synthErr.message);
         }
+    }
+
+    // 最終セーフティネット: 万が一合成すら失敗しても、取得データを要約して絶対に空文字にしない
+    if (!finalResponseText && artifacts.length > 0) {
+        finalResponseText = `### データ取得完了\n\n${artifacts.length}件のMCPツール実行が完了しました。取得データは以下の通りです:\n\n` + 
+            artifacts.map((a, i) => `**[${i+1}] ${a.tool}**\n\`\`\`json\n${JSON.stringify(a.result, null, 2).substring(0, 1000)}\n\`\`\``).join('\n\n');
     }
 
     const usageMetadata = interaction?.usage || interaction?.usage_metadata || interaction?.usageMetadata || null;

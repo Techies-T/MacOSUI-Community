@@ -375,7 +375,10 @@ const McpChat = ({ onOpen }) => {
         if (res?.interactionId) setPreviousInteractionId(res.interactionId);
         if (res?.environmentId) setEnvironmentId(res.environmentId);
 
-        const replyText = res?.reply || "Operation completed.";
+        const replyText = res?.reply?.trim() || 
+            (res?.artifacts && res.artifacts.length > 0 
+                ? "データの取得は完了しましたが、回答テキストが空でした。アーティファクトパネルより取得データをご確認ください。" 
+                : "タスクの処理が完了しました。");
         setMessages(prev => [...prev, {
             id: `model-${Date.now()}`,
             role: 'model',
