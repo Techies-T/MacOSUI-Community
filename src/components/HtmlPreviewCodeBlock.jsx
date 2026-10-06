@@ -45,18 +45,36 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge, onOpen }) => {
         }
     };
 
-    // srcDoc 用に未完結スクリプトの自動補完および DOMContentLoaded セーフティスクリプトを注入
+    // srcDoc 用に未完結スクリプトの自動補完および DOMContentLoaded / 耐障害フォールバックを注入
     const preparedCode = React.useMemo(() => {
         if (!code) return '';
         let sanitized = code;
         const scriptOpenCount = (sanitized.match(/<script\b[^>]*>/gi) || []).length;
         const scriptCloseCount = (sanitized.match(/<\/script>/gi) || []).length;
         if (scriptOpenCount > scriptCloseCount) {
-            sanitized += '\n</script></body></html>';
+            sanitized += '\n;/* unclosed block auto-recovery */\n</script></body></html>';
         }
 
-        const safetyScript = `
+        const headSafetyScript = `
 <script>
+window.onerror = function(msg, url, line, col, error) {
+    console.warn("GenUI Widget script error intercepted:", msg);
+    // スクリプトエラーでタブ切り替え等が停止した場合に備え、デフォルトで最初のタブコンテンツを表示
+    setTimeout(function() {
+        var panels = document.querySelectorAll('[id^="content-"], [id^="tab-content-"]');
+        if (panels.length > 0) {
+            var anyVisible = false;
+            panels.forEach(function(p) {
+                if (!p.classList.contains('hidden') && p.style.display !== 'none') anyVisible = true;
+            });
+            if (!anyVisible && panels[0]) {
+                panels[0].classList.remove('hidden');
+                panels[0].style.display = 'block';
+            }
+        }
+    }, 150);
+    return false;
+};
 (function() {
     function fireReady() {
         try {
@@ -74,10 +92,13 @@ const HtmlPreviewCodeBlock = ({ code, onSaveToKnowledge, onOpen }) => {
 })();
 </script>
 `;
-        if (sanitized.includes('</body>')) {
-            return sanitized.replace('</body>', `${safetyScript}</body>`);
+        if (sanitized.includes('<head>')) {
+            return sanitized.replace('<head>', `<head>${headSafetyScript}`);
         }
-        return sanitized + safetyScript;
+        if (sanitized.includes('</body>')) {
+            return sanitized.replace('</body>', `${headSafetyScript}</body>`);
+        }
+        return headSafetyScript + sanitized;
     }, [code]);
 
     return (
