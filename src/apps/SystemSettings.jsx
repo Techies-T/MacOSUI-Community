@@ -69,6 +69,9 @@ const SystemSettings = ({ user }) => {
     const [isMcpSecretConfigured, setIsMcpSecretConfigured] = useState(false);
     const [mcpQuickPrompts, setMcpQuickPrompts] = useState([]);
     const [currentMcpChatModel, setCurrentMcpChatModel] = useState('');
+    const [mcpChatSystemInstruction, setMcpChatSystemInstruction] = useState('');
+    const [mcpChatMaxTurns, setMcpChatMaxTurns] = useState(15);
+    const [defaultMcpChatSystemInstruction, setDefaultMcpChatSystemInstruction] = useState('');
     
     // Local AI (Gemma 4) States
     const [localAiEnabled, setLocalAiEnabled] = useState(true);
@@ -235,6 +238,15 @@ const SystemSettings = ({ user }) => {
                 if (data.geminiLiveDefaultModel) {
                     setGeminiLiveDefaultModel(data.geminiLiveDefaultModel);
                 }
+                if (data.mcpChatSystemInstruction !== undefined) {
+                    setMcpChatSystemInstruction(data.mcpChatSystemInstruction);
+                }
+                if (data.mcpChatMaxTurns !== undefined) {
+                    setMcpChatMaxTurns(data.mcpChatMaxTurns);
+                }
+                if (data.defaultMcpChatSystemInstruction !== undefined) {
+                    setDefaultMcpChatSystemInstruction(data.defaultMcpChatSystemInstruction);
+                }
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
@@ -323,6 +335,8 @@ const SystemSettings = ({ user }) => {
                 payload.localAiHost = localAiHost;
                 payload.localAiModel = localAiModel;
                 payload.localAiTemperature = localAiTemperature;
+                payload.mcpChatSystemInstruction = mcpChatSystemInstruction;
+                payload.mcpChatMaxTurns = mcpChatMaxTurns;
             }
 
             if (canSeeBase) {
@@ -986,6 +1000,13 @@ const SystemSettings = ({ user }) => {
                         models={models}
                         currentMcpChatModel={currentMcpChatModel}
                         handleMcpChatModelChange={handleMcpChatModelChange}
+                        mcpChatSystemInstruction={mcpChatSystemInstruction}
+                        setMcpChatSystemInstruction={setMcpChatSystemInstruction}
+                        mcpChatMaxTurns={mcpChatMaxTurns}
+                        setMcpChatMaxTurns={setMcpChatMaxTurns}
+                        defaultMcpChatSystemInstruction={defaultMcpChatSystemInstruction}
+                        canManageSettings={canManageSettings}
+                        user={user}
                     />
                 )}
 

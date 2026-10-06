@@ -6,9 +6,16 @@ const McpConnectionsTab = ({
     handleSaveSettings,
     models = [],
     currentMcpChatModel = 'gemini-2.5-pro',
-    handleMcpChatModelChange
+    handleMcpChatModelChange,
+    mcpChatSystemInstruction = '',
+    setMcpChatSystemInstruction,
+    mcpChatMaxTurns = 15,
+    setMcpChatMaxTurns,
+    defaultMcpChatSystemInstruction = '',
+    canManageSettings = true,
+    user
 }) => {
-    const [activeSubTab, setActiveSubTab] = useState('connections'); // 'connections' | 'prompts' | 'model'
+    const [activeSubTab, setActiveSubTab] = useState('connections'); // 'connections' | 'prompts' | 'model' | 'harness'
     const [servers, setServers] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     
@@ -195,6 +202,13 @@ const McpConnectionsTab = ({
                     className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeSubTab === 'model' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
                 >
                     MCP Chat Model
+                </button>
+                <button
+                    onClick={() => setActiveSubTab('harness')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${activeSubTab === 'harness' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+                >
+                    <span>🛡️</span>
+                    <span>Harness & Rules</span>
                 </button>
             </div>
 
@@ -395,6 +409,130 @@ const McpConnectionsTab = ({
                             <p className="text-xs text-indigo-700/80 leading-relaxed">
                                 MCP（Model Context Protocol）は外部サーバーから提供される関数定義を読み取り、適切に引数を解釈して実行する必要があります。高度なツール呼び出しの正確性を確保するため、<strong>Proモデル</strong>（例: <code>gemini-2.5-pro</code> など）の利用を推奨します。
                             </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {activeSubTab === 'harness' && (
+                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-5 animate-fadeIn space-y-5">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-gray-200">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl">🛡️</span>
+                                <h2 className="font-semibold text-gray-900 text-base">MCP Chat System Instructions & Harness Settings</h2>
+                                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${canManageSettings ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                                    {canManageSettings ? 'Admin Configurable' : 'Read Only (Admin Required)'}
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                                AIモデルがMCPツールを実行してデータ分析やGenUIダッシュボードを生成する際の行動原則・制約ルール（ハーネス）を一元定義します。
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                disabled={!canManageSettings}
+                                onClick={() => {
+                                    if (confirm('システム定義のビルトイン・デフォルトハーネス（最新のデータ可視化スケール分離ルール・NPB確定データ・GenUI完全完結規約含む）にリセットしますか？')) {
+                                        setMcpChatSystemInstruction(defaultMcpChatSystemInstruction);
+                                    }
+                                }}
+                                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-medium transition-colors border border-gray-300 flex items-center gap-1.5 disabled:opacity-50"
+                                title="ビルトイン・デフォルト定義に戻す"
+                            >
+                                <span>🔄</span>
+                                <span>デフォルトに戻す</span>
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!canManageSettings}
+                                onClick={handleSaveSettings}
+                                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold transition-colors shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                                <span>💾</span>
+                                <span>ハーネス設定を保存</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Max Turns Setting */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-gray-800">最大ツール実行ターン数 (Max Turns)</span>
+                                <span className="text-xs px-2.5 py-0.5 bg-indigo-100 text-indigo-800 rounded font-mono font-bold">
+                                    {mcpChatMaxTurns} ターン
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                                AIがツール（SQL実行やメタカタログ参照）を連続して呼び出せる最大回数です。複雑な複数テーブル比較には 15 ターン以上を推奨します。
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                            <input
+                                type="range"
+                                min="3"
+                                max="30"
+                                step="1"
+                                disabled={!canManageSettings}
+                                value={mcpChatMaxTurns}
+                                onChange={(e) => setMcpChatMaxTurns(parseInt(e.target.value, 10))}
+                                className="w-36 accent-indigo-600 cursor-pointer disabled:opacity-50"
+                            />
+                            <input
+                                type="number"
+                                min="1"
+                                max="50"
+                                disabled={!canManageSettings}
+                                value={mcpChatMaxTurns}
+                                onChange={(e) => setMcpChatMaxTurns(Math.max(1, parseInt(e.target.value, 10) || 15))}
+                                className="w-16 px-2 py-1 text-xs border border-gray-300 rounded font-mono text-center bg-white disabled:opacity-50"
+                            />
+                        </div>
+                    </div>
+
+                    {/* System Instruction / Harness Editor */}
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                            <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                                <span>📝 システム指示・ガイドライン (System Prompt & Constraints)</span>
+                                <span className="text-[10px] text-gray-400 font-normal">
+                                    ({(mcpChatSystemInstruction !== '' ? mcpChatSystemInstruction : defaultMcpChatSystemInstruction || '').length} 文字)
+                                </span>
+                            </label>
+                            <span className="text-[11px] text-indigo-600 font-medium">
+                                ※ 未編集（空欄）の場合は自動的にビルトイン・デフォルトハーネスが適用されます
+                            </span>
+                        </div>
+                        <textarea
+                            disabled={!canManageSettings}
+                            value={mcpChatSystemInstruction !== '' ? mcpChatSystemInstruction : defaultMcpChatSystemInstruction}
+                            onChange={(e) => setMcpChatSystemInstruction(e.target.value)}
+                            rows={18}
+                            placeholder="ハーネス指示を入力してください..."
+                            className="w-full bg-[#1e1e1e] text-emerald-300 border border-gray-700 rounded-lg p-3 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner resize-y selection:bg-indigo-900 disabled:opacity-60"
+                            spellCheck={false}
+                        />
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-[11px] text-gray-600">
+                            <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <span className="font-semibold text-gray-800 flex items-center gap-1 mb-1">
+                                    <span>📊</span> スケール分離ルール（新設）
+                                </span>
+                                1試合平均などの比率指標とシーズン累計などの合計指標を同一Y軸にプロットすることを禁止し、2軸化またはグラフ分離を強制します。
+                            </div>
+                            <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <span className="font-semibold text-gray-800 flex items-center gap-1 mb-1">
+                                    <span>⚡</span> トークン枯渇・構文切断防止
+                                </span>
+                                テーブル手書きを禁止しJS動的描画を指示。また完全な閉じタグ（&lt;/script&gt;&lt;/body&gt;&lt;/html&gt;）での完結を義務付けます。
+                            </div>
+                            <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                <span className="font-semibold text-gray-800 flex items-center gap-1 mb-1">
+                                    <span>🛡️</span> ZTA認可・PDP連携
+                                </span>
+                                ツール一覧はユーザーのロール権限に基づいて動的に注入され、権限外のテーブルアクセスやツール呼び出しを遮断します。
+                            </div>
                         </div>
                     </div>
                 </div>
