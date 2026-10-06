@@ -212,6 +212,7 @@ Interactive GenUI & Data Analytics Generation Guidelines:
 1. Fetch necessary data efficiently using targeted WHERE / LIMIT clauses or aggregates.
 2. Generate comprehensive, sleek, and highly interactive HTML dashboard widgets within \`\`\`html ... \`\`\` code block.
 3. For Chart.js and player tables, feature the standout key performers, metrics, and comparisons with rich visual hierarchy.
+4. CRITICAL: The \`\`\`html ... \`\`\` block MUST be completely finished with proper closing tags (</script>, </body>, </html>, and \`\`\`). Keep embedded datasets focused so that the entire script and styling finish cleanly without mid-sentence truncation.
 
 If the user asks what tools are available or what you can do, explicitly list the exact names and descriptions of the tools provided below:
 
@@ -219,6 +220,8 @@ Available Tools:
 ${toolDescriptions}`;
 
     if (onProgress) onProgress('AIモデルへプロンプトを送信中...', 0);
+
+    const MAX_OUTPUT_TOKENS = 65536;
 
     let currentInteractionId = previous_interaction_id;
     let currentEnvironmentId = environment_id;
@@ -232,7 +235,7 @@ ${toolDescriptions}`;
         tools: tools.length > 0 ? tools : undefined,
         generation_config: {
             temperature: 0.2,
-            max_output_tokens: 24576
+            max_output_tokens: MAX_OUTPUT_TOKENS
         }
     }, { timeout: 600000 });
 
@@ -332,7 +335,7 @@ ${toolDescriptions}`;
                     tools: availableTools,
                     generation_config: {
                         temperature: 0.2,
-                        max_output_tokens: 24576
+                        max_output_tokens: MAX_OUTPUT_TOKENS
                     }
                 }, { timeout: 600000 });
 
@@ -371,7 +374,7 @@ ${toolDescriptions}`;
                 system_instruction: systemInstruction,
                 generation_config: {
                     temperature: 0.2,
-                    max_output_tokens: 24576
+                    max_output_tokens: MAX_OUTPUT_TOKENS
                 }
             }, { timeout: 600000 });
 
@@ -389,6 +392,31 @@ ${toolDescriptions}`;
     if (!finalResponseText && artifacts.length > 0) {
         finalResponseText = `### データ取得完了\n\n${artifacts.length}件のMCPツール実行が完了しました。取得データは以下の通りです:\n\n` + 
             artifacts.map((a, i) => `**[${i+1}] ${a.tool}**\n\`\`\`json\n${JSON.stringify(a.result, null, 2).substring(0, 1000)}\n\`\`\``).join('\n\n');
+    }
+
+    // コードブロック自動修復ハーネス: トークン切れ等で未完結の ```html がある場合、安全に閉じる
+    if (finalResponseText && typeof finalResponseText === 'string') {
+        const lastHtmlMarker = finalResponseText.lastIndexOf('```html');
+        if (lastHtmlMarker !== -1) {
+            const afterHtml = finalResponseText.substring(lastHtmlMarker + 7);
+            if (!afterHtml.includes('```')) {
+                console.warn('[MCP Chat] ⚠️ Detected unclosed ```html block. Auto-repairing code block...');
+                let repaired = finalResponseText;
+                const scriptOpens = (afterHtml.match(/<script\b[^>]*>/gi) || []).length;
+                const scriptCloses = (afterHtml.match(/<\/script>/gi) || []).length;
+                if (scriptOpens > scriptCloses) {
+                    repaired += '\n// [Auto-repaired unclosed script by harness]\n</script>';
+                }
+                if (!afterHtml.includes('</body>')) {
+                    repaired += '\n</body>';
+                }
+                if (!afterHtml.includes('</html>')) {
+                    repaired += '\n</html>';
+                }
+                repaired += '\n```\n';
+                finalResponseText = repaired;
+            }
+        }
     }
 
     const usageMetadata = interaction?.usage || interaction?.usage_metadata || interaction?.usageMetadata || null;
