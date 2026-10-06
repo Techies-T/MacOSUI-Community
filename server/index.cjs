@@ -9,6 +9,7 @@ const db = require('./db.cjs');
 const auditDb = require('./auditDb.cjs');
 const { encrypt, decrypt } = require('./crypto.cjs');
 const crypto = require('crypto');
+const mcpChatRouter = require('./routes/mcpChat.cjs');
 
 // クライアントのIPアドレスおよびUser-AgentからZTA用のハッシュを生成するヘルパー関数
 function getContextHashes(req) {
@@ -207,6 +208,10 @@ app.get('/api/config', async (req, res) => {
         }
         const geminiLiveDefaultModel = await db.getSetting('GEMINI_LIVE_DEFAULT_MODEL') || 'gemini-3.8-live';
 
+        const mcpChatSystemInstruction = await db.getSetting('MCP_CHAT_SYSTEM_INSTRUCTION') || '';
+        const mcpChatMaxTurns = parseInt(await db.getSetting('MCP_CHAT_MAX_TURNS')) || 15;
+        const defaultMcpChatSystemInstruction = mcpChatRouter.DEFAULT_MCP_CHAT_SYSTEM_INSTRUCTION || '';
+
         res.json({
             clientId, // Expose full client ID for frontend auth
             maskedClientId,
@@ -243,7 +248,10 @@ app.get('/api/config', async (req, res) => {
             localAiModel,
             localAiTemperature,
             geminiLiveAvailableModels,
-            geminiLiveDefaultModel
+            geminiLiveDefaultModel,
+            mcpChatSystemInstruction,
+            mcpChatMaxTurns,
+            defaultMcpChatSystemInstruction
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -268,7 +276,7 @@ async function requireAuthIfConfigured(req, res, next) {
 }
 
 app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature, geminiLiveAvailableModels, geminiLiveDefaultModel } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature, geminiLiveAvailableModels, geminiLiveDefaultModel, mcpChatSystemInstruction, mcpChatMaxTurns } = req.body;
 
     try {
         const isConfigured = !!(await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID);
@@ -323,6 +331,10 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             if (googleDriveRootId !== undefined) await db.setSetting('GOOGLE_DRIVE_ROOT_ID', googleDriveRootId);
             if (mcpQuickPrompts !== undefined) await db.setSetting('MCP_QUICK_PROMPTS', JSON.stringify(mcpQuickPrompts));
             if (defaultAssistantPrompt !== undefined) await db.setSetting('DEFAULT_ASSISTANT_PROMPT', defaultAssistantPrompt);
+
+            // MCP Chat Harness & System Instructions Persistence
+            if (mcpChatSystemInstruction !== undefined) await db.setSetting('MCP_CHAT_SYSTEM_INSTRUCTION', mcpChatSystemInstruction);
+            if (mcpChatMaxTurns !== undefined) await db.setSetting('MCP_CHAT_MAX_TURNS', mcpChatMaxTurns.toString());
             
             // Local AI (Gemma 4) Settings Persistence
             if (localAiEnabled !== undefined) await db.setSetting('LOCAL_AI_ENABLED', localAiEnabled.toString());
