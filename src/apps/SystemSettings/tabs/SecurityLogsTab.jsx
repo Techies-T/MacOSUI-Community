@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import ZtaGatewayAuditSubTab from './ZtaGatewayAuditSubTab';
 
 const SecurityLogsTab = () => {
+    const [activeSubTab, setActiveSubTab] = useState('zta_gateway');
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -119,13 +121,41 @@ ${detailsText || 'なし'}
     const failureCount = logs.filter(l => l.status === 'failure' || l.status === 'blocked').length;
 
     return (
-        <div className="space-y-4 text-gray-900 bg-white p-2 rounded-lg" style={{ color: '#111827', backgroundColor: '#ffffff', minHeight: '100%' }}>
-            {/* シンプルな統計サマリー (白背景・黒文字・グレー枠線、インラインで白飛び完全防止) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-center" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
-                    <span className="text-xs text-gray-500 font-medium" style={{ color: '#4b5563' }}>総ログ件数</span>
-                    <span className="text-xl font-bold text-gray-900 mt-1" style={{ color: '#111827' }}>{logs.length} 件</span>
-                </div>
+        <div className="space-y-4" style={{ minHeight: '100%' }}>
+            {/* 監査ログ種別サブタブ切替バー */}
+            <div className="flex border-b border-gray-200 pb-2 gap-2.5 items-center">
+                <button
+                    onClick={() => setActiveSubTab('zta_gateway')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                        activeSubTab === 'zta_gateway'
+                            ? 'bg-blue-600 text-white shadow-blue-500/20'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                    }`}
+                >
+                    <span>🌐</span> ZTA Gateway トランザクション監査 (SQL・テーブル・YAML一貫性)
+                </button>
+                <button
+                    onClick={() => setActiveSubTab('internal')}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                        activeSubTab === 'internal'
+                            ? 'bg-blue-600 text-white shadow-blue-500/20'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                    }`}
+                >
+                    <span>🖥️</span> MacOSUI 内部アクセス・ログイン監査ログ
+                </button>
+            </div>
+
+            {activeSubTab === 'zta_gateway' ? (
+                <ZtaGatewayAuditSubTab />
+            ) : (
+                <div className="space-y-4 text-gray-900 bg-white p-2 rounded-lg" style={{ color: '#111827', backgroundColor: '#ffffff', minHeight: '100%' }}>
+                    {/* シンプルな統計サマリー (白背景・黒文字・グレー枠線、インラインで白飛び完全防止) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-center" style={{ backgroundColor: '#ffffff', borderColor: '#e5e7eb' }}>
+                            <span className="text-xs text-gray-500 font-medium" style={{ color: '#4b5563' }}>総ログ件数</span>
+                            <span className="text-xl font-bold text-gray-900 mt-1" style={{ color: '#111827' }}>{logs.length} 件</span>
+                        </div>
 
                 <div className="p-3 rounded-lg border shadow-sm flex flex-col justify-center" style={{ 
                     backgroundColor: hijackCount > 0 ? '#fef2f2' : '#ffffff', 
@@ -392,6 +422,8 @@ ${detailsText || 'なし'}
                             </tbody>
                         </table>
                     </div>
+                </div>
+            )}
                 </div>
             )}
         </div>

@@ -5,41 +5,157 @@ const { GoogleGenAI } = require("@google/genai");
 const { getAllMcpToolsForGemini, callMcpTool, getMcpMetadata } = require('../mcpClient.cjs');
 const db = require('../db.cjs');
 
-// Initialize Gemini with extended timeout for complex MCP multi-tool workflows
+// Initialize Gemini client
 function getGeminiClient(apiKey) {
     return new GoogleGenAI({ 
         apiKey: apiKey || process.env.GEMINI_API_KEY,
-        httpOptions: { timeout: 600000 } // 10 minutes timeout for complex MCP multi-tool analytics & GenUI rendering
+        httpOptions: { timeout: 180000 } // 180 seconds default timeout for interactions
+    });
+}
+
+// 経過時間に応じた詳細進捗メッセージの定義（ユーザーに現在の内部処理フェーズを明示）
+const PROGRESS_STAGES = {
+    initial: [
+        { afterSec: 0, text: 'AIモデルへプロンプトを送信中...' },
+        { afterSec: 8, text: 'AIが質問の意図を解析し、データ参照計画を立案中...' },
+        { afterSec: 25, text: '対象データベースのスキーマ照合およびクエリ引数を設計中...' },
+        { afterSec: 50, text: 'AIモデルが最適な分析パラメータを推論中...' },
+        { afterSec: 80, text: '推論完了を待機中（複雑な指示の整合性を検証中）...' }
+    ],
+    generating: [
+        { afterSec: 0, text: 'ツールの実行結果をAIモデルに送信中...' },
+        { afterSec: 8, text: '取得したデータベース実データを解析中...' },
+        { afterSec: 22, text: '比較データ・統計指標の計算とグラフ構造を設計中...' },
+        { afterSec: 45, text: 'インタラクティブなChart.js / Tailwind CSS可視化コードを構成中...' },
+        { afterSec: 75, text: '大規模ダッシュボードHTMLを出力中（データ量に応じて1〜2分かかります）...' },
+        { afterSec: 110, text: 'HTMLの最終構文および閉塞タグ・JavaScriptの完全性を検証中...' },
+        { afterSec: 140, text: '生成されたダッシュボードの最終整形・安全チェック中...' }
+    ],
+    synthesis: [
+        { afterSec: 0, text: 'ツール実行結果を元にダッシュボードと回答を合成中...' },
+        { afterSec: 12, text: '取得全データを集約し、可視化ダッシュボードHTMLを構築中...' },
+        { afterSec: 35, text: 'インタラクティブなChart.jsと集計テーブルを出力中...' },
+        { afterSec: 75, text: 'HTMLスクリプトの構文検証と応答を最終化中...' }
+    ]
+};
+
+/**
+ * 経過秒数に応じて動的に進捗メッセージを更新するタイマー
+ */
+function startProgressTimer(context, turn, onProgress) {
+    if (!onProgress) return { stop: () => {}, notifyRetry: () => {} };
+    const stages = PROGRESS_STAGES[context] || PROGRESS_STAGES.initial;
+    let seconds = 0;
+    let currentStageIndex = 0;
+
+    if (stages[0]) onProgress(stages[0].text, turn);
+
+    const interval = setInterval(() => {
+        seconds += 3;
+        while (currentStageIndex + 1 < stages.length && seconds >= stages[currentStageIndex + 1].afterSec) {
+            currentStageIndex++;
+            onProgress(stages[currentStageIndex].text, turn);
+        }
+    }, 3000);
+
+    return {
+        stop: () => clearInterval(interval),
+        notifyRetry: (attempt, maxRetries) => {
+            onProgress(`⚠️ 通信遅延を検知。AI推論を自動再試行中（${attempt}/${maxRetries}回目）...`, turn);
+        }
+    };
+}
+
+/**
+ * 確実なタイムアウト制御（Promise.race）を伴う client.interactions.create 呼び出し
+ */
+function callInteractionsCreateWithTimeout(client, params, options, timeoutMs = 120000) {
+    return new Promise((resolve, reject) => {
+        let isDone = false;
+        const timer = setTimeout(() => {
+            if (!isDone) {
+                isDone = true;
+                reject(new Error(`API_TIMEOUT: Gemini API呼び出しが ${Math.round(timeoutMs / 1000)}秒 でタイムアウトしました`));
+            }
+        }, timeoutMs);
+
+        client.interactions.create(params, { ...options, timeout: timeoutMs })
+            .then((res) => {
+                if (!isDone) {
+                    isDone = true;
+                    clearTimeout(timer);
+                    resolve(res);
+                }
+            })
+            .catch((err) => {
+                if (!isDone) {
+                    isDone = true;
+                    clearTimeout(timer);
+                    reject(err);
+                }
+            });
     });
 }
 
 /**
- * Executes client.interactions.create with automatic retry for malformed_tool_call (HTTP 400 JSON parse errors)
+ * Executes client.interactions.create with automatic retry for malformed_tool_call, timeouts, and network stalls
  */
-async function createInteractionWithRetry(client, params, options, maxRetries = 2) {
+async function createInteractionWithRetry(client, params, { timeoutMs = 120000, maxRetries = 2, onProgress = null, turn = 0, progressContext = 'initial' } = {}) {
     let attempt = 0;
     let currentParams = { ...params };
-    while (attempt <= maxRetries) {
-        try {
-            return await client.interactions.create(currentParams, options);
-        } catch (err) {
-            const errMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
-            const isMalformed = errMsg.includes('malformed_tool_call') ||
-                                errMsg.includes('invalid JSON syntax') ||
-                                (err.status === 400 && errMsg.includes('JSON'));
-            if (isMalformed && attempt < maxRetries) {
-                attempt++;
-                console.warn(`[MCP Chat] Warning: malformed_tool_call encountered (Attempt ${attempt}/${maxRetries}). Retrying with corrected JSON instructions...`);
-                const correctionNotice = "\n\nCRITICAL SYSTEM REQUIREMENT: Your previous tool call produced malformed JSON syntax. You MUST format all function call arguments as strictly valid JSON strings. Escape all double quotes (\") and newlines (\\n) properly.";
-                currentParams = {
-                    ...currentParams,
-                    system_instruction: (currentParams.system_instruction || '') + correctionNotice
-                };
-                await new Promise(r => setTimeout(r, 1000));
-                continue;
+    const progressTracker = startProgressTimer(progressContext, turn, onProgress);
+
+    try {
+        while (attempt <= maxRetries) {
+            try {
+                return await callInteractionsCreateWithTimeout(client, currentParams, {}, timeoutMs);
+            } catch (err) {
+                const errMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+                const lower = errMsg.toLowerCase();
+
+                const isMalformed = errMsg.includes('malformed_tool_call') ||
+                                    errMsg.includes('invalid JSON syntax') ||
+                                    (err.status === 400 && errMsg.includes('JSON'));
+
+                const isTimeoutOrNetwork = lower.includes('timeout') ||
+                                           lower.includes('etimedout') ||
+                                           lower.includes('esockettimedout') ||
+                                           lower.includes('econnreset') ||
+                                           lower.includes('fetch failed') ||
+                                           lower.includes('socket hang up') ||
+                                           lower.includes('504') ||
+                                           lower.includes('503') ||
+                                           lower.includes('502') ||
+                                           lower.includes('overloaded') ||
+                                           lower.includes('resource_exhausted');
+
+                if (isMalformed && attempt < maxRetries) {
+                    attempt++;
+                    console.warn(`[MCP Chat] Warning: malformed_tool_call encountered (Attempt ${attempt}/${maxRetries}). Retrying with corrected JSON instructions...`);
+                    const correctionNotice = "\n\nCRITICAL SYSTEM REQUIREMENT: Your previous tool call produced malformed JSON syntax. You MUST format all function call arguments as strictly valid JSON strings. Escape all double quotes (\") and newlines (\\n) properly.";
+                    currentParams = {
+                        ...currentParams,
+                        system_instruction: (currentParams.system_instruction || '') + correctionNotice
+                    };
+                    progressTracker.notifyRetry(attempt, maxRetries);
+                    await new Promise(r => setTimeout(r, 1500));
+                    continue;
+                }
+
+                if (isTimeoutOrNetwork && attempt < maxRetries) {
+                    attempt++;
+                    console.warn(`[MCP Chat] Warning: API timeout or network stall encountered (${errMsg.substring(0, 100)}) (Attempt ${attempt}/${maxRetries}). Retrying...`);
+                    progressTracker.notifyRetry(attempt, maxRetries);
+                    // 指数バックオフ (2s, 4s)
+                    await new Promise(r => setTimeout(r, attempt * 2000));
+                    continue;
+                }
+
+                throw err;
             }
-            throw err;
         }
+    } finally {
+        progressTracker.stop();
     }
 }
 
@@ -252,7 +368,13 @@ ${toolDescriptions}`;
             temperature: 0.2,
             max_output_tokens: MAX_OUTPUT_TOKENS
         }
-    }, { timeout: 600000 });
+    }, {
+        timeoutMs: 120000,
+        maxRetries: 2,
+        onProgress,
+        turn: 0,
+        progressContext: 'initial'
+    });
 
     currentInteractionId = interaction.id;
     currentEnvironmentId = interaction.environment_id;
@@ -353,7 +475,13 @@ ${toolDescriptions}`;
                         temperature: 0.2,
                         max_output_tokens: MAX_OUTPUT_TOKENS
                     }
-                }, { timeout: 600000 });
+                }, {
+                    timeoutMs: 180000,
+                    maxRetries: 2,
+                    onProgress,
+                    turn: turnCount,
+                    progressContext: 'generating'
+                });
 
                 currentInteractionId = interaction.id;
                 currentEnvironmentId = interaction.environment_id;
@@ -392,7 +520,13 @@ ${toolDescriptions}`;
                     temperature: 0.2,
                     max_output_tokens: MAX_OUTPUT_TOKENS
                 }
-            }, { timeout: 600000 });
+            }, {
+                timeoutMs: 180000,
+                maxRetries: 2,
+                onProgress,
+                turn: turnCount + 1,
+                progressContext: 'synthesis'
+            });
 
             finalResponseText = extractTextFromInteraction(finalSynthesis);
             if (finalSynthesis?.id) {
