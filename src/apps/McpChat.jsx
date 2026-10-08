@@ -128,7 +128,7 @@ const ChatMessageItem = React.memo(({ msg, index, isCopied, onCopy, onReuse, onS
 // 独立したタスク進捗インジケーター（内部でポーリングおよびタイマーを自律管理し、親コンポーネントの再レンダリングを完全ゼロ化）
 const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCancel }) => {
     const [elapsedTime, setElapsedTime] = useState(0);
-    const [progress, setProgress] = useState('タスク受付完了。処理を開始します...');
+    const [serverProgress, setServerProgress] = useState('');
     const isCancelledRef = useRef(false);
 
     useEffect(() => {
@@ -144,8 +144,10 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
                 if (!res.ok) return;
                 const taskData = await res.json();
 
-                if (taskData.status === 'running') {
-                    setProgress(taskData.progress || 'エージェントが推論中...');
+                if (taskData.status === 'running' || taskData.status === 'pending') {
+                    if (taskData.progress) {
+                        setServerProgress(taskData.progress);
+                    }
                 } else if (taskData.status === 'completed') {
                     clearInterval(timer);
                     clearInterval(pollTimer);
@@ -175,21 +177,49 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
         onCancel();
     };
 
-    // 現在のフェーズ判定（1: 計画立案 / 2: データ照会 / 3: ダッシュボード生成）
-    const isRetrying = progress.includes('再試行') || progress.includes('⚠️');
+    // 経過秒数（elapsedTime）とサーバー報告（serverProgress）を組み合わせた動的フェーズ推定
+    const isRetrying = serverProgress.includes('再試行') || serverProgress.includes('⚠️');
+
+    // プログレスバーの自然な進捗計算（通常120〜180秒完走を見据えて滑らかに進行）
+    let percent = 5;
+    if (elapsedTime <= 20) {
+        percent = 5 + Math.floor((elapsedTime / 20) * 20); // 5% -> 25%
+    } else if (elapsedTime <= 60) {
+        percent = 25 + Math.floor(((elapsedTime - 20) / 40) * 30); // 25% -> 55%
+    } else if (elapsedTime <= 120) {
+        percent = 55 + Math.floor(((elapsedTime - 60) / 60) * 25); // 55% -> 80%
+    } else {
+        percent = Math.min(96, 80 + Math.floor(((elapsedTime - 120) / 60) * 16)); // 80% -> 96%
+    }
+
+    // ステップと詳細メッセージの動的導出
     let currentStep = 1;
     let phaseIcon = '🧠';
+    let phaseTitle = '分析計画立案';
+    let fallbackMsg = 'AIモデルがリクエストを解析し、データ参照計画を立案中...';
 
-    if (progress.includes('ツール') || progress.includes('クエリ') || progress.includes('検索') || progress.includes('照会')) {
+    if (serverProgress.includes('ツール') || serverProgress.includes('クエリ') || serverProgress.includes('検索') || serverProgress.includes('照会') || (elapsedTime > 20 && elapsedTime <= 70 && !serverProgress.includes('ダッシュボード') && !serverProgress.includes('HTML'))) {
         currentStep = 2;
         phaseIcon = '🔍';
-    } else if (progress.includes('解析') || progress.includes('Chart.js') || progress.includes('Tailwind') || progress.includes('ダッシュボード') || progress.includes('合成') || progress.includes('出力') || progress.includes('HTML')) {
+        phaseTitle = 'MCPデータ照会';
+        fallbackMsg = '対象データベースへクエリを発行し、必要な実データを取得照会中...';
+    } else if (serverProgress.includes('解析') || serverProgress.includes('Chart.js') || serverProgress.includes('Tailwind') || serverProgress.includes('ダッシュボード') || serverProgress.includes('合成') || serverProgress.includes('出力') || serverProgress.includes('HTML') || elapsedTime > 70) {
         currentStep = 3;
         phaseIcon = '📊';
+        phaseTitle = 'ダッシュボード構築';
+        if (elapsedTime > 120 || serverProgress.includes('出力') || serverProgress.includes('HTML')) {
+            fallbackMsg = '大規模なChart.js/Tailwind CSS可視化コードを出力・検証中...';
+        } else {
+            fallbackMsg = '取得した実データを分析し、比較チャート・テーブル構造を設計中...';
+        }
     }
+
     if (isRetrying) {
         phaseIcon = '🔄';
+        phaseTitle = '通信自動再試行中';
     }
+
+    const displayMsg = serverProgress || fallbackMsg;
 
     return (
         <div className="flex gap-4 flex-row">
@@ -198,7 +228,7 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
                     <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
                 </svg>
             </div>
-            <div className={`w-full max-w-xl bg-white border ${isRetrying ? 'border-amber-300' : 'border-indigo-100'} rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md flex flex-col justify-between`}>
+            <div className={`w-full max-w-xl bg-white border ${isRetrying ? 'border-amber-300 shadow-amber-50' : 'border-indigo-100'} rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md flex flex-col justify-between`}>
                 <div>
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -222,6 +252,22 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
                         </button>
                     </div>
 
+                    {/* プログレスバー & 進捗率 */}
+                    <div className="my-2">
+                        <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+                            <span className="font-medium text-indigo-950 flex items-center gap-1">
+                                <span>{phaseIcon}</span> フェーズ: {phaseTitle}
+                            </span>
+                            <span className="font-mono font-bold text-indigo-600">{percent}%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden shadow-inner">
+                            <div 
+                                className={`h-2 rounded-full transition-all duration-500 ease-out ${isRetrying ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 animate-pulse'}`}
+                                style={{ width: `${percent}%` }}
+                            ></div>
+                        </div>
+                    </div>
+
                     {/* ステップ進捗インジケーター */}
                     <div className="flex items-center gap-1.5 text-[11px] my-2 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
                         <span className={`px-2 py-0.5 rounded-md transition-all ${currentStep === 1 ? 'bg-indigo-600 text-white font-semibold shadow-xs' : currentStep > 1 ? 'bg-emerald-100 text-emerald-800 font-medium' : 'text-gray-400'}`}>
@@ -243,7 +289,7 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
                             {phaseIcon}
                         </div>
                         <span className="font-medium text-xs sm:text-sm leading-snug">
-                            {progress}
+                            {displayMsg}
                         </span>
                     </div>
                 </div>
