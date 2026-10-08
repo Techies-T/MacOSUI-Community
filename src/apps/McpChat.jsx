@@ -175,26 +175,42 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
         onCancel();
     };
 
+    // 現在のフェーズ判定（1: 計画立案 / 2: データ照会 / 3: ダッシュボード生成）
+    const isRetrying = progress.includes('再試行') || progress.includes('⚠️');
+    let currentStep = 1;
+    let phaseIcon = '🧠';
+
+    if (progress.includes('ツール') || progress.includes('クエリ') || progress.includes('検索') || progress.includes('照会')) {
+        currentStep = 2;
+        phaseIcon = '🔍';
+    } else if (progress.includes('解析') || progress.includes('Chart.js') || progress.includes('Tailwind') || progress.includes('ダッシュボード') || progress.includes('合成') || progress.includes('出力') || progress.includes('HTML')) {
+        currentStep = 3;
+        phaseIcon = '📊';
+    }
+    if (isRetrying) {
+        phaseIcon = '🔄';
+    }
+
     return (
         <div className="flex gap-4 flex-row">
-            <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-md text-white">
+            <div className={`flex-shrink-0 w-8 h-8 ${isRetrying ? 'bg-gradient-to-tr from-amber-500 to-orange-600' : 'bg-gradient-to-tr from-indigo-500 to-purple-600'} rounded-full flex items-center justify-center shadow-md text-white`}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 animate-spin">
                     <path fillRule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clipRule="evenodd" />
                 </svg>
             </div>
-            <div className="w-full max-w-xl min-h-[96px] bg-white border border-indigo-100 rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md flex flex-col justify-between">
+            <div className={`w-full max-w-xl bg-white border ${isRetrying ? 'border-amber-300' : 'border-indigo-100'} rounded-2xl rounded-tl-none p-4 shadow-sm backdrop-blur-md flex flex-col justify-between`}>
                 <div>
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                             <span className="relative flex h-2.5 w-2.5">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-600"></span>
+                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isRetrying ? 'bg-amber-400' : 'bg-indigo-400'} opacity-75`}></span>
+                                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isRetrying ? 'bg-amber-600' : 'bg-indigo-600'}`}></span>
                             </span>
                             <span className="text-xs font-semibold text-indigo-900 tracking-wide">
-                                MCP Tasks 非同期エージェント自律実行中
+                                MCP Tasks 自律エージェント処理中
                             </span>
-                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-200">
-                                {elapsedTime}s
+                            <span className="text-[10px] font-mono bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
+                                ⏱️ {elapsedTime}秒 経過
                             </span>
                         </div>
                         <button
@@ -205,17 +221,36 @@ const TaskProgressIndicator = React.memo(({ taskId, onComplete, onError, onCance
                             中断 (Cancel)
                         </button>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                        <div className="w-4 h-4 flex items-center justify-center text-indigo-600">
-                            ⚙️
+
+                    {/* ステップ進捗インジケーター */}
+                    <div className="flex items-center gap-1.5 text-[11px] my-2 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                        <span className={`px-2 py-0.5 rounded-md transition-all ${currentStep === 1 ? 'bg-indigo-600 text-white font-semibold shadow-xs' : currentStep > 1 ? 'bg-emerald-100 text-emerald-800 font-medium' : 'text-gray-400'}`}>
+                            {currentStep > 1 ? '✓ 1. 分析計画' : '1. 分析計画'}
+                        </span>
+                        <span className="text-gray-300 font-light">›</span>
+                        <span className={`px-2 py-0.5 rounded-md transition-all ${currentStep === 2 ? 'bg-indigo-600 text-white font-semibold shadow-xs' : currentStep > 2 ? 'bg-emerald-100 text-emerald-800 font-medium' : 'text-gray-400'}`}>
+                            {currentStep > 2 ? '✓ 2. データ照会' : '2. データ照会'}
+                        </span>
+                        <span className="text-gray-300 font-light">›</span>
+                        <span className={`px-2 py-0.5 rounded-md transition-all ${currentStep === 3 ? 'bg-indigo-600 text-white font-semibold shadow-xs' : 'text-gray-400'}`}>
+                            3. ダッシュボード構築
+                        </span>
+                    </div>
+
+                    {/* 現在の詳細処理メッセージ */}
+                    <div className={`mt-2 flex items-center gap-2.5 text-sm p-2.5 rounded-xl ${isRetrying ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'bg-indigo-50/70 text-indigo-950 border border-indigo-100'}`}>
+                        <div className="text-base flex-shrink-0 animate-bounce">
+                            {phaseIcon}
                         </div>
-                        <span className="font-medium animate-pulse">
+                        <span className="font-medium text-xs sm:text-sm leading-snug">
                             {progress}
                         </span>
                     </div>
                 </div>
-                <div className="mt-2 text-[11px] text-gray-400">
-                    ※ SEP-2663 準拠: CloudFront の 60秒制限を受けず、大規模分析・ダッシュボード生成をバックグラウンドで確実に完遂します。
+
+                <div className="mt-2.5 pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>※ 大規模データの集計・HTMLコード生成には通常 1〜3分 程度を要します</span>
+                    <span className="hidden sm:inline font-mono text-[10px] text-gray-400">SEP-2663</span>
                 </div>
             </div>
         </div>
