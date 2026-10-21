@@ -13,6 +13,7 @@ import WorkPolicyTab from './SystemSettings/tabs/WorkPolicyTab';
 import FinderTab from './SystemSettings/tabs/FinderTab';
 import AntigravityAgentTab from './SystemSettings/tabs/AntigravityAgentTab';
 import LiveConciergeTab from './SystemSettings/tabs/LiveConciergeTab';
+import pkg from '../../package.json';
 
 const SystemSettings = ({ user }) => {
     const hasAction = (action) => {
@@ -927,7 +928,7 @@ const SystemSettings = ({ user }) => {
                     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
                         <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                             <span>About</span>
-                            <span className="text-gray-500">MacOS WebUI v1.0</span>
+                            <span className="text-gray-500 font-medium">Employee Agent v{pkg.version}</span>
                         </div>
                         <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                             <span>Software Update</span>

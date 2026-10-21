@@ -20,6 +20,15 @@
 - **プロジェクト名称を「Employee Agent (EA)」へ刷新**:
   - ブラウザタブタイトルを `Employee Agent` に更新。
   - 新デザインのベクターファビコン（`favicon.svg` / `vite.svg`）を導入。
+  - System Settings（General タブ）およびメニューバーの About 表記、Live Concierge、セキュリティ監査ログタブ等の UI 表記を `Employee Agent v2.9.1`（`package.json` のバージョンと動的連動）へ統一。
+
+#### 🛡️ MCP ZTA/RBAC 権限管理 & マルチドメイン動的ルーティング改修
+- **Built-in Knowledge Base MCP と RBAC ロール権限の整合性強化 (`server/mcpClient.cjs`)**:
+  - `app:knowledge-base` 権限を持つロールが外部 MCP サーバー（`mcp:X`）の個別認可によって Built-in Knowledge Base MCP からロックアウトされる事象を解消。
+  - 各 MCP ツール定義に所属サーバー・ドメインメタデータ（`[MCP Server: ... | カテゴリ: ...]`）を自動付与。
+- **マルチドメイン対応の動的パイプライン & ルーティングハーネス強化 (`server/routes/mcpChat.cjs`, `server/routes/knowledgeMcp.cjs`)**:
+  - ツール名部分一致フィルタを廃止し、ドメイン属性（`knowledge_base`, `npb_baseball`, `digital_agency`, `google_workspace` 等）に基づく正確なツールバインディングへ刷新。
+  - 月別・著者別の記事投稿数やインプット/アウトプットトークンのクロス集計クエリが確実に `Knowledge Base MCP`（`get_knowledge_token_crosstab` 等）へルーティングされるよう自動判定キーワードおよびシステムプロンプト規約を強化。
 
 ## [v2.9.0] - 2026-10-08
 

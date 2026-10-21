@@ -88,7 +88,7 @@ const SetupScreen = ({ onActivate }) => {
                         <span className="text-4xl">⚙️</span>
                     </div>
 
-                    <h1 className="text-2xl font-bold mb-2">Welcome to MacOS WebUI</h1>
+                    <h1 className="text-2xl font-bold mb-2">Welcome to Employee Agent</h1>
                     <p className="text-gray-500 mb-6 text-center text-sm">
                         To activate the system, please enter your API keys below.<br />
                         These will be securely stored in the database.

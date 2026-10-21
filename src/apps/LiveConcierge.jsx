@@ -47,7 +47,7 @@ const LiveConcierge = ({ onOpen: _onOpen, user: _user, initialKnowledgeId, initi
             role: 'assistant',
             text: initialKnowledgeTitle
                 ? `ナレッジ「${initialKnowledgeTitle}」を読み込んでいます。マイクをONにして会話を始めましょう。`
-                : 'こんにちは！MacOSUI Live Concierge です。画面を共有してマイクをONにすると、あなたの操作している画面を見ながら音声でご案内します。ナレッジレポートの解説もお任せください。',
+                : 'こんにちは！Employee Agent Live Concierge です。画面を共有してマイクをONにすると、あなたの操作している画面を見ながら音声でご案内します。ナレッジレポートの解説もお任せください。',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
     ]);
@@ -552,7 +552,7 @@ const LiveConcierge = ({ onOpen: _onOpen, user: _user, initialKnowledgeId, initi
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
-                            <h2 className="text-xs font-bold text-gray-100 tracking-wide">MacOSUI Live Concierge</h2>
+                            <h2 className="text-xs font-bold text-gray-100 tracking-wide">Employee Agent Live Concierge</h2>
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 font-mono border border-indigo-700/50">
                                 {activeModel || 'Gemini 3.8 Flash Live'}
                             </span>

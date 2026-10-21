@@ -142,7 +142,7 @@ ${detailsText || 'なし'}
                             : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
                     }`}
                 >
-                    <span>🖥️</span> MacOSUI 内部アクセス・ログイン監査ログ
+                    <span>🖥️</span> Employee Agent 内部アクセス・ログイン監査ログ
                 </button>
             </div>
 

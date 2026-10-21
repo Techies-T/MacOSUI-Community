@@ -1,11 +1,12 @@
 import React from 'react';
+import pkg from '../../../../package.json';
 
 const GeneralTab = () => {
     return (
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
             <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                 <span>About</span>
-                <span className="text-gray-500">MacOS WebUI v1.0</span>
+                <span className="text-gray-500 font-medium">Employee Agent v{pkg.version}</span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                 <span>Software Update</span>

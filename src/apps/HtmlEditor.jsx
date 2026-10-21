@@ -293,7 +293,7 @@ const HtmlEditor = ({ onOpen, fileId: initialFileId, fileName: initialFileName, 
 Your task is to modify the provided HTML code strictly according to the user's request.
 
 ENVIRONMENT CONTEXT:
-- You are running in a secure "MacOSUI" web environment.
+- You are running in a secure "Employee Agent" web environment.
 - Do NOT use raw API keys in client-side code.
 - To access external APIs (like Google Gemini), use the backend proxy:
   Endpoint: POST /api/gemini/proxy?target={FULL_TARGET_URL}

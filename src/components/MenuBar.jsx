@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
+import pkg from '../../package.json';
 
 const MenuBar = ({ onLogout, notifications = [], onNotificationClick }) => {
     const [time, setTime] = useState(new Date());
@@ -67,7 +68,7 @@ const MenuBar = ({ onLogout, notifications = [], onNotificationClick }) => {
                             flexDirection: 'column',
                             color: '#000'
                         }}>
-                            <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">About This Mac</div>
+                            <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">About Employee Agent (v{pkg.version})</div>
                             <div className="h-[1px] bg-gray-300 my-1 mx-2"></div>
                             <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">System Settings...</div>
                             <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">App Store...</div>

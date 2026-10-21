@@ -151,7 +151,7 @@ window.onerror = function(msg, url, line, col, error) {
                             type="button"
                             onClick={openInBrowserWindow}
                             className="px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition-colors border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-1.5 shadow-xs"
-                            title="MacOSUIデスクトップ内のBrowserウィンドウとして開く（リサイズ・スクロール対応）"
+                            title="Employee Agent デスクトップ内のBrowserウィンドウとして開く（リサイズ・スクロール対応）"
                         >
                             <span>🖥️</span>
                             <span>デスクトップで開く</span>
