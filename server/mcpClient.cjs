@@ -229,10 +229,43 @@ async function ensureConnection(connState, user = null, req = null) {
 }
 
 /**
+ * Classifies an MCP server into a logical domain and category for routing and UI display.
+ */
+function classifyServerDomain(conn) {
+    const nameLower = (conn?.name || '').toLowerCase();
+    const urlLower = (conn?.endpoint_url || '').toLowerCase();
+
+    if (nameLower.includes('knowledge') || urlLower.includes('/api/mcp/knowledge')) {
+        return { domain: 'knowledge_base', icon: '📚', category: 'ナレッジベース', isBuiltInKnowledge: true };
+    }
+    if (nameLower.includes('gemma') || urlLower.includes('/api/mcp/gemma')) {
+        return { domain: 'local_ai', icon: '🤖', category: 'ローカルAI推論', isBuiltInGemma: true };
+    }
+    if (nameLower.includes('npb') || nameLower.includes('baseball') || nameLower.includes('mariadb') || urlLower.includes('/mcp/mariadb')) {
+        return { domain: 'npb_baseball', icon: '⚾', category: 'プロ野球データ分析' };
+    }
+    if (nameLower.includes('行政') || nameLower.includes('procedures') || urlLower.includes('/mcp/admin-procedures')) {
+        return { domain: 'digital_agency', icon: '🏛️', category: '行政手続・統計' };
+    }
+    if (nameLower.includes('catalog') || urlLower.includes('/mcp/catalog')) {
+        return { domain: 'catalog', icon: '📑', category: 'データカタログ・GenUIメタ情報' };
+    }
+    if (nameLower.includes('workspace') || nameLower.includes('calendar') || nameLower.includes('todo') || nameLower.includes('tasks') || nameLower.includes('gmail') || nameLower.includes('google')) {
+        return { domain: 'google_workspace', icon: '📅', category: 'Google Workspace (予定・Todo)' };
+    }
+    return { domain: 'general', icon: '⚡', category: 'システム・汎用' };
+}
+
+/**
  * ZTA-compliant PDP check for MCP server access
  * Evaluates whether a user or requested context has permission to access a specific MCP server.
  */
 function hasServerAccess(serverId, allowedWidgets = ['*'], user = null) {
+    const isAdmin = user?.role === 'admin' || (typeof user?.role === 'string' && user.role.split(',').map(r => r.trim()).includes('admin'));
+    if (isAdmin) {
+        return true;
+    }
+
     if (!allowedWidgets || allowedWidgets.length === 0) {
         if (user?.allowed_actions?.includes('action:use_mcp_tools') || user?.allowed_actions?.includes('*')) {
             return true;
@@ -240,8 +273,18 @@ function hasServerAccess(serverId, allowedWidgets = ['*'], user = null) {
         return false;
     }
 
-    if (allowedWidgets.includes('*')) {
+    if (allowedWidgets.includes('*') || allowedWidgets.includes('mcp:*')) {
         return true;
+    }
+
+    const conn = serverConnections.get(serverId);
+    const domainInfo = conn ? classifyServerDomain(conn) : null;
+
+    // Built-in Knowledge Base MCP: app:knowledge-base 権限または mcp:knowledge があれば、他の mcp:X 指定有無に関わらず利用可能とする
+    if (domainInfo?.isBuiltInKnowledge) {
+        if (allowedWidgets.includes('app:knowledge-base') || allowedWidgets.includes('mcp:knowledge') || allowedWidgets.includes(`mcp:${serverId}`)) {
+            return true;
+        }
     }
 
     // 明示的な mcp: プレフィックスによるきめ細かな認可が指定されている場合
@@ -249,15 +292,14 @@ function hasServerAccess(serverId, allowedWidgets = ['*'], user = null) {
     if (explicitMcpPerms.length > 0) {
         return explicitMcpPerms.includes(`mcp:${serverId}`) || 
                explicitMcpPerms.includes('mcp:*') ||
-               explicitMcpPerms.some(p => p.toLowerCase().includes(String(serverId).toLowerCase()));
+               explicitMcpPerms.some(p => p.toLowerCase() === `mcp:${String(serverId).toLowerCase()}`);
     }
 
     // 明示的な個別 mcp: 指定がない場合、app:mcp-chat 利用権限、または action:use_mcp_tools 権限があればアクセス可能
     const hasChatWidget = allowedWidgets.includes('app:mcp-chat');
     const hasAction = user?.allowed_actions?.includes('action:use_mcp_tools') || user?.allowed_actions?.includes('*');
-    const isAdmin = user?.role === 'admin' || (typeof user?.role === 'string' && user?.role.includes('admin'));
 
-    return hasChatWidget || hasAction || isAdmin;
+    return hasChatWidget || hasAction;
 }
 
 /**
@@ -436,6 +478,8 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*'], user = null) {
             }
         }
 
+        const { domain, category } = classifyServerDomain(conn);
+
         if (conn.tools) {
             for (const tool of conn.tools) {
                 const safeName = tool.name.replace(/[^a-zA-Z0-9_]/g, '_'); // Gemini only allows a-z, A-Z, 0-9, and _
@@ -445,9 +489,16 @@ async function getAllMcpToolsForGemini(allowedWidgets = ['*'], user = null) {
                 }
                 addedToolNames.add(safeName);
 
+                const rawDesc = tool.description || `MCP Tool: ${tool.name}`;
+                const enrichedDesc = `[MCP Server: ${conn.name} | カテゴリ: ${category}] ${rawDesc}`;
+
                 const funcDecl = {
                     name: safeName,
-                    description: tool.description || `MCP Tool: ${tool.name}`,
+                    description: enrichedDesc,
+                    serverId: conn.id,
+                    serverName: conn.name,
+                    domain: domain,
+                    category: category
                 };
                 
                 if (tool.inputSchema) {
@@ -596,33 +647,15 @@ async function getMcpMetadata(allowedWidgets = ['*'], user = null) {
             continue;
         }
 
-        // Determine domain category
-        let domain = 'general';
-        let icon = '⚡';
-        let category = 'システム・汎用';
-        const nameLower = (conn.name || '').toLowerCase();
-        
-        if (nameLower.includes('npb') || nameLower.includes('baseball') || nameLower.includes('mariadb')) {
-            domain = 'npb_baseball';
-            icon = '⚾';
-            category = 'プロ野球データ分析';
-        } else if (nameLower.includes('行政') || nameLower.includes('procedures')) {
-            domain = 'digital_agency';
-            icon = '🏛️';
-            category = '行政手続・統計';
-        } else if (nameLower.includes('catalog')) {
-            domain = 'catalog';
-            icon = '📑';
-            category = 'データカタログ・GenUIメタ情報';
-        } else if (nameLower.includes('knowledge')) {
-            domain = 'knowledge_base';
-            icon = '📚';
-            category = 'ナレッジベース';
-        } else if (nameLower.includes('gemma')) {
-            domain = 'local_ai';
-            icon = '🤖';
-            category = 'ローカルAI推論';
+        if (!conn.tools || conn.tools.length === 0 || !conn.mcpClientInstance) {
+            try {
+                await ensureConnection(conn);
+            } catch (e) {
+                console.warn(`[MCP Meta] Auto-heal tools fetch failed for server ${conn.name}:`, e.message);
+            }
         }
+
+        const { domain, icon, category } = classifyServerDomain(conn);
 
         const toolsMeta = (conn.tools || []).map(t => ({
             name: t.name,

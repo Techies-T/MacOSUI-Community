@@ -21,14 +21,14 @@ function createMcpServer() {
             tools: [
                 {
                     name: 'get_author_post_counts',
-                    description: 'Get the number of knowledge base posts grouped by author and time period (monthly, quarterly, half-yearly, yearly)',
+                    description: 'ナレッジベース（Knowledge Base）の記事投稿数を著者別（Author別）および期間別（月別 monthly / 四半期別 quarterly / 半期別 half-yearly / 年別 yearly）に集計します。Get the number of knowledge base posts grouped by author and time period.',
                     inputSchema: {
                         type: 'object',
                         properties: {
                             period: {
                                 type: 'string',
                                 enum: ['monthly', 'quarterly', 'half-yearly', 'yearly'],
-                                description: 'The time period to group by'
+                                description: 'The time period to group by (monthly, quarterly, half-yearly, yearly)'
                             }
                         },
                         required: ['period']
@@ -36,14 +36,14 @@ function createMcpServer() {
                 },
                 {
                     name: 'get_knowledge_token_counts',
-                    description: 'Get the token counts for knowledge base articles. Can be grouped by article, author, or time period.',
+                    description: 'ナレッジベース記事のトークン数（合計トークン・インプットトークン・アウトプットトークン）を記事別（article）、著者別（author）、または期間別（月別 monthly 等）に集計します。Get the token counts for knowledge base articles.',
                     inputSchema: {
                         type: 'object',
                         properties: {
                             groupBy: {
                                 type: 'string',
                                 enum: ['article', 'author', 'monthly', 'quarterly', 'half-yearly', 'yearly'],
-                                description: 'How to group the token counts'
+                                description: 'How to group the token counts (article, author, monthly, quarterly, half-yearly, yearly)'
                             }
                         },
                         required: ['groupBy']
@@ -51,14 +51,14 @@ function createMcpServer() {
                 },
                 {
                     name: 'get_knowledge_token_crosstab',
-                    description: 'Get a cross-tabulation (pivot table) of input and output tokens for knowledge base articles, grouped by both time period (rows) and author (columns). Use this when the user asks for a cross-tabulated table.',
+                    description: 'ナレッジベース記事のインプットトークン（Input Tokens）とアウトプットトークン（Output Tokens）を、期間別（月別・四半期別・半期別・年別：行）× 著者別（Author別：列）でクロス集計（ピボットテーブル形式）して返します。「月別と著者別のインプットトークンとアウトプットトークンをクロス集計して表にして」といったリクエストには必ずこのツールを使用してください。',
                     inputSchema: {
                         type: 'object',
                         properties: {
                             period: {
                                 type: 'string',
                                 enum: ['monthly', 'quarterly', 'half-yearly', 'yearly'],
-                                description: 'The time period for rows'
+                                description: 'The time period for rows (monthly, quarterly, half-yearly, yearly)'
                             }
                         },
                         required: ['period']
@@ -68,11 +68,23 @@ function createMcpServer() {
         };
     });
 
+    function normalizePeriod(val, defaultVal = 'monthly') {
+        if (!val || typeof val !== 'string') return defaultVal;
+        const v = val.toLowerCase().trim();
+        if (v === 'month' || v === 'monthly' || v === '月別' || v === '月次') return 'monthly';
+        if (v === 'quarter' || v === 'quarterly' || v === '四半期' || v === '四半期別') return 'quarterly';
+        if (v === 'half' || v === 'half-yearly' || v === 'half_yearly' || v === '半期' || v === '半期別') return 'half-yearly';
+        if (v === 'year' || v === 'yearly' || v === 'annual' || v === '年別' || v === '年次') return 'yearly';
+        if (v === 'article' || v === '記事' || v === '記事別') return 'article';
+        if (v === 'author' || v === 'user' || v === '著者' || v === '著者別') return 'author';
+        return defaultVal;
+    }
+
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
 
         if (name === 'get_author_post_counts') {
-            const period = args.period || 'monthly';
+            const period = normalizePeriod(args?.period, 'monthly');
             let dateModifier = "strftime('%Y-%m', k.created_at)";
             if (period === 'yearly') dateModifier = "strftime('%Y', k.created_at)";
             else if (period === 'quarterly') dateModifier = "strftime('%Y-Q', k.created_at) || ((cast(strftime('%m', k.created_at) as integer) + 2) / 3)";
@@ -93,7 +105,7 @@ function createMcpServer() {
         }
 
         if (name === 'get_knowledge_token_counts') {
-            const groupBy = args.groupBy || 'article';
+            const groupBy = normalizePeriod(args?.groupBy, 'article');
             
             let query = '';
             if (groupBy === 'article') {
@@ -118,7 +130,7 @@ function createMcpServer() {
         }
 
         if (name === 'get_knowledge_token_crosstab') {
-            const period = args.period || 'monthly';
+            const period = normalizePeriod(args?.period, 'monthly');
             
             let dateModifier = "strftime('%Y-%m', k.created_at)";
             if (period === 'yearly') dateModifier = "strftime('%Y', k.created_at)";

@@ -204,13 +204,34 @@ function extractTextFromInteraction(interaction) {
  */
 const DEFAULT_MCP_CHAT_SYSTEM_INSTRUCTION = `You are a helpful IT Operations, Data Analytics, and System Management Assistant. You have access to various external tools via the Model Context Protocol (MCP). Use these tools to fetch information, monitor systems, and perform actions. Always format your output nicely using Markdown.
 
+CRITICAL TOOL ROUTING & DATA SOURCE SELECTION (ABSOLUTE MANDATORY):
+Multiple MCP servers are connected across different domains. Always select the exact MCP tool corresponding to the user's target domain:
+1. **Knowledge Base MCP (ナレッジベース分析・トークン集計・記事投稿統計)**:
+   - Tools: \`get_knowledge_token_crosstab\`, \`get_knowledge_token_counts\`, \`get_author_post_counts\`
+   - Whenever the user asks about **author (著者別)**, **monthly/quarterly/yearly post counts (記事投稿数)**, **input tokens (インプットトークン)**, **output tokens (アウトプットトークン)**, **token counts (トークン数)**, or **cross-tabulation / pivot tables of tokens (クロス集計表)**, you MUST ALWAYS call the Knowledge Base MCP tools (\`get_knowledge_token_crosstab\`, \`get_knowledge_token_counts\`, or \`get_author_post_counts\`).
+   - **NEVER** call MariaDB tools (\`list_tables\`, \`describe_table\`, \`read_query\`) for knowledge base, author post counts, or token usage queries! Knowledge Base data resides in the internal Knowledge Base MCP, NOT in MariaDB.
+2. **MariaDB / NPB Baseball Analytics MCP (プロ野球データ・企業DB)**:
+   - Tools: \`list_tables\`, \`describe_table\`, \`read_query\`, \`write_query\`
+   - Use ONLY when querying NPB baseball statistics (\`players\`, \`teams\`, \`team_standings\`, \`batting_stats\`, \`pitching_stats\`, \`games\`) or explicitly requested MariaDB tables.
+3. **Digital Agency Administrative Procedures MCP (デジタル庁 行政手続統計)**:
+   - Tools: \`query_records\`, \`summarize_records\`
+   - Use when analyzing administrative procedures, life events, or required attachments.
+4. **Meta-Catalog MCP (データカタログ・GenUIメタ情報)**:
+   - Tools: \`list_catalog\`, \`get_catalog_detail\`
+   - Use to inspect enterprise data schemas and recommended GenUI dashboard specifications.
+
 CRITICAL TOOL ARGUMENT SYNTAX (ABSOLUTE MANDATORY):
 When calling any tool with arguments (especially SQL queries or multi-line strings):
 1. Always generate STRICTLY VALID JSON for the tool call arguments.
 2. Properly escape all double quotes (\") and newlines (\\n) inside string arguments.
 3. NEVER generate unescaped raw newlines, quotes, or control characters inside JSON values.
 
-Database Multi-Year Notice:
+Knowledge Base MCP Reference:
+- \`get_knowledge_token_crosstab\`: Returns a cross-tabulated pivot table of Input Tokens and Output Tokens grouped by time period (\`period\`: \`"monthly"\`, \`"quarterly"\`, \`"half-yearly"\`, \`"yearly"\`) as rows and Author as columns. Use this immediately when asked for a cross-tabulation (クロス集計) of input/output tokens by month/period and author.
+- \`get_knowledge_token_counts\`: Returns total, input, and output token counts grouped by \`groupBy\` (\`"article"\`, \`"author"\`, \`"monthly"\`, \`"quarterly"\`, \`"half-yearly"\`, \`"yearly"\`).
+- \`get_author_post_counts\`: Returns the number of knowledge base articles posted by each author grouped by \`period\` (\`"monthly"\`, \`"quarterly"\`, \`"half-yearly"\`, \`"yearly"\`).
+
+Database Multi-Year Notice (MariaDB NPB):
 The database contains official multi-year records for 2024, 2025, and 2026 NPB seasons (Source: NPB Official npb.jp as of October 2026):
 - \`batting_stats\` table includes \`year\` (2024, 2025, 2026), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (e.g., 佐藤輝明: 2026年 セ・リーグ三冠王[打率.314/39本/105点]・セMVP、栗原陵矢: 2026年 パ本塁打王[40本]・パ打点王[118点]、レイエス: 2026年 パ首位打者[打率.313/32本/82点]、近藤健介: 2026年 打率.310/32本/108点、森下翔太: 2026年 打率.294/35本/84点、大山悠輔: 2026年 打率.281/20本/84点、中野拓夢: 2026年 打率.293/146安打).
 - \`pitching_stats\` table includes \`year\` (2024, 2025, 2026), games_started, wins, losses, saves, holds, era, whip, strikeouts, innings_pitched, war, and \`title_awards\` (e.g., 髙橋遥人: 2026年 セ最多勝[16勝/防御率1.87]、村上頌樹: 2026年 セ最優秀防御率[1.85/10勝]、才木浩人: 2026年 セ最多奪三振[175K/10勝]、平良海馬: 2026年 パ最優秀防御率[1.36]、北山亘基＆エスピノーザ: 2026年 パ最多勝タイ[13勝]、荘司康誠: 2026年 パ最多奪三振[171K]、R.マルティネス: 2026年 セ最多セーブ[42S]、杉山一樹＆マチャド: 2026年 パ最多セーブタイ[35S]).
@@ -289,43 +310,78 @@ async function executeMcpWorkflow({ user, message, previous_interaction_id, envi
     // Get MCP Tools filtered by user's permissions (ZTA-compliant PDP check)
     let mcpTools = await getAllMcpToolsForGemini(user?.allowed_widgets || [], user);
 
-    // Dynamic Pipeline Routing: Filter tools based on explicit pipelineDomain from client OR prompt intent
+    // Dynamic Multi-Domain Pipeline Routing:
+    // 1. Explicit pipelineDomain selected in UI
+    // 2. Auto intent detection supporting both single-domain focus and multi-domain composite queries
     const msgLower = (message || '').toLowerCase();
-    const isBaseball = pipelineDomain === 'npb_baseball' || 
-                      (!pipelineDomain && (msgLower.includes('阪神') || msgLower.includes('タイガース') || 
-                                          msgLower.includes('npb') || msgLower.includes('野球') || 
-                                          msgLower.includes('batting') || msgLower.includes('pitching') || 
-                                          msgLower.includes('war') || msgLower.includes('立役者') || 
-                                          msgLower.includes('打者') || msgLower.includes('投手')));
-    
-    const isProcedures = pipelineDomain === 'digital_agency' || 
-                        (!pipelineDomain && (msgLower.includes('行政') || msgLower.includes('手続き') || 
-                                            msgLower.includes('デジタル庁') || msgLower.includes('マイナンバー') || 
-                                            msgLower.includes('procedures')));
+    const isMetaListQuery = msgLower.includes('ツール') && (msgLower.includes('一覧') || msgLower.includes('利用可能') || msgLower.includes('コネクション') || msgLower.includes('available'));
 
-    const isKnowledge = pipelineDomain === 'knowledge_base' ||
-                       (!pipelineDomain && (msgLower.includes('ナレッジ') || msgLower.includes('マニュアル') || msgLower.includes('社内規程')));
-
-    if (isBaseball && !isProcedures) {
-        // MariaDB関連ツールに絞り込み
-        const filtered = mcpTools.filter(t => t.name.includes('query') || t.name.includes('sql') || t.name.includes('table') || t.name.includes('schema') || t.name.includes('catalog'));
+    if (pipelineDomain && pipelineDomain !== 'auto') {
+        const filtered = mcpTools.filter(t => {
+            if (t.domain === pipelineDomain) return true;
+            // Allow Meta-Catalog tools alongside analytics domains
+            if (t.domain === 'catalog' && (pipelineDomain === 'npb_baseball' || pipelineDomain === 'digital_agency')) return true;
+            return false;
+        });
         if (filtered.length > 0) {
-            console.log(`[mcpChat] Dynamic Pipeline: NPB Baseball analytics pipeline active. Bound ${filtered.length} tools.`);
+            console.log(`[mcpChat] Explicit Pipeline '${pipelineDomain}' active. Bound ${filtered.length} tools.`);
             mcpTools = filtered;
         }
-    } else if (isProcedures && !isBaseball) {
-        // 行政手続き関連ツールに絞り込み
-        const filtered = mcpTools.filter(t => t.name.includes('procedures') || t.name.includes('records') || t.name.includes('catalog'));
-        if (filtered.length > 0) {
-            console.log(`[mcpChat] Dynamic Pipeline: Digital Agency procedures pipeline active. Bound ${filtered.length} tools.`);
-            mcpTools = filtered;
+    } else if (!isMetaListQuery) {
+        const matchedDomains = new Set();
+
+        const isBaseball = msgLower.includes('阪神') || msgLower.includes('タイガース') || msgLower.includes('ホークス') ||
+                           msgLower.includes('npb') || msgLower.includes('野球') || msgLower.includes('セ・リーグ') || msgLower.includes('パ・リーグ') ||
+                           msgLower.includes('batting') || msgLower.includes('pitching') ||
+                           msgLower.includes('war') || msgLower.includes('立役者') ||
+                           msgLower.includes('打者') || msgLower.includes('投手') || msgLower.includes('野手') || msgLower.includes('防御率') || msgLower.includes('打率');
+
+        const isProcedures = msgLower.includes('行政') || msgLower.includes('手続') ||
+                             msgLower.includes('デジタル庁') || msgLower.includes('マイナンバー') ||
+                             msgLower.includes('住民票') || msgLower.includes('戸籍') || msgLower.includes('procedures');
+
+        const isKnowledge = msgLower.includes('ナレッジ') || msgLower.includes('knowledge') ||
+                            msgLower.includes('マニュアル') || msgLower.includes('社内規程') ||
+                            msgLower.includes('インプットトークン') || msgLower.includes('アウトプットトークン') ||
+                            msgLower.includes('input_token') || msgLower.includes('output_token') ||
+                            msgLower.includes('トークン') || msgLower.includes('token') ||
+                            msgLower.includes('著者') || msgLower.includes('author') ||
+                            msgLower.includes('投稿数') || msgLower.includes('記事') ||
+                            msgLower.includes('クロス集計') || msgLower.includes('crosstab');
+
+        const isWorkspace = msgLower.includes('カレンダー') || msgLower.includes('calendar') ||
+                            msgLower.includes('予定') || msgLower.includes('ミーティング') || msgLower.includes('会議') ||
+                            msgLower.includes('todo') || msgLower.includes('タスク') || msgLower.includes('gmail');
+
+        if (isBaseball) {
+            matchedDomains.add('npb_baseball');
+            matchedDomains.add('catalog');
         }
-    } else if (isKnowledge && !isBaseball && !isProcedures) {
-        // ナレッジ関連ツールに絞り込み
-        const filtered = mcpTools.filter(t => t.name.includes('knowledge') || t.name.includes('search') || t.name.includes('doc'));
-        if (filtered.length > 0) {
-            console.log(`[mcpChat] Dynamic Pipeline: Knowledge Base pipeline active. Bound ${filtered.length} tools.`);
-            mcpTools = filtered;
+        if (isProcedures) {
+            matchedDomains.add('digital_agency');
+            matchedDomains.add('catalog');
+        }
+        if (isKnowledge) {
+            matchedDomains.add('knowledge_base');
+        }
+        if (isWorkspace) {
+            matchedDomains.add('google_workspace');
+        }
+
+        if (matchedDomains.size > 0) {
+            const filtered = mcpTools.filter(t => {
+                if (t.domain && matchedDomains.has(t.domain)) return true;
+                // Fallback for tools without domain metadata
+                if (matchedDomains.has('knowledge_base') && (t.name.includes('knowledge') || t.name.includes('author') || t.name.includes('post') || t.name.includes('crosstab'))) return true;
+                if (matchedDomains.has('npb_baseball') && (t.name.includes('query') || t.name.includes('sql') || t.name.includes('table') || t.name.includes('catalog'))) return true;
+                if (matchedDomains.has('digital_agency') && (t.name.includes('procedures') || t.name.includes('records') || t.name.includes('catalog'))) return true;
+                return false;
+            });
+
+            if (filtered.length > 0) {
+                console.log(`[mcpChat] Auto Multi-Domain Pipeline [${Array.from(matchedDomains).join(', ')}] active. Bound ${filtered.length} tools: ${filtered.map(t => t.name).join(', ')}`);
+                mcpTools = filtered;
+            }
         }
     }
     
@@ -338,7 +394,7 @@ async function executeMcpWorkflow({ user, message, previous_interaction_id, envi
 
     console.log(`[mcpChat] Sending ${tools.length} tools to Gemini. Available tool names: ${tools.map(t => t.name).join(', ')}`);
 
-    const toolDescriptions = mcpTools.map(t => `- **${t.name}**: ${t.description}`).join('\n');
+    const toolDescriptions = mcpTools.map(t => `- **${t.name}** (${t.serverName || 'MCP'}): ${t.description}`).join('\n');
 
     const customInstruction = await db.getSetting('MCP_CHAT_SYSTEM_INSTRUCTION');
     const baseInstruction = (customInstruction && customInstruction.trim()) ? customInstruction.trim() : DEFAULT_MCP_CHAT_SYSTEM_INSTRUCTION;
