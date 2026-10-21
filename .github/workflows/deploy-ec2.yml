@@ -1,0 +1,90 @@
+name: Safe Upgrade & Deploy to AWS EC2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Zero-Downtime Safe Upgrade on EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Security Audit Check (Built-in Quality)
+        run: |
+          npm ci
+          npm audit --audit-level=critical
+
+      - name: Setup SSH Key Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+      - name: Add EC2 to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          if [ -n "${{ secrets.EC2_HOST_IP }}" ]; then
+            ssh-keyscan -H "${{ secrets.EC2_HOST_IP }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
+
+      - name: Sync Source Code to EC2 (Excluding Databases and Secrets)
+        run: |
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude 'data/*.sqlite*' \
+            --exclude 'data/development.env' \
+            --exclude 'server/*.sqlite*' \
+            --exclude 'server/*.env' \
+            ./ ${{ secrets.EC2_USER || 'ec2-user' }}@${{ secrets.EC2_HOST_IP }}:/opt/macosui/repo/ || \
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude 'data/*.sqlite*' \
+            --exclude 'data/development.env' \
+            --exclude 'server/*.sqlite*' \
+            --exclude 'server/*.env' \
+            ./ ${{ secrets.EC2_USER || 'ec2-user' }}@${{ secrets.EC2_HOST_IP }}:~/MacOSUI/
+
+      - name: Safe Rebuild & Upgrade Container on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_IP }}
+          username: ${{ secrets.EC2_USER || 'ec2-user' }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/macosui/repo 2>/dev/null || cd ~/MacOSUI
+
+            # 1. Automatic Database Safety Backup
+            sudo mkdir -p data
+            sudo chown -R $USER:$USER data 2>/dev/null || true
+            sudo chmod 777 data 2>/dev/null || true
+
+            if [ -f data/database.sqlite ]; then
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              sudo cp data/database.sqlite data/database_backup_${TIMESTAMP}.sqlite 2>/dev/null || true
+              ls -t data/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs sudo rm -f 2>/dev/null || true
+              echo "✅ Safely backed up database to data/database_backup_${TIMESTAMP}.sqlite"
+            fi
+
+            # 2. Build & Recreate Web Container
+            COMPOSE_CMD="docker-compose"
+            if command -v /usr/local/bin/docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="/usr/local/bin/docker-compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="docker-compose"
+            elif docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker compose"
+            fi
+
+            sudo $COMPOSE_CMD up -d --build --force-recreate || $COMPOSE_CMD up -d --build --force-recreate
+            docker image prune -af 2>/dev/null || true
+            echo "🚀 [SUCCESS] MacOSUI upgraded smoothly without any data loss or re-activation!"

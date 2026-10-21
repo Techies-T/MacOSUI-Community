@@ -1,0 +1,104 @@
+name: Deploy to Staging (Sakura VPS)
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Security Check (Block on CRITICAL vulnerabilities)
+        run: |
+          npm ci
+          npm audit --audit-level=critical
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/minoru61/macosui-web:latest
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+
+      - name: Add VPS to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.STAGING_HOST_IP }} >> ~/.ssh/known_hosts
+
+      - name: Cleanup disk space on VPS before rsync
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST_IP }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          script: |
+            # Clean up unused Docker images, containers, and volumes to ensure sufficient disk space
+            docker system prune -af --volumes 2>/dev/null || true
+            sudo journalctl --vacuum-time=1d 2>/dev/null || true
+
+      - name: Sync config files using rsync
+        run: |
+          rsync -rtv --no-p --no-g --no-o -e "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3" \
+                     --exclude 'node_modules' \
+                     --exclude '.git' \
+                     --exclude 'dist' \
+                     --exclude 'certbot' \
+                     --exclude 'src' \
+                     --exclude 'scripts' \
+                     --exclude 'server/*.sqlite*' \
+                     --exclude 'server/database_backup_*.sqlite' \
+                     ./ ${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST_IP }}:~/MacOSUI/
+
+      - name: Pull and Restart Docker Compose on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST_IP }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+          script: |
+            # GHCR Login using Personal Access Token
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u minoru61 --password-stdin
+            
+            cd ~/MacOSUI
+            
+            # --- Database Backup ---
+            if [ -f server/database.sqlite ]; then
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              cp server/database.sqlite server/database_backup_${TIMESTAMP}.sqlite
+              echo "Backed up database to server/database_backup_${TIMESTAMP}.sqlite"
+              
+              # Keep only the 5 most recent backups to save disk space
+              ls -t server/database_backup_*.sqlite 2>/dev/null | tail -n +6 | xargs rm -f
+            fi
+            
+            # Start/Restart Docker Compose using GHCR image and staging config
+            WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest ENV_FILE=staging.env docker compose -f docker-compose.staging.yml pull web
+            WEB_IMAGE=ghcr.io/minoru61/macosui-web:latest ENV_FILE=staging.env docker compose -f docker-compose.staging.yml up -d --force-recreate web
+            
+            # Ensure Nginx reloads its configuration in case only the mounted volume changed
+            docker compose -f docker-compose.staging.yml restart nginx
+            
+            # Post-deploy cleanup of unused dangling images
+            docker image prune -af 2>/dev/null || true

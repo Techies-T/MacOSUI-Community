@@ -1,0 +1,38 @@
+name: Built-in Quality & Security CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-audit:
+    name: Security Audit & Quality Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Security Audit Check (Zero CRITICAL)
+        run: npm audit --audit-level=critical
+
+      - name: Syntax & Build Verification
+        run: |
+          node -c server/index.cjs
+          npm run build
