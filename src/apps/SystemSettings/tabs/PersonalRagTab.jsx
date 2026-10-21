@@ -10,7 +10,8 @@ const PersonalRagTab = ({
     handleRemoveRagFolder,
     handleSyncRag,
     isSyncing,
-    lastRagSyncTime
+    lastRagSyncTime,
+    ragSyncErrors = []
 }) => {
     return (
         <div className="space-y-6">
@@ -77,10 +78,22 @@ const PersonalRagTab = ({
                             {isSyncing ? 'Syncing...' : 'Sync Now'}
                         </button>
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-1">Files in all configured RAG folders will be synced to Gemini.</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Files in all configured RAG folders (and subfolders) will be synced to Gemini File API (valid for 48 hours).</p>
                     {isSyncing && (
                         <div className="mt-2 text-xs text-blue-600 animate-pulse">
                             Syncing in progress... Please wait.
+                        </div>
+                    )}
+                    {ragSyncErrors && ragSyncErrors.length > 0 && (
+                        <div className="mt-3 p-2 bg-amber-50 rounded border border-amber-200">
+                            <p className="text-xs font-semibold text-amber-800 mb-1">Sync Warnings ({ragSyncErrors.length})</p>
+                            <ul className="text-[11px] text-amber-700 list-disc list-inside space-y-0.5">
+                                {ragSyncErrors.map((err, i) => (
+                                    <li key={i} className="truncate">
+                                        <span className="font-medium">{err.file}</span>: {err.error}
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
                     )}
                     {lastRagSyncTime && (
@@ -92,7 +105,7 @@ const PersonalRagTab = ({
                             <div className="flex justify-between text-xs text-gray-500">
                                 <span>Next Sync Needed:</span>
                                 <span className="font-medium text-red-500">
-                                    {new Date(new Date(lastRagSyncTime).getTime() + 24 * 60 * 60 * 1000).toLocaleString()}
+                                    {new Date(new Date(lastRagSyncTime).getTime() + 40 * 60 * 60 * 1000).toLocaleString()}
                                 </span>
                             </div>
                         </div>

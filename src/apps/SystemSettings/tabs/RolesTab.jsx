@@ -1,11 +1,26 @@
 import React, { useState, useEffect } from 'react';
 
-const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
+const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies, ragFolders = [] }) => {
     const [skills, setSkills] = useState([]);
     const [mcpServers, setMcpServers] = useState([]);
     const [newRoleName, setNewRoleName] = useState('');
-
     const [pods, setPods] = useState([]);
+    const [driveRagFolders, setDriveRagFolders] = useState(ragFolders || []);
+
+    useEffect(() => {
+        if (ragFolders && ragFolders.length > 0) {
+            setDriveRagFolders(ragFolders);
+        } else {
+            fetch('/api/config')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.googleDriveRagFolders && Array.isArray(data.googleDriveRagFolders)) {
+                        setDriveRagFolders(data.googleDriveRagFolders);
+                    }
+                })
+                .catch(err => console.error("Failed to fetch rag folders in RolesTab:", err));
+        }
+    }, [ragFolders]);
 
     useEffect(() => {
         fetch('/api/skills')
@@ -205,6 +220,7 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
                                     <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">🖥️ Workflows & Widgets</td>
                                 </tr>
                                 {[
+                                    { id: 'app:gemini', label: 'Gemini Chat (Base App)' },
                                     { id: 'app:deep-research', label: 'Deep Research App (Main)' },
                                     { id: 'workflow:deepresearch_html', label: 'Deep Research (with HTML)' },
                                     { id: 'workflow:deepresearch_infographic', label: 'Deep Research (with Infographic)' },
@@ -237,6 +253,50 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies }) => {
                                         })}
                                     </tr>
                                 ))}
+
+                                <tr className="bg-gray-50/50">
+                                    <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">📚 Personal RAG Knowledge Bases (Drive Folders)</td>
+                                </tr>
+                                {driveRagFolders.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 text-xs text-gray-400 italic pl-6">
+                                            No RAG Drive folders registered in System Settings.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    driveRagFolders.map(folder => {
+                                        const permId = `rag:${folder.id}`;
+                                        return (
+                                            <tr key={permId} className="hover:bg-purple-50/30 transition-colors">
+                                                <td className="px-4 py-2 border-r border-gray-200 sticky left-0 bg-inherit text-gray-700 pl-6">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span>📁</span>
+                                                        <div>
+                                                            <div className="font-medium text-xs text-gray-800">{folder.name || folder.id}</div>
+                                                            <div className="text-[10px] text-gray-400 font-mono">ID: {folder.id}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                {Object.keys(rbacPolicies).map(roleKey => {
+                                                    const allowed = rbacPolicies[roleKey].allowed_widgets || [];
+                                                    const isChecked = allowed.includes('*') || allowed.includes(permId);
+                                                    const isDisabled = allowed.includes('*') && roleKey === 'admin';
+                                                    return (
+                                                        <td key={roleKey} className="px-4 py-2 text-center border-r border-gray-200 last:border-0">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={isChecked}
+                                                                disabled={isDisabled}
+                                                                onChange={() => !isDisabled && handleToggleWidgetPermission(roleKey, permId)}
+                                                                className={`w-3.5 h-3.5 rounded cursor-pointer ${isDisabled ? 'text-gray-400 opacity-50' : 'text-purple-600 focus:ring-purple-500'}`}
+                                                            />
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        );
+                                    })
+                                )}
 
                                 <tr className="bg-gray-50/50">
                                     <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">⚡ Actions / Logic</td>

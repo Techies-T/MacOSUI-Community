@@ -2580,6 +2580,24 @@ app.post('/api/gemini', requireAuth, async (req, res) => {
             return res.status(403).json({ error: `Access denied. Requires model access: ${requestedModel}` });
         }
 
+        // ZTA: Enforce Fine-Grained Personal RAG Access (PEP)
+        if (mode === 'rag') {
+            const targetFolderId = config?.targetRagFolderId;
+            const hasRagAccess = allowedWidgets.includes('*') || (targetFolderId && allowedWidgets.includes(`rag:${targetFolderId}`));
+            if (!hasRagAccess) {
+                auditDb.logEvent({
+                    userId: req.user.id,
+                    userEmail: req.user.email,
+                    eventType: 'permission_denied',
+                    action: `POST /api/gemini (RAG: ${targetFolderId || 'unspecified'})`,
+                    status: 'blocked',
+                    req: req,
+                    details: { requiredPermission: targetFolderId ? `rag:${targetFolderId}` : 'rag:*' }
+                });
+                return res.status(403).json({ error: `Access denied. Requires RAG folder access: ${targetFolderId ? `rag:${targetFolderId}` : 'rag:*'}` });
+            }
+        }
+
         const crypto = require('crypto');
         const jobId = crypto.randomUUID();
 
@@ -3271,12 +3289,43 @@ let ragSyncStatus = {
     progress: 0,
     total: 0,
     currentFile: '',
-    error: null
+    error: null,
+    errors: []
 };
+
+// Recursive helper to list all files from a folder and its subfolders
+async function listFolderFilesRecursively(drive, folderId, folderName, maxDepth = 2, currentDepth = 0) {
+    let results = [];
+    try {
+        const driveRes = await drive.files.list({
+            q: `'${folderId}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'text/markdown' or mimeType = 'text/csv' or mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.folder')`,
+            fields: 'files(id, name, mimeType, modifiedTime)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            corpora: 'allDrives'
+        });
+
+        const files = driveRes.data.files || [];
+        for (const item of files) {
+            if (item.mimeType === 'application/vnd.google-apps.folder') {
+                if (currentDepth < maxDepth) {
+                    const subFiles = await listFolderFilesRecursively(drive, item.id, item.name, maxDepth, currentDepth + 1);
+                    results = results.concat(subFiles);
+                }
+            } else {
+                results.push(item);
+            }
+        }
+    } catch (folderErr) {
+        console.error(`Failed to list files for folder ${folderName} (${folderId}):`, folderErr.message);
+    }
+    return results;
+}
 
 // Background Sync Function
 async function performRagSync(drive, ragFolders, apiKey) {
-    ragSyncStatus = { state: 'syncing', progress: 0, total: 0, currentFile: 'Starting...', error: null };
+    ragSyncStatus = { state: 'syncing', progress: 0, total: 0, currentFile: 'Starting...', error: null, errors: [] };
     console.log("Starting background RAG sync for multiple folders...");
 
     try {
@@ -3285,26 +3334,16 @@ async function performRagSync(drive, ragFolders, apiKey) {
         let allDriveFiles = [];
         let folderIdMap = new Map(); // drive_file_id -> folder_id
 
-        // 1. List files for all folders
+        // 1. List files for all folders (including subfolders for Shared Drives)
         ragSyncStatus.currentFile = 'Listing files...';
         let folderErrors = [];
         for (const folder of ragFolders) {
-            try {
-                const driveRes = await drive.files.list({
-                    q: `'${folder.id}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'text/markdown' or mimeType = 'text/csv' or mimeType = 'application/vnd.google-apps.document')`,
-                    fields: 'files(id, name, mimeType, modifiedTime)',
-                    pageSize: 50,
-                    supportsAllDrives: true,
-                    includeItemsFromAllDrives: true
-                });
-                
-                const files = driveRes.data.files || [];
-                allDriveFiles = allDriveFiles.concat(files);
-                files.forEach(f => folderIdMap.set(f.id, folder.id));
-            } catch (folderErr) {
-                console.error(`Failed to list files for folder ${folder.name}:`, folderErr.message);
-                folderErrors.push(`${folder.name}: ${folderErr.message}`);
+            const files = await listFolderFilesRecursively(drive, folder.id, folder.name);
+            if (files.length === 0) {
+                folderErrors.push(`${folder.name}: no files found or folder inaccessible`);
             }
+            allDriveFiles = allDriveFiles.concat(files);
+            files.forEach(f => folderIdMap.set(f.id, folder.id));
         }
 
         // Deduplicate drive files
@@ -3317,6 +3356,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
 
         const currentDriveFileIds = uniqueDriveFiles.map(f => f.id);
         const syncedFiles = [];
+        const syncErrors = [];
 
         for (let i = 0; i < uniqueDriveFiles.length; i++) {
             const file = uniqueDriveFiles[i];
@@ -3342,7 +3382,8 @@ async function performRagSync(drive, ragFolders, apiKey) {
                 } else {
                     const getRes = await drive.files.get({
                         fileId: file.id,
-                        alt: 'media'
+                        alt: 'media',
+                        supportsAllDrives: true
                     }, { responseType: 'arraybuffer' });
                     content = Buffer.from(getRes.data);
                     if (mimeType === 'text/plain') extension = 'txt';
@@ -3383,6 +3424,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
 
             } catch (fileErr) {
                 console.error(`Failed to sync file ${file.name}:`, fileErr);
+                syncErrors.push({ file: file.name, error: fileErr.message });
                 // Continue to next file
             }
         }
@@ -3413,6 +3455,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
             });
         }
 
+        ragSyncStatus.errors = syncErrors;
         ragSyncStatus.syncedCount = syncedFiles.length;
         if (folderErrors.length > 0 && uniqueDriveFiles.length === 0) {
             ragSyncStatus.state = 'error';
@@ -3431,7 +3474,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
 }
 
 // RAG: Trigger Sync (Non-blocking)
-app.post('/api/rag/sync', requirePermission('action:manage_rag_folders'), async (req, res) => {
+app.post('/api/rag/sync', requireAuth, async (req, res) => {
     try {
         if (ragSyncStatus.state === 'syncing') {
             return res.status(409).json({ error: 'Sync already in progress' });
@@ -3620,18 +3663,8 @@ app.get('/api/rag/check-sync-needed', requireAuth, async (req, res) => {
         // List files in drive
         let allDriveFiles = [];
         for (const folder of ragFolders) {
-            try {
-                const driveRes = await drive.files.list({
-                    q: `'${folder.id}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType = 'text/plain' or mimeType = 'application/vnd.google-apps.document')`,
-                    fields: 'files(id, modifiedTime)',
-                    pageSize: 100,
-                    supportsAllDrives: true,
-                    includeItemsFromAllDrives: true
-                });
-                allDriveFiles = allDriveFiles.concat(driveRes.data.files || []);
-            } catch (folderErr) {
-                console.error(`Sync Check: Failed to list files for folder ${folder.name}:`, folderErr.message);
-            }
+            const files = await listFolderFilesRecursively(drive, folder.id, folder.name);
+            allDriveFiles = allDriveFiles.concat(files);
         }
 
         // Deduplicate drive files just in case

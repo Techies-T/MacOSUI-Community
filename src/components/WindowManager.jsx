@@ -26,7 +26,7 @@ const WindowManager = ({ windows, onFocus, onClose, onMinimize, onOpen, onUpdate
             case 'calculator': return <Calculator />;
             case 'notes': return <Notes />;
             case 'finder': return <Finder user={user} onOpen={onOpen} />;
-            case 'gemini': return <Gemini />;
+            case 'gemini': return <Gemini user={user} />;
             case 'calendar': return <Calendar />;
             case 'settings': return <SystemSettings user={user} />;
             case 'browser': return <Browser {...win.props} />;
