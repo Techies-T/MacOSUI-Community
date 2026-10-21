@@ -450,39 +450,57 @@ const SystemSettings = ({ user }) => {
     };
 
 
+    const [ragSyncErrors, setRagSyncErrors] = useState([]);
+
     const saveRagFoldersToApi = async (folders) => {
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ googleDriveRagFolders: folders })
             });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}: Failed to save`);
+            }
+            return true;
         } catch (err) {
             console.error("Failed to save RAG folders", err);
-            alert('Failed to save.');
+            alert('Failed to save RAG folder: ' + err.message);
+            return false;
         }
     };
 
     const handleAddRagFolder = async () => {
-        if (!newRagFolderId || !newRagFolderName) return;
+        if (!newRagFolderId || !newRagFolderName) {
+            alert('Please provide both folder name and Google Drive Folder ID.');
+            return;
+        }
         
         // Prevent duplicate folder IDs
-        if (ragFolders.some(f => f.id === newRagFolderId)) {
+        if (ragFolders.some(f => f.id === newRagFolderId.trim())) {
             alert('This Folder ID is already added.');
             return;
         }
 
-        const newFolders = [...ragFolders, { id: newRagFolderId, name: newRagFolderName }];
-        setRagFolders(newFolders);
-        setNewRagFolderId('');
-        setNewRagFolderName('');
-        await saveRagFoldersToApi(newFolders);
+        const newFolderObj = { id: newRagFolderId.trim(), name: newRagFolderName.trim() };
+        const newFolders = [...ragFolders, newFolderObj];
+        
+        const success = await saveRagFoldersToApi(newFolders);
+        if (success) {
+            setRagFolders(newFolders);
+            setNewRagFolderId('');
+            setNewRagFolderName('');
+            alert(`Folder "${newFolderObj.name}" added successfully!`);
+        }
     };
 
     const handleRemoveRagFolder = async (id) => {
         const newFolders = ragFolders.filter(f => f.id !== id);
-        setRagFolders(newFolders);
-        await saveRagFoldersToApi(newFolders);
+        const success = await saveRagFoldersToApi(newFolders);
+        if (success) {
+            setRagFolders(newFolders);
+        }
     };
 
     const handleSaveResearchFolder = async () => {
@@ -501,6 +519,7 @@ const SystemSettings = ({ user }) => {
 
     const handleSyncRag = async () => {
         setIsSyncing(true);
+        setRagSyncErrors([]);
         try {
             // Trigger sync
             const res = await fetch('/api/rag/sync', {
@@ -525,6 +544,9 @@ const SystemSettings = ({ user }) => {
                         setIsSyncing(false);
                         const newSyncTime = new Date().toISOString();
                         setLastRagSyncTime(newSyncTime);
+                        if (statusData.errors && statusData.errors.length > 0) {
+                            setRagSyncErrors(statusData.errors);
+                        }
                         window.dispatchEvent(new CustomEvent('rag-synced', { detail: { lastRagSyncTime: newSyncTime } }));
                         const alertMsg = statusData.syncedCount !== undefined 
                             ? (statusData.syncedCount > 0 ? `同期が完了しました (${statusData.syncedCount} 件のファイルを Gemini に同期)` : '同期完了 (※ フォルダ内に対象ファイルが 0 件でした)')
@@ -876,7 +898,7 @@ const SystemSettings = ({ user }) => {
                 )}
 
                 {activeTab === 'Roles' && hasAction('action:manage_roles') && (
-                    <RolesTab user={user} rbacPolicies={rbacPolicies} onSaveRbacPolicies={handleSaveRbacPolicies} />
+                    <RolesTab user={user} rbacPolicies={rbacPolicies} onSaveRbacPolicies={handleSaveRbacPolicies} ragFolders={ragFolders} />
                 )}
 
                 {activeTab === 'Appearance' && (
@@ -972,6 +994,7 @@ const SystemSettings = ({ user }) => {
                         handleSyncRag={handleSyncRag}
                         isSyncing={isSyncing}
                         lastRagSyncTime={lastRagSyncTime}
+                        ragSyncErrors={ragSyncErrors}
                     />
                 )}
 

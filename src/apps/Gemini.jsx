@@ -107,7 +107,8 @@ const renderSourceInfo = (sourceInfo) => {
     return null;
 };
 
-const Gemini = () => {
+const Gemini = ({ user: initialUser }) => {
+    const [currentUser, setCurrentUser] = useState(initialUser || null);
     const [mode, setMode] = useState('normal');
     const [useGrounding, setUseGrounding] = useState(true);
     const [messages, setMessages] = useState([]);
@@ -119,6 +120,8 @@ const Gemini = () => {
     const [targetRagFolderId, setTargetRagFolderId] = useState(null);
     const [ragFolders, setRagFolders] = useState([]);
     const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+    const [isInlineSyncing, setIsInlineSyncing] = useState(false);
+    const [isRagExpired, setIsRagExpired] = useState(false);
     const [showSlashMenu, setShowSlashMenu] = useState(false);
     const [activeSlashIndex, setActiveSlashIndex] = useState(0);
     const [filteredSlashCommands, setFilteredSlashCommands] = useState([]);
@@ -156,6 +159,34 @@ const Gemini = () => {
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    useEffect(() => {
+        if (!currentUser) {
+            fetch('/api/auth/me')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.user) setCurrentUser(data.user);
+                })
+                .catch(err => console.error("Failed to fetch current user in Gemini:", err));
+        }
+    }, [currentUser]);
+
+    const allowedWidgets = currentUser?.allowed_widgets || [];
+    const accessibleRagFolders = ragFolders.filter(folder => 
+        allowedWidgets.includes('*') || allowedWidgets.includes(`rag:${folder.id}`)
+    );
+
+    // If active targetRagFolderId is no longer accessible, fallback to normal chat
+    useEffect(() => {
+        if (mode === 'rag' && targetRagFolderId && isConfigLoaded) {
+            const hasAccess = accessibleRagFolders.some(f => f.id === targetRagFolderId);
+            if (!hasAccess) {
+                setTargetRagFolderId(null);
+                setMode('normal');
+                setUseGrounding(true);
+            }
+        }
+    }, [mode, targetRagFolderId, accessibleRagFolders, isConfigLoaded]);
 
     // Fetch config on mount
     useEffect(() => {
@@ -208,13 +239,50 @@ const Gemini = () => {
         }
     }, [mode]);
 
+    const triggerInlineRagSync = async () => {
+        setIsInlineSyncing(true);
+        try {
+            const res = await fetch('/api/rag/sync', { method: 'POST' });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                alert('Sync Failed: ' + (errData.error || res.statusText));
+                setIsInlineSyncing(false);
+                return;
+            }
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch('/api/rag/status');
+                    const statusData = await statusRes.json();
+                    if (statusData.state === 'completed') {
+                        clearInterval(pollInterval);
+                        setIsInlineSyncing(false);
+                        const newSyncTime = new Date().toISOString();
+                        setLastRagSyncTime(newSyncTime);
+                        setIsRagExpired(false);
+                        window.dispatchEvent(new CustomEvent('rag-synced', { detail: { lastRagSyncTime: newSyncTime } }));
+                    } else if (statusData.state === 'error') {
+                        clearInterval(pollInterval);
+                        setIsInlineSyncing(false);
+                        alert('Sync Error: ' + statusData.error);
+                    }
+                } catch (e) {
+                    clearInterval(pollInterval);
+                    setIsInlineSyncing(false);
+                }
+            }, 2000);
+        } catch (err) {
+            alert('Failed to trigger sync: ' + err.message);
+            setIsInlineSyncing(false);
+        }
+    };
+
     // Check RAG expiry/sync need when mode changes to 'rag'
     useEffect(() => {
         if (!isConfigLoaded) return; // Wait for config to load
 
         const checkRagSync = async () => {
-            if (mode === 'rag' && !hasWarnedExpiry) {
-                // Fetch latest config to get the updated lastRagSyncTime
+            if (mode === 'rag') {
+                // Fetch latest config to get the updated lastRagSyncTime and folders
                 let currentSyncTime = lastRagSyncTime;
                 try {
                     const configRes = await fetch('/api/config');
@@ -223,11 +291,20 @@ const Gemini = () => {
                         currentSyncTime = configData.lastRagSyncTime;
                         setLastRagSyncTime(configData.lastRagSyncTime);
                     }
+                    if (configData.googleDriveRagFolders) {
+                        setRagFolders(configData.googleDriveRagFolders);
+                        // If selected target folder is no longer in configured folders, reset
+                        if (targetRagFolderId && !configData.googleDriveRagFolders.some(f => f.id === targetRagFolderId)) {
+                            setTargetRagFolderId(null);
+                            setMode('normal');
+                            setUseGrounding(true);
+                        }
+                    }
                 } catch (configErr) {
                     console.error("Failed to fetch latest config in checkRagSync:", configErr);
                 }
 
-                // 1. Check time-based expiry first locally
+                // 1. Check time-based expiry first locally (40h limit for Gemini File API)
                 let isTimeExpired = false;
                 if (!currentSyncTime) {
                     isTimeExpired = true;
@@ -235,15 +312,17 @@ const Gemini = () => {
                     const syncTime = new Date(currentSyncTime).getTime();
                     const now = new Date().getTime();
                     const diffHours = (now - syncTime) / (1000 * 60 * 60);
-                    if (diffHours >= 24) {
+                    if (diffHours >= 40) {
                         isTimeExpired = true;
                     }
                 }
 
-                if (isTimeExpired) {
+                setIsRagExpired(isTimeExpired);
+
+                if (isTimeExpired && !hasWarnedExpiry) {
                     setMessages(prev => [...prev, {
                         role: 'model',
-                        text: '⚠️ **RAGデータの有効期限切れ（または未同期）**\n\nベクトルの同期から24時間以上経過しているか、まだ同期されていません。最新のデータを元に回答を得るには、**System Settings** アプリから「Sync RAG DB」を実行してください。'
+                        text: '⚠️ **RAGデータの有効期限切れ（または未同期）**\n\nGemini File APIの保持期限（40時間）を超過しているか、まだ同期されていません。上の「今すぐ同期」ボタンまたはSystem Settingsから同期を実行してください。'
                     }]);
                     setHasWarnedExpiry(true);
                     return; // Skip explicit drive check if it's already expired by time
@@ -254,16 +333,19 @@ const Gemini = () => {
                     const res = await fetch('/api/rag/check-sync-needed');
                     const data = await res.json();
                     
-                    if (data.syncNeeded) {
+                    if (data.syncNeeded && !hasWarnedExpiry) {
                         setMessages(prev => [...prev, {
                             role: 'model',
-                            text: '⚠️ **RAGデータの更新を検知しました（未同期）**\n\nGoogle Driveのファイルが追加・更新、または削除されています。最新の情報を元に回答を得るには、**System Settings** アプリから「Sync RAG DB」を実行してください。'
+                            text: '⚠️ **RAGデータの更新を検知しました（未同期）**\n\nGoogle Driveのファイルが追加・更新、または削除されています。上の「今すぐ同期」ボタンまたはSystem Settingsから同期を実行してください。'
                         }]);
                         setHasWarnedExpiry(true);
+                        setIsRagExpired(true);
                     }
                 } catch (err) {
                     console.error("Failed to check dynamic RAG sync status:", err);
                 }
+            } else {
+                setIsRagExpired(false);
             }
         };
 
@@ -277,6 +359,7 @@ const Gemini = () => {
             if (e.detail && e.detail.lastRagSyncTime) {
                 setLastRagSyncTime(e.detail.lastRagSyncTime);
                 setHasWarnedExpiry(false);
+                setIsRagExpired(false);
                 setMessages(prev => prev.filter(msg => 
                     !(msg.text && (
                         msg.text.includes('⚠️ **RAGデータの有効期限切れ（または未同期）**') ||
@@ -284,6 +367,15 @@ const Gemini = () => {
                     ))
                 ));
             }
+            // Refresh folders list from config
+            fetch('/api/config')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.googleDriveRagFolders) {
+                        setRagFolders(data.googleDriveRagFolders);
+                    }
+                })
+                .catch(err => console.error("Failed to refresh folders on rag-synced:", err));
         };
         window.addEventListener('rag-synced', handleRagSynced);
         return () => window.removeEventListener('rag-synced', handleRagSynced);
@@ -615,8 +707,8 @@ const Gemini = () => {
                         >
                             <option value="normal" className="text-gray-800">💬 Normal Chat</option>
                             <option value="local_rag" className="text-gray-800">🛡️ Gemma 4 Local RAG (完全社内完結)</option>
-                            {ragFolders.map((f, idx) => (
-                                <option key={idx} value={`rag_${f.id}`} className="text-gray-800">📚 Cloud: {f.name}</option>
+                            {accessibleRagFolders.map((f, idx) => (
+                                <option key={f.id || idx} value={`rag_${f.id}`} className="text-gray-800">📚 Cloud: {f.name}</option>
                             ))}
                             <option value="gemma4" className="text-gray-800">🦙 Gemma 4 (Direct)</option>
                             <option value="research" className="text-gray-800">🔍 Deep Research</option>
@@ -636,6 +728,18 @@ const Gemini = () => {
                         <div className="ml-3 flex items-center bg-indigo-500/20 backdrop-blur-md rounded-lg px-3 py-1.5 border border-indigo-400/30 shadow-sm">
                             <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mr-2"></span>
                             <span className="text-xs font-semibold text-indigo-200">🛡️ Zero Data Egress (Air-Gapped)</span>
+                        </div>
+                    )}
+                    {mode === 'rag' && isRagExpired && (
+                        <div className="ml-3 flex items-center bg-amber-500/90 backdrop-blur-md rounded-lg px-2.5 py-1 text-white text-xs shadow-md border border-amber-400/30">
+                            <span className="mr-2 font-medium">⚠️ 期限切れ (40h)</span>
+                            <button
+                                onClick={triggerInlineRagSync}
+                                disabled={isInlineSyncing}
+                                className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded text-[11px] font-semibold transition-colors disabled:opacity-50"
+                            >
+                                {isInlineSyncing ? '同期中...' : '今すぐ同期'}
+                            </button>
                         </div>
                     )}
                     {mode === 'gemma4' && (

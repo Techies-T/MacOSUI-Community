@@ -1,7 +1,8 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => {
+    const [hoveredAppId, setHoveredAppId] = useState(null);
     const apps = [
         {
             id: 'finder', name: 'Finder', icon: (
@@ -11,7 +12,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'browser', name: 'Browser', icon: (
+            id: 'browser', name: 'ブラウザ', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#2563eb' }}>
                     <circle cx="12" cy="12" r="10" />
                     <line x1="2" y1="12" x2="22" y2="12" />
@@ -20,7 +21,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'settings', name: 'Settings', icon: (
+            id: 'settings', name: 'システム設定', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#4b5563' }}>
                     <circle cx="12" cy="12" r="3" />
                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -28,7 +29,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'calculator', name: 'Calculator', icon: (
+            id: 'calculator', name: '計算機', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#ea580c' }}>
                     <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
                     <line x1="8" y1="6" x2="16" y2="6" />
@@ -38,7 +39,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'stickies', name: 'Stickies', icon: (
+            id: 'stickies', name: '付箋', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#ef4444' }}>
                     <path d="M15 4.5l-4 4L7 8.5l-1.5 1.5 4 4L4 19l5-5.5 4 4 1.5-1.5-1-4 4-4z" />
                     <line x1="15" y1="4.5" x2="19.5" y2="9" />
@@ -46,7 +47,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'notes', name: 'Notes', icon: (
+            id: 'notes', name: 'メモ', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#d97706' }}>
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                     <polyline points="14 2 14 8 20 8" />
@@ -57,7 +58,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'html-editor', name: 'HTML Editor', icon: (
+            id: 'html-editor', name: 'HTMLエディタ', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#059669' }}>
                     <polyline points="16 18 22 12 16 6" />
                     <polyline points="8 6 2 12 8 18" />
@@ -66,7 +67,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'calendar', name: 'Calendar', icon: (
+            id: 'calendar', name: 'カレンダー', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#dc2626' }}>
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                     <line x1="16" y1="2" x2="16" y2="6" />
@@ -77,7 +78,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'knowledge-base', name: 'Knowledge', icon: (
+            id: 'knowledge-base', name: 'ナレッジベース', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#7c3aed' }}>
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
                     <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
@@ -85,14 +86,14 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'gemini', name: 'Gemini', icon: (
+            id: 'gemini', name: 'Gemini チャット', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#8b5cf6' }}>
                     <path d="M12 2v20M2 12h20M17 7l-10 10M7 7l10 10" />
                 </svg>
             )
         },
         {
-            id: 'mcp-chat', name: 'MCP Chat', icon: (
+            id: 'mcp-chat', name: 'MCPチャット', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#4f46e5' }}>
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                     <line x1="9" y1="9" x2="15" y2="9" />
@@ -112,7 +113,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'deep-research', name: 'Deep Research', icon: (
+            id: 'deep-research', name: 'DeepResearch', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#6366f1' }}>
                     <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
                     <rect x="9" y="9" width="6" height="6" />
@@ -128,7 +129,7 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
             )
         },
         {
-            id: 'virtual-office', name: 'Virtual Office', icon: (
+            id: 'virtual-office', name: 'バーチャルオフィス', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '28px', height: '28px', color: '#06b6d4' }}>
                     <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
                     <line x1="9" y1="22" x2="9" y2="16" />
@@ -195,9 +196,61 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
                 {visibleApps.map((app) => {
                     const isOpen = windows.some(w => w.type === app.id);
                     return (
-                        <div key={app.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        <div 
+                            key={app.id} 
+                            style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+                            onMouseEnter={() => setHoveredAppId(app.id)}
+                            onMouseLeave={() => setHoveredAppId(null)}
+                        >
+                            {/* macOS Style Dock Label Tooltip */}
+                            <AnimatePresence>
+                                {hoveredAppId === app.id && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 6, scale: 0.92 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                                        transition={{ duration: 0.12, ease: "easeOut" }}
+                                        style={{
+                                            position: 'absolute',
+                                            bottom: '68px',
+                                            pointerEvents: 'none',
+                                            whiteSpace: 'nowrap',
+                                            zIndex: 10000,
+                                            backgroundColor: 'rgba(20, 20, 25, 0.8)',
+                                            backdropFilter: 'blur(16px)',
+                                            WebkitBackdropFilter: 'blur(16px)',
+                                            color: '#ffffff',
+                                            fontSize: '11px',
+                                            fontWeight: '500',
+                                            padding: '3px 9px',
+                                            borderRadius: '6px',
+                                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.35)',
+                                            border: '1px solid rgba(255, 255, 255, 0.18)',
+                                            userSelect: 'none'
+                                        }}
+                                    >
+                                        {app.name}
+                                        {/* Tooltip Arrow */}
+                                        <div style={{
+                                            position: 'absolute',
+                                            bottom: '-4px',
+                                            left: '50%',
+                                            transform: 'translateX(-50%)',
+                                            width: 0,
+                                            height: 0,
+                                            borderLeft: '4px solid transparent',
+                                            borderRight: '4px solid transparent',
+                                            borderTop: '4px solid rgba(20, 20, 25, 0.8)'
+                                        }} />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
                             <motion.div
                                 whileHover={{ scale: 1.2, translateY: -10 }}
+                                tabIndex={0}
+                                onFocus={() => setHoveredAppId(app.id)}
+                                onBlur={() => setHoveredAppId(null)}
                                 style={{
                                     width: '50px',
                                     height: '50px',
@@ -208,7 +261,8 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
                                     alignItems: 'center',
                                     fontSize: '30px',
                                     cursor: 'pointer',
-                                    boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
+                                    boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+                                    outline: 'none'
                                 }}
                                 onClick={() => handleAppClick(app.id)}
                             >
@@ -230,9 +284,58 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
                     <>
                         <div style={{ width: '1px', backgroundColor: 'rgba(255, 255, 255, 0.3)', margin: '0 8px' }}></div>
                         {windows.filter(w => w.minimized && w.type === 'browser').map(win => (
-                            <div key={win.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                            <div 
+                                key={win.id} 
+                                style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
+                                onMouseEnter={() => setHoveredAppId(win.id)}
+                                onMouseLeave={() => setHoveredAppId(null)}
+                            >
+                                <AnimatePresence>
+                                    {hoveredAppId === win.id && (
+                                        <motion.div
+                                            initial={{ opacity: 0, y: 6, scale: 0.92 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                                            transition={{ duration: 0.12, ease: "easeOut" }}
+                                            style={{
+                                                position: 'absolute',
+                                                bottom: '68px',
+                                                pointerEvents: 'none',
+                                                whiteSpace: 'nowrap',
+                                                zIndex: 10000,
+                                                backgroundColor: 'rgba(20, 20, 25, 0.8)',
+                                                backdropFilter: 'blur(16px)',
+                                                WebkitBackdropFilter: 'blur(16px)',
+                                                color: '#ffffff',
+                                                fontSize: '11px',
+                                                fontWeight: '500',
+                                                padding: '3px 9px',
+                                                borderRadius: '6px',
+                                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.35)',
+                                                border: '1px solid rgba(255, 255, 255, 0.18)',
+                                                userSelect: 'none'
+                                            }}
+                                        >
+                                            {win.title || "ブラウザ"}
+                                            <div style={{
+                                                position: 'absolute',
+                                                bottom: '-4px',
+                                                left: '50%',
+                                                transform: 'translateX(-50%)',
+                                                width: 0,
+                                                height: 0,
+                                                borderLeft: '4px solid transparent',
+                                                borderRight: '4px solid transparent',
+                                                borderTop: '4px solid rgba(20, 20, 25, 0.8)'
+                                            }} />
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                                 <motion.div
                                     whileHover={{ scale: 1.2, translateY: -10 }}
+                                    tabIndex={0}
+                                    onFocus={() => setHoveredAppId(win.id)}
+                                    onBlur={() => setHoveredAppId(null)}
                                     style={{
                                         width: '50px',
                                         height: '50px',
@@ -241,16 +344,16 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
                                         display: 'flex',
                                         justifyContent: 'center',
                                         alignItems: 'center',
-                                        fontSize: '24px', // Slightly smaller font for minimized?
+                                        fontSize: '24px',
                                         cursor: 'pointer',
                                         boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
                                         overflow: 'hidden',
-                                        position: 'relative'
+                                        position: 'relative',
+                                        outline: 'none'
                                     }}
-                                    onClick={() => onAppClick(win.id)} // Desktop handles ID resolution
-                                    title={win.title || "Browser"}
+                                    onClick={() => onAppClick(win.id)}
                                 >
-                                    <div style={{ position: 'absolute', top: 2, right: 2, fontSize: '10px' }}>🌐</div> {/* Mini badge */}
+                                    <div style={{ position: 'absolute', top: 2, right: 2, fontSize: '10px' }}>🌐</div>
                                     <div style={{ fontSize: '12px', color: '#333', textAlign: 'center', lineHeight: '1', padding: '2px' }}>
                                         {win.title?.substring(0, 6) || "Web"}...
                                     </div>

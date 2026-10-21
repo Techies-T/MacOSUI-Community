@@ -3,6 +3,24 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v2.9.1] - 2026-10-21
+
+### 📚 Personal RAG Fine-Grained RBAC & Employee Agent ブランド刷新
+
+#### ✨ New Features (新機能)
+- **Personal RAG フォルダ単位のアクセス認可制御（Fine-Grained RBAC）**:
+  - 各 Google Drive / RAG フォルダごとに識別子 `rag:<folder_id>` を定義し、ロール毎に細粒度のアクセス権限制御を実現。
+  - バックエンド（`/api/gemini`）での PEP（Policy Enforcement Point）検証を導入し、権限のない RAG フォルダへのアクセスを 403 遮断。
+  - ロール管理画面（`RolesTab.jsx`）に「📚 Personal RAG Knowledge Bases (Drive Folders)」セクションを追加。
+  - チャット画面（`Gemini.jsx`）の Select Box において、ユーザーに権限が付与されている RAG フォルダのみを表示（未許可フォルダの完全隠蔽）。
+- **macOS スタイルの Dock アイコンツールチップ表示**:
+  - 画面下の Dock アイコンにホバー・フォーカスした際、アプリ名称（「付箋」「MCPチャット」「DeepResearch」「Gemini チャット」等）を半透明ダークガラス調のピル型バッジで表示。
+
+#### 🎨 Brand & Design Updates (ブランド更新)
+- **プロジェクト名称を「Employee Agent (EA)」へ刷新**:
+  - ブラウザタブタイトルを `Employee Agent` に更新。
+  - 新デザインのベクターファビコン（`favicon.svg` / `vite.svg`）を導入。
+
 ## [v2.9.0] - 2026-10-08
 
 ### 🌐 ZTA Gateway トランザクション監査ログ基盤 & MCP Chat 自律進捗インジケーター（タイムアウト最適化・自動リトライ）
