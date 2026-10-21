@@ -199,3 +199,31 @@ googleDriveRagFolders: [ { id: '1mCi4tb6tSWrAcV84xSP6uZIsjYa7NAZ4', name: 'Gemin
    - `docker scout cves macosui-oss-macosui:latest`: **CRITICAL 0件（0C 6H 9M 3L）（合格）**
 5. **コンテナ稼働ステータス**:
    - `docker ps --filter "name=macosui-local"`: **Up (healthy), ポート 8080 で稼働中**
+
+---
+
+## 9. AWS EC2 本番・ステージング環境へのデプロイ検証 (VUP & Zero Data Loss)
+
+本改修内容（Personal RAG Fine-Grained RBAC、Employee Agent ブランド刷新、Dock ツールチップ「付箋」等）を AWS EC2 環境へ反映いたしました。
+
+### ① 自動デプロイとバックアップ
+- **スクリプト実行**: `bash scripts/deploy-ec2.sh`
+- **EBS 永続ボリューム**: `/app/data` へのマウントおよびシンボリックリンク維持確認。
+- **自動バックアップ作成**: `/app/data/database_backup_20261021_024434.sqlite`（安全に退避完了）。
+- **コンテナ再生成**: `Container macosui-local Recreated & Started`。
+
+### ② データ完全生存確認 (Zero Data Loss)
+デプロイ後、初期化（SetupScreen）が走ることなく、既存のユーザーデータおよび設定値が 100% 保持されていることを確認いたしました。
+```
+[DB Factory] Loaded SQLite Adapter
+Connected to the SQLite database.
+✅ Verified active users in database (2 users found):
+   - 戌亥稔 (minoru.inui@techiespod.jp) [admin]
+   - Minoru Inui (minoru.inui@gmail.com) [user,data_analyst]
+🎉 [SUCCESS] Deployment completed smoothly with zero data loss!
+```
+
+### ③ リモートヘルスチェック
+- `curl -s http://localhost:8080/api/health` -> **200 OK**
+- `sudo docker ps --filter "name=macosui-local"` -> **Up (healthy)**
+- タイトルおよびファビコン: `<title>Employee Agent</title>` 確認済み。
