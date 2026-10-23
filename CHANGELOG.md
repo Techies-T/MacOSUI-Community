@@ -3,6 +3,31 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v2.9.2] - 2026-10-23
+
+### 🖥️ クロスプラットフォーム UI/レイアウト安定化 & ZTA セッションタイムアウト強制ログアウト強化（安定版）
+
+#### 🎨 UI/UX & Cross-Platform Layout Fixes (UI・レイアウト修正)
+- **Dock（ウィジェットアイコン）浮き上がり現象の解消とビューポート固定 (`src/index.css`, `src/components/Desktop.jsx`, `src/components/Dock.jsx`, `src/components/MenuBar.jsx`)**:
+  - Windows 端末（DPIスケーリング 125%〜150% 等）や小画面環境において、チャット画面の自動スクロール（`scrollIntoView`）に伴ってデスクトップ全体が縦スクロールし、Dock が画面中央に浮き上がる・MenuBar が画面外へ押し出される現象を修正。
+  - `100dvh` および `overflow: clip`（スクロール位置リセットガード付き）を導入し、MenuBar（`top: 0`）と Dock（`bottom: 10px`）を `position: fixed` で画面上下に常時固定。
+  - チャット系アプリ（`Gemini.jsx`, `McpChat.jsx`, `DeepResearch.jsx`, `DmChat.jsx`, `LiveConcierge.jsx`）の `scrollIntoView` を `{ behavior: 'smooth', block: 'nearest' }` に統一し、親要素の意図しないスクロールを防止。
+- **ウィンドウのビューポート自動クランプ処理 (`src/components/Desktop.jsx`, `src/components/Window.jsx`)**:
+  - 初期表示・ウィンドウ起動・ブラウザリサイズ時に、常に MenuBar（`28px`）の下〜Dock の上の有効領域内にウィンドウの座標（`x`, `y`）およびサイズ（`width`, `height`）が収まるよう自動調整する `clampWindowToViewport` を実装。
+  - `Gemini.jsx` ヘッダーのモード選択 `<select>` に `max-w-[210px] truncate` を適用し、400px 幅ウィンドウでも右端の `Grounding` ボタンが見切れないよう改善。
+- **メニューバー左上アイコンの EA (Employee Agent) ベクターエンブレムへの刷新 (`src/components/MenuBar.jsx`)**:
+  - Windows 環境で文字化け（豆腐化）していた Apple 固有文字（``, `U+F8FF`）を廃止し、OS・フォント非依存のヘキサゴン・AIスパークル SVG エンブレム + `EA` バッジに刷新。
+
+#### 🛡️ Security & ZTA Session Management (セキュリティ・セッション管理強化)
+- **セッションタイムアウト・ZTA コンテキスト失効時の自動強制ログアウト (`src/App.jsx`, `src/components/LoginScreen.jsx`)**:
+  - グローバル `fetch` インターセプターを導入し、API が `401` またはセッション失効による `403`（`SESSION_EXPIRED` / `Session context mismatch` / `Invalid or expired token` 等）を返した瞬間に即座にセッションを破棄し、セキュリティ通知バナー付きでログイン画面へ強制遷移。
+  - **30分間の無操作タイマー（アイドルタイムアウト）**、**60秒ごとの `/api/auth/me` ハートビート検証**、および **画面復帰時（`visibilitychange` / `focus`）の即時セッション検証** を実装。
+- **権限設定変更時のロールバック保護 (`src/apps/SystemSettings.jsx`)**:
+  - ロール権限（`handleSaveRbacPolicies`）・就業規則・モデル設定の保存時に `res.ok` を検証し、セッション切れや権限エラー時には即座に変更前の状態へロールバックして画面上の不整合を防止。
+- **バックエンド ZTA / PEP 認可エンドポイントの厳格化 (`server/index.cjs`)**:
+  - `GET /api/config`: 未認証・セッション期限切れのクライアントにはログイン画面の初期化に必要な最小限の公開項目のみを返却し、`rbacPolicies` や `companyWorkPolicy` 等の内部設定を隠蔽。
+  - `GET /api/auth/me`, `requireAuth`, `requirePermission`, `requireWidgetAccess`: トークン失効・IP/UA ハッシュ不一致・DB ユーザー不在時に `token` Cookie を確実に削除して `401 (SESSION_EXPIRED)` を返却し、すべての権限チェックでリアルタイム DB & PDP 評価を強制。
+
 ## [v2.9.1] - 2026-10-21
 
 ### 📚 Personal RAG Fine-Grained RBAC & Employee Agent ブランド刷新
