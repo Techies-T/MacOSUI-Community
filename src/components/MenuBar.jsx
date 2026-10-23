@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import pkg from '../../package.json';
 
-const MenuBar = ({ onLogout, notifications = [], onNotificationClick }) => {
+const MenuBar = ({ onLogout, onOpenSettings, notifications = [], onNotificationClick }) => {
     const [time, setTime] = useState(new Date());
     const [appleMenuOpen, setAppleMenuOpen] = useState(false);
     const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
@@ -26,6 +26,10 @@ const MenuBar = ({ onLogout, notifications = [], onNotificationClick }) => {
 
     return (
         <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
             height: '28px',
             backgroundColor: 'rgba(255, 255, 255, 0.3)',
             backdropFilter: 'blur(20px)',
@@ -39,29 +43,51 @@ const MenuBar = ({ onLogout, notifications = [], onNotificationClick }) => {
             color: '#fff',
             boxShadow: '0 1px 5px rgba(0,0,0,0.1)',
             zIndex: 9999,
-            userSelect: 'none'
+            userSelect: 'none',
+            whiteSpace: 'nowrap'
         }}>
-            <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                <div style={{ position: 'relative' }}>
-                    <span
-                        style={{ fontSize: '16px', cursor: 'pointer' }}
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', minWidth: 0 }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <button
+                        type="button"
+                        aria-label="Employee Agent Menu"
+                        title="Employee Agent メニュー"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '5px',
+                            cursor: 'pointer',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#fff',
+                            padding: '2px 4px',
+                            borderRadius: '4px'
+                        }}
+                        className="hover:bg-white/20 transition-colors"
                         onClick={(e) => {
                             e.stopPropagation();
                             setNotificationMenuOpen(false);
                             setAppleMenuOpen(!appleMenuOpen);
                         }}
                     >
-                        
-                    </span>
+                        {/* Cross-platform Employee Agent (EA) SVG Emblem - prevents Windows U+F8FF garbling */}
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0, filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))' }}>
+                            <path d="M12 2L20.66 7V17L12 22L3.34 17V7L12 2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" fill="rgba(255,255,255,0.15)" />
+                            <path d="M12 6.5L13.6 10.4L17.5 12L13.6 13.6L12 17.5L10.4 13.6L6.5 12L10.4 10.4L12 6.5Z" fill="currentColor" />
+                        </svg>
+                        <span style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '0.04em' }}>EA</span>
+                    </button>
                     {appleMenuOpen && (
                         <div style={{
                             position: 'absolute',
-                            top: '24px',
-                            left: '-10px',
-                            width: '200px',
-                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            top: '26px',
+                            left: '-6px',
+                            width: '220px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.92)',
                             backdropFilter: 'blur(20px)',
-                            borderRadius: '5px',
+                            WebkitBackdropFilter: 'blur(20px)',
+                            borderRadius: '6px',
                             boxShadow: '0 5px 15px rgba(0,0,0,0.2)',
                             padding: '4px',
                             display: 'flex',
@@ -70,15 +96,18 @@ const MenuBar = ({ onLogout, notifications = [], onNotificationClick }) => {
                         }}>
                             <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">About Employee Agent (v{pkg.version})</div>
                             <div className="h-[1px] bg-gray-300 my-1 mx-2"></div>
-                            <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">System Settings...</div>
-                            <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">App Store...</div>
-                            <div className="h-[1px] bg-gray-300 my-1 mx-2"></div>
-                            <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">Sleep</div>
-                            <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">Restart...</div>
-                            <div className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default">Shut Down...</div>
+                            <div
+                                className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-pointer"
+                                onClick={() => {
+                                    setAppleMenuOpen(false);
+                                    if (onOpenSettings) onOpenSettings();
+                                }}
+                            >
+                                System Settings...
+                            </div>
                             <div className="h-[1px] bg-gray-300 my-1 mx-2"></div>
                             <div
-                                className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-default"
+                                className="px-4 py-1 hover:bg-blue-500 hover:text-white rounded cursor-pointer"
                                 onClick={onLogout}
                             >
                                 Log Out...
@@ -87,12 +116,14 @@ const MenuBar = ({ onLogout, notifications = [], onNotificationClick }) => {
                     )}
                 </div>
                 <span style={{ fontWeight: '700' }}>Finder</span>
-                <span>File</span>
-                <span>Edit</span>
-                <span>View</span>
-                <span>Go</span>
-                <span>Window</span>
-                <span>Help</span>
+                <div className="hidden sm:flex items-center gap-4">
+                    <span>File</span>
+                    <span>Edit</span>
+                    <span>View</span>
+                    <span>Go</span>
+                    <span>Window</span>
+                    <span>Help</span>
+                </div>
             </div>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                 <span>🔋 100%</span>

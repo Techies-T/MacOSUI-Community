@@ -4,6 +4,23 @@ import Dock from './Dock';
 import WindowManager from './WindowManager';
 import StickiesLayer from '../apps/Stickies';
 
+const MENU_BAR_HEIGHT = 28;
+const DOCK_RESERVE_HEIGHT = 82;
+
+const clampWindowToViewport = (w) => {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const maxAvailWidth = Math.max(300, vw - 16);
+  const maxAvailHeight = Math.max(220, vh - MENU_BAR_HEIGHT - DOCK_RESERVE_HEIGHT);
+  const width = Math.min(w.width || 600, maxAvailWidth);
+  const height = Math.min(w.height || 400, maxAvailHeight);
+  const maxX = Math.max(8, vw - width - 8);
+  const maxY = Math.max(MENU_BAR_HEIGHT + 4, vh - DOCK_RESERVE_HEIGHT - height);
+  const x = Math.min(Math.max(8, w.x ?? 80), maxX);
+  const y = Math.min(Math.max(MENU_BAR_HEIGHT + 4, w.y ?? 48), maxY);
+  return { ...w, x, y, width, height };
+};
+
 const Desktop = ({ user, onLogout, config }) => {
   const [windows, setWindows] = useState([]);
   const [customSkills, setCustomSkills] = useState([]);
@@ -96,11 +113,8 @@ const Desktop = ({ user, onLogout, config }) => {
         if (res.ok) {
           const data = await res.json();
           if (data.windowState && Array.isArray(data.windowState)) {
-            // Sanitize window positions to ensure they are constrained
-            const sanitizedWindows = data.windowState.map(w => ({
-              ...w,
-              y: Math.max(w.y, 28) // Ensure valid Y position (below Menu Bar)
-            }));
+            // Sanitize window positions & dimensions to ensure they fit the current viewport
+            const sanitizedWindows = data.windowState.map(w => clampWindowToViewport(w));
             setWindows(sanitizedWindows);
           }
         }
@@ -109,6 +123,15 @@ const Desktop = ({ user, onLogout, config }) => {
       }
     };
     loadState();
+  }, []);
+
+  // Re-clamp windows when browser viewport is resized
+  useEffect(() => {
+    const handleViewportResize = () => {
+      setWindows(prev => prev.map(w => clampWindowToViewport(w)));
+    };
+    window.addEventListener('resize', handleViewportResize);
+    return () => window.removeEventListener('resize', handleViewportResize);
   }, []);
 
   // Save window state on change (debounced)
@@ -178,18 +201,20 @@ const Desktop = ({ user, onLogout, config }) => {
         height = 500;
       }
 
-      return [...prev, {
+      const newWin = clampWindowToViewport({
         id: id || Date.now(),
         type,
         title,
-        x: 150 + prev.length * 20,
-        y: 100 + prev.length * 20,
+        x: 120 + (prev.length * 24) % 160,
+        y: 44 + (prev.length * 20) % 100,
         width,
         height,
         zIndex: maxZ + 1,
         minimized: false,
         props
-      }];
+      });
+
+      return [...prev, newWin];
     });
   }, []);
 
@@ -228,14 +253,18 @@ const Desktop = ({ user, onLogout, config }) => {
   return (
     <div
       className="desktop"
+      onScroll={(e) => {
+        if (e.currentTarget.scrollTop !== 0) e.currentTarget.scrollTop = 0;
+        if (e.currentTarget.scrollLeft !== 0) e.currentTarget.scrollLeft = 0;
+      }}
       style={{
         width: '100vw',
-        height: '100vh',
+        height: '100dvh',
         backgroundImage: 'url(https://images.unsplash.com/photo-1490730141103-6cac27aaab94?q=80&w=2940&auto=format&fit=crop)',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'clip',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between'
@@ -243,6 +272,7 @@ const Desktop = ({ user, onLogout, config }) => {
     >
       <MenuBar 
         onLogout={onLogout} 
+        onOpenSettings={() => openWindow('settings', 'settings', 'System Settings')}
         notifications={notifications} 
         onNotificationClick={handleNotificationClick} 
       />

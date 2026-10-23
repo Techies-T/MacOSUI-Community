@@ -250,19 +250,28 @@ const SystemSettings = ({ user }) => {
     }, []);
 
     const handleSaveRbacPolicies = async (updatedPolicies) => {
+        const prevPolicies = rbacPolicies;
         setRbacPolicies(updatedPolicies);
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ rbacPolicies: updatedPolicies })
             });
+            if (!res.ok) {
+                setRbacPolicies(prevPolicies);
+                const errData = await res.json().catch(() => ({}));
+                alert(`権限設定の保存に失敗しました: ${errData.error || 'セッションが切れているか権限がありません'}`);
+            }
         } catch (err) {
+            setRbacPolicies(prevPolicies);
             console.error("Failed to save RBAC config", err);
+            alert('権限設定の保存に失敗しました。再度ログインしてください。');
         }
     };
 
     const handleSaveWorkPolicy = async (newPolicy) => {
+        const prevPolicy = companyWorkPolicy;
         setCompanyWorkPolicy(newPolicy);
         try {
             const res = await fetch('/api/config', {
@@ -273,9 +282,11 @@ const SystemSettings = ({ user }) => {
             if (res.ok) {
                 alert('Work Policy saved successfully!');
             } else {
+                setCompanyWorkPolicy(prevPolicy);
                 alert('Failed to save Work Policy.');
             }
         } catch (err) {
+            setCompanyWorkPolicy(prevPolicy);
             console.error("Failed to save Work Policy", err);
             alert('Failed to save.');
         }
@@ -369,78 +380,97 @@ const SystemSettings = ({ user }) => {
     };
 
     const handleModelChange = async (modelName) => {
+        const prev = currentModel;
         setCurrentModel(modelName);
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ geminiModel: modelName })
             });
+            if (!res.ok) setCurrentModel(prev);
         } catch (err) {
+            setCurrentModel(prev);
             console.error("Failed to save model selection", err);
         }
     };
 
     const handleNanoBananaModelChange = async (modelName) => {
+        const prev = currentNanoBananaModel;
         setCurrentNanoBananaModel(modelName);
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nanoBananaModel: modelName })
             });
+            if (!res.ok) setCurrentNanoBananaModel(prev);
         } catch (err) {
+            setCurrentNanoBananaModel(prev);
             console.error("Failed to save nano banana model selection", err);
         }
     };
 
     const handleResearchModelChange = async (modelName) => {
+        const prev = currentResearchModel;
         setCurrentResearchModel(modelName);
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ geminiResearchModel: modelName })
             });
+            if (!res.ok) setCurrentResearchModel(prev);
         } catch (err) {
+            setCurrentResearchModel(prev);
             console.error("Failed to save research model selection", err);
         }
     };
 
     const handleHtmlSvgModelChange = async (modelName) => {
+        const prev = currentHtmlSvgModel;
         setCurrentHtmlSvgModel(modelName);
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ geminiHtmlSvgModel: modelName })
             });
+            if (!res.ok) setCurrentHtmlSvgModel(prev);
         } catch (err) {
+            setCurrentHtmlSvgModel(prev);
             console.error("Failed to save html/svg model selection", err);
         }
     };
 
     const handleMcpChatModelChange = async (modelName) => {
+        const prev = currentMcpChatModel;
         setCurrentMcpChatModel(modelName);
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ geminiMcpChatModel: modelName })
             });
+            if (!res.ok) setCurrentMcpChatModel(prev);
         } catch (err) {
+            setCurrentMcpChatModel(prev);
             console.error("Failed to save mcp chat model selection", err);
         }
     };
 
     const handleSaveDriveRoot = async () => {
         try {
-            await fetch('/api/config', {
+            const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ googleDriveRootId: driveRootId })
             });
-            alert('Drive Root ID saved!');
+            if (res.ok) {
+                alert('Drive Root ID saved!');
+            } else {
+                alert('Failed to save Drive Root ID.');
+            }
         } catch (err) {
             console.error("Failed to save drive root", err);
             alert('Failed to save.');

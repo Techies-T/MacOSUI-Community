@@ -43,12 +43,12 @@ const DmChat = ({ targetUser, urgent }) => {
     // デフォルトのターゲットユーザー（フォールバック）
     const user = targetUser || {
         id: 1,
-        name: '戌亥稔',
-        avatar_url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Inui',
+        name: 'System Admin',
+        avatar_url: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=Admin',
         current_room: 'open-space',
         status_text: 'Active',
         is_remote: false,
-        email: 'minoru.inui@techiespod.jp'
+        email: 'admin@example.com'
     };
 
     // 自分のログイン情報を取得
@@ -115,7 +115,7 @@ const DmChat = ({ targetUser, urgent }) => {
 
     useEffect(() => {
         // 自動スクロール
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, [messages, isTyping]);
 
     const handleSendMessage = async (e) => {

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import Draggable from 'react-draggable';
 import { Resizable } from 'react-resizable';
 
@@ -6,10 +6,25 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
     const nodeRef = useRef(null);
     const [width, setWidth] = useState(initialWidth);
     const [height, setHeight] = useState(initialHeight);
+    const [pos, setPos] = useState({ x: initialX, y: Math.max(28, initialY) });
     const [isResizing, setIsResizing] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [isMaximized, setIsMaximized] = useState(false);
     const [preMaximizeState, setPreMaximizeState] = useState(null);
+
+    // Sync clamped dimensions/position when parent adjusts for viewport size
+    useEffect(() => {
+        if (!isResizing && !isMaximized) {
+            setWidth(initialWidth);
+            setHeight(initialHeight);
+        }
+    }, [initialWidth, initialHeight, isResizing, isMaximized]);
+
+    useEffect(() => {
+        if (!isDragging && !isMaximized) {
+            setPos({ x: initialX, y: Math.max(28, initialY) });
+        }
+    }, [initialX, initialY, isDragging, isMaximized]);
 
     const onResize = (event, { size }) => {
         setWidth(size.width);
@@ -23,10 +38,16 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
         }
     };
 
+    const onDrag = (e, data) => {
+        setPos({ x: data.x, y: Math.max(28, data.y) });
+    };
+
     const onDragStop = (e, data) => {
         setIsDragging(false);
+        const clampedY = Math.max(28, data.y);
+        setPos({ x: data.x, y: clampedY });
         if (onUpdate) {
-            onUpdate(_id, { x: data.x, y: data.y });
+            onUpdate(_id, { x: data.x, y: clampedY });
         }
     };
 
@@ -114,18 +135,22 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
         );
     }
 
+    const maxWinWidth = typeof window !== 'undefined' ? Math.max(320, window.innerWidth - 16) : 1600;
+    const maxWinHeight = typeof window !== 'undefined' ? Math.max(240, window.innerHeight - 108) : 1000;
+
     return (
         <Draggable
             nodeRef={nodeRef}
             handle=".window-header"
             cancel=".no-drag"
-            defaultPosition={{ x: initialX, y: initialY }}
-            bounds={{ top: 28 }}
+            position={pos}
+            bounds={{ top: 28, left: 0, right: Math.max(0, (typeof window !== 'undefined' ? window.innerWidth : 1280) - 100), bottom: Math.max(60, (typeof window !== 'undefined' ? window.innerHeight : 800) - 60) }}
             enableUserSelectHack={false}
             onStart={() => {
                 onFocus(_id);
                 setIsDragging(true);
             }}
+            onDrag={onDrag}
             onStop={onDragStop}
         >
             <div
@@ -145,7 +170,7 @@ const Window = ({ id: _id, title, children, initialX, initialY, initialWidth, in
                     onResizeStart={() => setIsResizing(true)}
                     onResizeStop={onResizeStop}
                     minConstraints={[300, 200]}
-                    maxConstraints={[1600, 1000]}
+                    maxConstraints={[maxWinWidth, maxWinHeight]}
                 >
                     <div
                         className="react-resizable"

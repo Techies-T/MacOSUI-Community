@@ -177,21 +177,30 @@ const Dock = ({ onAppClick, windows = [], user, config, customSkills = [] }) => 
 
     return (
         <div style={{
+            position: 'fixed',
+            bottom: '10px',
+            left: 0,
+            right: 0,
             display: 'flex',
             justifyContent: 'center',
-            marginBottom: '10px',
-            zIndex: 9999
+            pointerEvents: 'none',
+            zIndex: 9999,
+            padding: '0 10px'
         }}>
             <div style={{
+                pointerEvents: 'auto',
                 backgroundColor: 'rgba(255, 255, 255, 0.2)',
                 backdropFilter: 'blur(20px)',
                 WebkitBackdropFilter: 'blur(20px)',
-                padding: '10px',
+                padding: '8px 10px',
                 borderRadius: '20px',
                 display: 'flex',
-                gap: '12px',
-                boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                border: '1px solid rgba(255, 255, 255, 0.1)'
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+                gap: '10px',
+                maxWidth: 'calc(100vw - 20px)',
+                boxShadow: '0 4px 30px rgba(0, 0, 0, 0.15)',
+                border: '1px solid rgba(255, 255, 255, 0.15)'
             }}>
                 {visibleApps.map((app) => {
                     const isOpen = windows.some(w => w.type === app.id);

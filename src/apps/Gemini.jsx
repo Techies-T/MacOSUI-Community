@@ -153,7 +153,9 @@ const Gemini = ({ user: initialUser }) => {
     const inputRef = useRef(null);
 
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        if (messages.length > 0) {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
     };
 
     useEffect(() => {
@@ -690,8 +692,8 @@ const Gemini = ({ user: initialUser }) => {
             <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
 
                 {/* Header / Mode Selector */}
-                <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-center">
-                    <div className="bg-white/20 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
+                <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-center gap-2">
+                    <div className="relative min-w-0 flex-1 max-w-[210px] bg-white/20 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
                         <select
                             value={mode === 'rag' ? `rag_${targetRagFolderId}` : mode}
                             onChange={(e) => {
@@ -702,8 +704,8 @@ const Gemini = ({ user: initialUser }) => {
                                 else if (val.startsWith('rag_')) { setMode('rag'); setUseGrounding(false); setTargetRagFolderId(val.replace('rag_', '')); }
                                 else { setMode(val); setUseGrounding(false); setTargetRagFolderId(null); }
                             }}
-                            className="bg-transparent border-none text-white text-sm font-medium outline-none cursor-pointer appearance-none pr-6 pl-3 py-1.5 focus:ring-0"
-                            style={{ backgroundImage: 'none', minWidth: '120px' }}
+                            className="w-full truncate bg-transparent border-none text-white text-sm font-medium outline-none cursor-pointer appearance-none pr-6 pl-3 py-1.5 focus:ring-0"
+                            style={{ backgroundImage: 'none' }}
                         >
                             <option value="normal" className="text-gray-800">💬 Normal Chat</option>
                             <option value="local_rag" className="text-gray-800">🛡️ Gemma 4 Local RAG (完全社内完結)</option>
@@ -714,10 +716,10 @@ const Gemini = ({ user: initialUser }) => {
                             <option value="research" className="text-gray-800">🔍 Deep Research</option>
                             <option value="html_svg" className="text-gray-800">🎨 HTML/SVG Dev</option>
                         </select>
-                        <span className="text-white/80 text-[10px] pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 transform">▼</span>
+                        <span className="text-white/80 text-[10px] pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 transform">▼</span>
                     </div>
                     {mode === 'normal' && (
-                        <div className="ml-3 flex items-center bg-white/10 backdrop-blur-md rounded-lg px-3 py-1.5 border border-white/10 cursor-pointer" onClick={() => setUseGrounding(!useGrounding)}>
+                        <div className="flex-shrink-0 flex items-center bg-white/10 backdrop-blur-md rounded-lg px-3 py-1.5 border border-white/10 cursor-pointer" onClick={() => setUseGrounding(!useGrounding)}>
                             <span className="text-xs font-medium text-white mr-2">Grounding</span>
                             <div className={`w-8 h-4 rounded-full transition-colors relative ${useGrounding ? 'bg-green-400' : 'bg-white/20'}`}>
                                 <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform ${useGrounding ? 'translate-x-4' : 'translate-x-0.5'}`}></div>
@@ -725,13 +727,13 @@ const Gemini = ({ user: initialUser }) => {
                         </div>
                     )}
                     {mode === 'local_rag' && (
-                        <div className="ml-3 flex items-center bg-indigo-500/20 backdrop-blur-md rounded-lg px-3 py-1.5 border border-indigo-400/30 shadow-sm">
-                            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mr-2"></span>
-                            <span className="text-xs font-semibold text-indigo-200">🛡️ Zero Data Egress (Air-Gapped)</span>
+                        <div className="flex-shrink-0 flex items-center bg-indigo-500/20 backdrop-blur-md rounded-lg px-2.5 py-1.5 border border-indigo-400/30 shadow-sm">
+                            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse mr-1.5"></span>
+                            <span className="text-[11px] font-semibold text-indigo-200 whitespace-nowrap">🛡️ Air-Gapped</span>
                         </div>
                     )}
                     {mode === 'rag' && isRagExpired && (
-                        <div className="ml-3 flex items-center bg-amber-500/90 backdrop-blur-md rounded-lg px-2.5 py-1 text-white text-xs shadow-md border border-amber-400/30">
+                        <div className="flex-shrink-0 flex items-center bg-amber-500/90 backdrop-blur-md rounded-lg px-2.5 py-1 text-white text-xs shadow-md border border-amber-400/30">
                             <span className="mr-2 font-medium">⚠️ 期限切れ (40h)</span>
                             <button
                                 onClick={triggerInlineRagSync}

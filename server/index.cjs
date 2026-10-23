@@ -109,13 +109,51 @@ app.get('/reports/:id', requireAuthPage, (req, res) => {
     });
 });
 
-// Config: Get public config and status
+// Config: Get public config and status (sensitive fields require valid session)
 app.get('/api/config', async (req, res) => {
     console.log("Config endpoint hit");
     try {
         const clientId = await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID;
         const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET') || process.env.GOOGLE_CLIENT_SECRET;
         const geminiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const isConfigured = !!(clientId && clientSecret);
+
+        let maskedClientId = '';
+        if (clientId && clientId.length > 20) {
+            maskedClientId = clientId.substring(0, 15) + '...' + clientId.substring(clientId.length - 5);
+        } else {
+            maskedClientId = clientId || '';
+        }
+
+        // Verify session token for sensitive configuration fields (ZTA enforcement)
+        let isAuthenticatedSession = false;
+        const token = req.cookies?.token;
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+                const hashes = getContextHashes(req);
+                const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+                if (isContextValid && decoded.id) {
+                    const userExists = await new Promise((resolve) => {
+                        db.get("SELECT id FROM users WHERE id = ?", [decoded.id], (err, row) => resolve(!err && !!row));
+                    });
+                    isAuthenticatedSession = userExists;
+                }
+            } catch (_) {
+                isAuthenticatedSession = false;
+            }
+        }
+
+        // Unauthenticated or timed-out requests only receive public bootstrap status
+        if (!isAuthenticatedSession) {
+            return res.json({
+                clientId,
+                maskedClientId,
+                isConfigured,
+                isGeminiConfigured: !!geminiKey
+            });
+        }
+
         const googleDriveRootId = await db.getSetting('GOOGLE_DRIVE_ROOT_ID');
         
         let googleDriveRagFolders = [];
@@ -131,15 +169,7 @@ app.get('/api/config', async (req, res) => {
             }
         }
 
-        const isConfigured = !!(clientId && clientSecret);
         const geminiModel = await db.getSetting('GEMINI_MODEL');
-
-        let maskedClientId = '';
-        if (clientId && clientId.length > 20) {
-            maskedClientId = clientId.substring(0, 15) + '...' + clientId.substring(clientId.length - 5);
-        } else {
-            maskedClientId = clientId || '';
-        }
 
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
@@ -872,12 +902,40 @@ app.post('/api/auth/google', async (req, res) => {
 // Auth: Check login status
 app.get('/api/auth/me', (req, res) => {
     const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+    if (!token) return res.status(401).json({ error: 'Not authenticated', code: 'SESSION_EXPIRED' });
 
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
-        if (err) return res.status(403).json({ error: 'Invalid token' });
+        if (err) {
+            res.clearCookie('token');
+            return res.status(401).json({ error: 'Invalid or expired token', code: 'SESSION_EXPIRED' });
+        }
+
+        // ZTA動的コンテキスト検証 (セッションハイジャック・タイムアウト防止)
+        const hashes = getContextHashes(req);
+        const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+        if (!isContextValid) {
+            auditDb.logEvent({
+                userId: decoded.id,
+                userEmail: decoded.email,
+                eventType: 'session_hijacking_detected',
+                action: `${req.method} ${req.originalUrl}`,
+                status: 'blocked',
+                req: req,
+                details: {
+                    expectedIpHash: decoded.ip_hash,
+                    gotIpHash: hashes.ipHash,
+                    expectedUaHash: decoded.ua_hash,
+                    gotUaHash: hashes.uaHash,
+                    clientIp: hashes.ip,
+                    userAgent: hashes.ua
+                }
+            });
+            res.clearCookie('token');
+            return res.status(401).json({ error: 'Session context mismatch. Security policy requires re-authentication.', code: 'SESSION_EXPIRED' });
+        }
+
         db.get("SELECT * FROM users WHERE id = ?", [decoded.id], async (dbErr, user) => {
-            if (user) {
+            if (!dbErr && user) {
                 // Fetch fresh RBAC policies to act as a dynamic PEP
                 let rbacPolicies = {};
                 try {
@@ -915,7 +973,6 @@ app.get('/api/auth/me', (req, res) => {
                 user.allowed_pods = (isAdmin || allowed_pods_set.has('*')) ? ['*'] : Array.from(allowed_pods_set);
 
                 // Re-issue JWT to ensure subsequent API calls (PEP) succeed with fresh permissions
-                const hashes = getContextHashes(req);
                 const newToken = jwt.sign(
                     { 
                         id: user.id, 
@@ -943,7 +1000,8 @@ app.get('/api/auth/me', (req, res) => {
 
                 res.json({ user });
             } else {
-                res.json({ user: decoded }); // Fallback
+                res.clearCookie('token');
+                res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
             }
         });
     });
@@ -1266,10 +1324,11 @@ function requireAgentOrUserAuth(req, res, next) {
 // Middleware to check user auth (ZTA Real-time PDP Enforcement with Dynamic Context Check)
 function requireAuth(req, res, next) {
     const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+    if (!token) return res.status(401).json({ error: 'Not authenticated', code: 'SESSION_EXPIRED' });
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
         if (err) {
-            return res.status(403).json({ error: 'Invalid or expired token' });
+            res.clearCookie('token');
+            return res.status(401).json({ error: 'Invalid or expired token', code: 'SESSION_EXPIRED' });
         }
         
         // ZTA動的コンテキスト検証 (セッションハイジャック防止)
@@ -1293,12 +1352,15 @@ function requireAuth(req, res, next) {
                 }
             });
             res.clearCookie('token');
-            return res.status(403).json({ error: 'Session context mismatch. Security policy requires re-authentication.' });
+            return res.status(401).json({ error: 'Session context mismatch. Security policy requires re-authentication.', code: 'SESSION_EXPIRED' });
         }
 
         // ZTA Real-time PDP check: Always fetch the latest roles and policies from the database
         db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (err, row) => {
-            if (err || !row) return res.status(401).json({ error: 'User not found in database' });
+            if (err || !row) {
+                res.clearCookie('token');
+                return res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
+            }
             
             req.user = decoded;
             req.user.role = row.role;
@@ -1426,7 +1488,7 @@ function requireAuthPage(req, res, next) {
 // Middleware to check action permission (PEP)
 function requirePermission(action) {
     return (req, res, next) => {
-        if (req.user) {
+        const evaluateActionPermission = () => {
             const allowedActions = req.user.allowed_actions || [];
             const hasPermission = allowedActions.includes('*') || allowedActions.includes(action);
             
@@ -1443,68 +1505,25 @@ function requirePermission(action) {
                 return res.status(403).json({ error: `Permission denied. Requires action: ${action}` });
             }
             return next();
+        };
+
+        if (req.user) {
+            return evaluateActionPermission();
         }
 
-        // フォールバック: requireAuth が先にチェーンされていない場合
-        const token = req.cookies.token;
-        if (!token) return res.status(401).json({ error: 'Not authenticated' });
-        
-        jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
-            if (err) return res.status(401).json({ error: 'Invalid token' });
-            
-            const hashes = getContextHashes(req);
-            const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
-            if (!isContextValid) {
-                auditDb.logEvent({
-                    userId: decoded.id,
-                    userEmail: decoded.email,
-                    eventType: 'session_hijacking_detected',
-                    action: `${req.method} ${req.originalUrl}`,
-                    status: 'blocked',
-                    req: req,
-                    details: { 
-                        expectedIpHash: decoded.ip_hash, 
-                        gotIpHash: hashes.ipHash, 
-                        clientIp: hashes.ip 
-                    }
-                });
-                res.clearCookie('token');
-                return res.status(403).json({ error: 'Session context mismatch.' });
-            }
-
-            const allowedActions = decoded.allowed_actions || [];
-            const hasPermission = allowedActions.includes('*') || allowedActions.includes(action);
-            
-            if (!hasPermission) {
-                auditDb.logEvent({
-                    userId: decoded.id,
-                    userEmail: decoded.email,
-                    eventType: 'permission_denied',
-                    action: `${req.method} ${req.originalUrl}`,
-                    status: 'blocked',
-                    req: req,
-                    details: { requiredAction: action }
-                });
-                return res.status(403).json({ error: `Permission denied. Requires action: ${action}` });
-            }
-            
-            req.user = decoded;
-            next();
-        });
+        // ZTA: Always delegate to requireAuth so real-time DB & PDP check is enforced
+        return requireAuth(req, res, evaluateActionPermission);
     };
 }
 
 // Middleware to check widget access (PEP)
 function requireWidgetAccess(widgetId) {
     return (req, res, next) => {
-        console.log(`DEBUG: requireWidgetAccess(${widgetId}) hit! Path: ${req.originalUrl}, Method: ${req.method}`);
-        if (req.user) {
-            console.log(`DEBUG: req.user exists. Role: ${req.user.role}`);
+        const evaluateWidgetPermission = () => {
             const allowedWidgets = req.user.allowed_widgets || [];
             const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
             
             if (!hasAccess) {
-                console.log(`DEBUG: req.user widget access denied!`);
                 auditDb.logEvent({
                     userId: req.user.id,
                     userEmail: req.user.email,
@@ -1516,69 +1535,15 @@ function requireWidgetAccess(widgetId) {
                 });
                 return res.status(403).json({ error: `Access denied. Requires widget access: ${widgetId}` });
             }
-            console.log(`DEBUG: req.user widget access granted. calling next()`);
             return next();
+        };
+
+        if (req.user) {
+            return evaluateWidgetPermission();
         }
 
-        // フォールバック: requireAuth が先にチェーンされていない場合
-        const token = req.cookies.token;
-        console.log(`DEBUG: Token from cookie:`, token ? "exists (length: " + token.length + ")" : "missing");
-        if (!token) {
-            console.log(`DEBUG: Token missing in cookies. Returning 401`);
-            return res.status(401).json({ error: 'Not authenticated' });
-        }
-        
-        jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
-            if (err) {
-                console.log(`DEBUG: JWT verification failed:`, err.message);
-                return res.status(401).json({ error: 'Invalid token' });
-            }
-            
-            console.log(`DEBUG: JWT verification succeeded. Decoded user:`, decoded.email, `Role:`, decoded.role);
-            const hashes = getContextHashes(req);
-            const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
-            console.log(`DEBUG: ZTA context validation:`, isContextValid);
-            if (!isContextValid) {
-                console.log(`DEBUG: ZTA context validation FAILED!`);
-                auditDb.logEvent({
-                    userId: decoded.id,
-                    userEmail: decoded.email,
-                    eventType: 'session_hijacking_detected',
-                    action: `${req.method} ${req.originalUrl}`,
-                    status: 'blocked',
-                    req: req,
-                    details: { 
-                        expectedIpHash: decoded.ip_hash, 
-                        gotIpHash: hashes.ipHash, 
-                        clientIp: hashes.ip 
-                    }
-                });
-                res.clearCookie('token');
-                return res.status(403).json({ error: 'Session context mismatch.' });
-            }
-
-            const allowedWidgets = decoded.allowed_widgets || [];
-            const hasAccess = allowedWidgets.includes('*') || allowedWidgets.includes(widgetId);
-            console.log(`DEBUG: Fallback widget access hasAccess:`, hasAccess, `Allowed:`, allowedWidgets);
-            
-            if (!hasAccess) {
-                console.log(`DEBUG: Fallback widget access denied!`);
-                auditDb.logEvent({
-                    userId: decoded.id,
-                    userEmail: decoded.email,
-                    eventType: 'permission_denied',
-                    action: `${req.method} ${req.originalUrl}`,
-                    status: 'blocked',
-                    req: req,
-                    details: { requiredWidget: widgetId }
-                });
-                return res.status(403).json({ error: `Access denied. Requires widget access: ${widgetId}` });
-            }
-            
-            console.log(`DEBUG: Fallback widget access granted. calling next()`);
-            req.user = decoded;
-            next();
-        });
+        // ZTA: Always delegate to requireAuth so real-time DB & PDP check is enforced
+        return requireAuth(req, res, evaluateWidgetPermission);
     };
 }
 

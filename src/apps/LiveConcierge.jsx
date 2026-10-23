@@ -63,7 +63,7 @@ const LiveConcierge = ({ onOpen: _onOpen, user: _user, initialKnowledgeId, initi
 
     // 自動スクロール
     useEffect(() => {
-        transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, [transcripts, currentAiStreamingText]);
 
     // 初期化: Gemini API から動的にモデル一覧を取得 (ハードコード禁止原則に準拠)
