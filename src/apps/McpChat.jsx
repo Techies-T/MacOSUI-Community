@@ -322,6 +322,16 @@ const McpChat = ({ onOpen }) => {
     const [selectedDomain, setSelectedDomain] = useState('auto'); // 'auto' | domain id
     const [isLoadingMeta, setIsLoadingMeta] = useState(false);
 
+    // Multi-LLM Model Selection (Gemini / Claude)
+    const [models, setModels] = useState([]);
+    const [claudeModels, setClaudeModels] = useState([]);
+    const [selectedModel, setSelectedModel] = useState('');
+    const [aiProvider, setAiProvider] = useState('gemini');
+    const [defaultGeminiModel, setDefaultGeminiModel] = useState('');
+    const [defaultClaudeModel, setDefaultClaudeModel] = useState('');
+    const [isGeminiConfigured, setIsGeminiConfigured] = useState(true);
+    const [isClaudeConfigured, setIsClaudeConfigured] = useState(false);
+
     // Save to Knowledge Modal State
     const [saveKnowledgeModalOpen, setSaveKnowledgeModalOpen] = useState(false);
     const [codeToSave, setCodeToSave] = useState('');
@@ -423,9 +433,25 @@ const McpChat = ({ onOpen }) => {
                 if (data.mcpQuickPrompts && Array.isArray(data.mcpQuickPrompts)) {
                     setQuickPrompts(data.mcpQuickPrompts);
                 }
+                if (data.aiProvider) setAiProvider(data.aiProvider);
+                if (data.isGeminiConfigured !== undefined) setIsGeminiConfigured(data.isGeminiConfigured);
+                if (data.isClaudeConfigured !== undefined) setIsClaudeConfigured(data.isClaudeConfigured);
+                if (data.geminiMcpChatModel) setDefaultGeminiModel(data.geminiMcpChatModel);
+                if (data.claudeMcpChatModel) setDefaultClaudeModel(data.claudeMcpChatModel);
             }
         } catch (e) {
             console.error('Failed to fetch config for quick prompts:', e);
+        }
+
+        try {
+            const modelsRes = await fetch('/api/gemini/models');
+            if (modelsRes.ok) {
+                const data = await modelsRes.json();
+                if (Array.isArray(data.models)) setModels(data.models);
+                if (Array.isArray(data.claudeModels)) setClaudeModels(data.claudeModels);
+            }
+        } catch (e) {
+            console.error('Failed to fetch models for MCP chat:', e);
         }
     };
 
@@ -530,7 +556,8 @@ const McpChat = ({ onOpen }) => {
                     message: textToSend,
                     previous_interaction_id: previousInteractionId,
                     environment_id: environmentId,
-                    pipelineDomain: selectedDomain === 'auto' ? undefined : selectedDomain
+                    pipelineDomain: selectedDomain === 'auto' ? undefined : selectedDomain,
+                    model: selectedModel || undefined
                 })
             });
 
@@ -643,7 +670,48 @@ const McpChat = ({ onOpen }) => {
                             </div>
                         )}
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+                        {/* Multi-LLM Model Selector */}
+                        <div className="relative min-w-0 max-w-[210px] bg-gray-50 border border-gray-200 rounded-lg p-0.5 flex items-center shadow-2xs">
+                            <select
+                                value={selectedModel}
+                                onChange={(e) => setSelectedModel(e.target.value)}
+                                className="w-full truncate bg-transparent border-none text-gray-800 text-xs font-semibold outline-none cursor-pointer appearance-none pr-5 pl-2 py-1 focus:ring-0"
+                                title="MCP実行モデルを選択 (Gemini / Claude)"
+                            >
+                                <option value="">
+                                    {aiProvider === 'claude' 
+                                        ? `🟣 Default (${defaultClaudeModel || 'Claude'})` 
+                                        : `✨ Default (${defaultGeminiModel || 'Gemini'})`}
+                                </option>
+                                {models.length > 0 && (
+                                    <optgroup label="✨ Google Gemini">
+                                        {models.map(m => {
+                                            const val = m.name.replace(/^models\//, '');
+                                            return (
+                                                <option key={`mcp-top-gem-${val}`} value={m.name}>
+                                                    ✨ {m.displayName || val}
+                                                </option>
+                                            );
+                                        })}
+                                    </optgroup>
+                                )}
+                                {claudeModels.length > 0 && (
+                                    <optgroup label="🟣 Anthropic Claude">
+                                        {claudeModels.map(m => {
+                                            const val = (m.id || m.name || '').replace(/^models\//, '');
+                                            return (
+                                                <option key={`mcp-top-claude-${val}`} value={val}>
+                                                    🟣 {m.displayName || val}
+                                                </option>
+                                            );
+                                        })}
+                                    </optgroup>
+                                )}
+                            </select>
+                            <span className="text-gray-400 text-[10px] pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">▼</span>
+                        </div>
+
                         {allArtifacts.length > 0 && !activeArtifact && (
                             <button 
                                 onClick={() => setActiveArtifact(allArtifacts[allArtifacts.length - 1])}

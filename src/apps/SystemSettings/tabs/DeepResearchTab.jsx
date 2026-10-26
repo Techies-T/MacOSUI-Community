@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 
 const DeepResearchTab = ({
-    models,
+    models = [],
+    claudeModels = [],
+    isGeminiConfigured = true,
+    isClaudeConfigured = false,
+    aiProvider = 'gemini',
     hasWidget,
     hasAction
 }) => {
@@ -87,14 +91,15 @@ const DeepResearchTab = ({
 
     const handleCreateNew = () => {
         if (!isManager) return;
+        const useClaudeDefault = aiProvider === 'claude' || (!isGeminiConfigured && isClaudeConfigured);
         setEditingWorkflow({
             id: '',
             name: '',
             description: '',
-            research_model: 'deep-research-pro-preview-12-2025',
+            research_model: useClaudeDefault ? 'claude-sonnet-4-6' : 'deep-research-pro-preview-12-2025',
             research_prompt: 'あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。',
             output_type: 'html',
-            output_model: 'gemini-3.1-flash-lite-preview',
+            output_model: useClaudeDefault ? 'claude-sonnet-4-6' : 'gemini-3.1-flash-lite-preview',
             output_prompt: '以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}',
             folder_id: '',
             pod_id: '',
@@ -251,16 +256,29 @@ const DeepResearchTab = ({
 
                             <h3 className="text-sm font-bold text-gray-800 border-b border-gray-100 pb-2 pt-2">1. Base Research Agent (リサーチ部)</h3>
                             <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">使用モデル</label>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">使用モデル (Gemini / Claude 選択可)</label>
                                 <select
                                     value={editingWorkflow.research_model || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, research_model: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
                                 >
                                     <option value="">システムデフォルトを使用</option>
-                                    {models?.map(m => (
-                                        <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
-                                    ))}
+                                    <optgroup label="✨ Google Gemini Models">
+                                        <option value="deep-research-pro-preview-12-2025">Deep Research Pro Preview (deep-research-pro-preview-12-2025)</option>
+                                        {models?.map(m => (
+                                            <option key={`res-gem-${m.name}`} value={m.name}>{m.displayName || m.name} ({m.name.replace(/^models\//, '')})</option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label="🟣 Anthropic Claude Models (Web Search & Extended Thinking)">
+                                        {(claudeModels || []).map(m => {
+                                            const cleanId = (m.id || m.name || '').replace(/^models\//, '');
+                                            return (
+                                                <option key={`res-claude-${cleanId}`} value={cleanId}>
+                                                    {m.displayName || cleanId} ({cleanId})
+                                                </option>
+                                            );
+                                        })}
+                                    </optgroup>
                                 </select>
                             </div>
                             <div>
@@ -284,7 +302,10 @@ const DeepResearchTab = ({
                                         const defaultPrompt = e.target.value === 'html' 
                                             ? '以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}'
                                             : '以下のレポート内容を完璧に表現した、プロフェッショナルなインフォグラフィックを1枚生成してください。\n\n=== レポート内容 ===\n\n{{report}}';
-                                        const defaultModel = e.target.value === 'html' ? 'gemini-3.1-flash-lite-preview' : 'gemini-3.1-pro-preview';
+                                        const useClaudeOut = e.target.value === 'html' && (aiProvider === 'claude' || (!isGeminiConfigured && isClaudeConfigured));
+                                        const defaultModel = e.target.value === 'html'
+                                            ? (useClaudeOut ? 'claude-sonnet-4-6' : 'gemini-3.1-flash-lite-preview')
+                                            : 'gemini-3.1-pro-preview';
                                         setEditingWorkflow({ 
                                             ...editingWorkflow, 
                                             output_type: e.target.value,
@@ -294,21 +315,42 @@ const DeepResearchTab = ({
                                     }}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 >
-                                    <option value="html">HTML / SVG (Webナレッジ形式)</option>
-                                    <option value="infographic">Infographic (画像生成/Nano Banana 2形式)</option>
+                                    <option value="html">HTML / SVG (Webナレッジ形式 - Gemini / Claude 両対応)</option>
+                                    <option value="infographic">Infographic (画像生成/Nano Banana 2形式 - Gemini 専用)</option>
                                 </select>
+                                {editingWorkflow.output_type === 'infographic' && !isGeminiConfigured && (
+                                    <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5 font-medium">
+                                        ⚠️ Infographic（画像生成 / NanoBanana）は Google Gemini 専用機能です。現在 Gemini API Key が未設定のため、実行するには System 設定で Gemini API Key を登録してください。
+                                    </p>
+                                )}
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">使用モデル</label>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    使用モデル {editingWorkflow.output_type === 'infographic' ? '(Gemini 専用)' : '(Gemini / Claude 選択可)'}
+                                </label>
                                 <select
                                     value={editingWorkflow.output_model || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, output_model: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
                                 >
                                     <option value="">システムデフォルトを使用</option>
-                                    {models?.map(m => (
-                                        <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
-                                    ))}
+                                    <optgroup label="✨ Google Gemini Models">
+                                        {models?.map(m => (
+                                            <option key={`out-gem-${m.name}`} value={m.name}>{m.displayName || m.name} ({m.name.replace(/^models\//, '')})</option>
+                                        ))}
+                                    </optgroup>
+                                    {editingWorkflow.output_type !== 'infographic' && (
+                                        <optgroup label="🟣 Anthropic Claude Models">
+                                            {(claudeModels || []).map(m => {
+                                                const cleanId = (m.id || m.name || '').replace(/^models\//, '');
+                                                return (
+                                                    <option key={`out-claude-${cleanId}`} value={cleanId}>
+                                                        {m.displayName || cleanId} ({cleanId})
+                                                    </option>
+                                                );
+                                            })}
+                                        </optgroup>
+                                    )}
                                 </select>
                             </div>
                             <div>

@@ -5,6 +5,7 @@ const McpConnectionsTab = ({
     setMcpQuickPrompts, 
     handleSaveSettings,
     models = [],
+    claudeModels = [],
     currentMcpChatModel = 'gemini-2.5-pro',
     handleMcpChatModelChange,
     mcpChatSystemInstruction = '',
@@ -389,25 +390,42 @@ const McpConnectionsTab = ({
                     
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Active Gemini Model</label>
+                            <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Active MCP Agent Model (Gemini / Claude)</label>
                             <select
-                                value={currentMcpChatModel}
+                                value={(currentMcpChatModel || '').replace(/^models\//, '')}
                                 onChange={(e) => handleMcpChatModelChange(e.target.value)}
                                 className="w-full max-w-md px-3 py-2 border border-gray-300 rounded bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono transition-shadow shadow-sm"
                             >
-                                <option value="">Select a model...</option>
-                                {models?.map(m => (
-                                    <option key={m.name} value={m.name}>{m.displayName || m.name}</option>
-                                ))}
+                                <option value="">Select a model (Default)...</option>
+                                <optgroup label="✨ Google Gemini Models">
+                                    {models?.map(m => {
+                                        const cleanVal = (m.name || '').replace(/^models\//, '');
+                                        return (
+                                            <option key={`mcp-gem-${cleanVal}`} value={cleanVal}>
+                                                ✨ {m.displayName || cleanVal} ({cleanVal})
+                                            </option>
+                                        );
+                                    })}
+                                </optgroup>
+                                <optgroup label="🟣 Anthropic Claude Models">
+                                    {(claudeModels || []).map(m => {
+                                        const cleanId = (m.id || m.name || '').replace(/^models\//, '');
+                                        return (
+                                            <option key={`mcp-claude-${cleanId}`} value={cleanId}>
+                                                🟣 {m.displayName || cleanId} ({cleanId})
+                                            </option>
+                                        );
+                                    })}
+                                </optgroup>
                             </select>
                         </div>
                         
                         <div className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-4 mt-6">
                             <h4 className="text-xs font-semibold text-indigo-900 mb-1.5 flex items-center gap-1.5">
-                                💡 推奨モデルについて
+                                💡 推奨モデルについて (Gemini / Claude 両対応)
                             </h4>
                             <p className="text-xs text-indigo-700/80 leading-relaxed">
-                                MCP（Model Context Protocol）は外部サーバーから提供される関数定義を読み取り、適切に引数を解釈して実行する必要があります。高度なツール呼び出しの正確性を確保するため、<strong>Proモデル</strong>（例: <code>gemini-2.5-pro</code> など）の利用を推奨します。
+                                MCP（Model Context Protocol）は外部サーバーから提供される関数定義を読み取り、適切に引数を解釈して実行する必要があります。高度なツール呼び出しの正確性を確保するため、<strong>Gemini Pro / Flash</strong> または <strong>Claude Sonnet 4.6 / Opus 4.7</strong> の利用を推奨します。
                             </p>
                         </div>
                     </div>

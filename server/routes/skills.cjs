@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
 const { GoogleGenAI } = require("@google/genai");
+const llmAdapter = require('../services/llmAdapter.cjs');
 
 // Helper to initialize Gemini client dynamically
 async function getGeminiClient() {
-    const apiKey = await db.getSetting('GEMINI_API_KEY');
+    const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
     if (!apiKey) {
         throw new Error("GEMINI_API_KEY is not configured in System Settings.");
     }
@@ -32,8 +33,14 @@ router.post('/generate-icons', async (req, res) => {
     }
 
     try {
-        const ai = await getGeminiClient();
-        
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
+
+        if (!apiKey && !claudeApiKey) {
+            return res.status(400).json({ error: 'Gemini API Key または Claude API Key が設定されていません。System Settings で設定してください。' });
+        }
+
         let prompt;
         if (customPrompt) {
             prompt = `
@@ -80,15 +87,28 @@ Example Output format:
 `;
         }
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview', // fast and efficient model
-            contents: prompt,
-            config: {
+        let text = '';
+        if ((aiProvider === 'claude' || !apiKey) && claudeApiKey) {
+            const claudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+            text = await llmAdapter.generateTextWithClaude({
+                apiKey: claudeApiKey,
+                model: claudeModel,
+                prompt,
                 temperature: 0.7,
-            }
-        });
-
-        let text = response.text || '';
+                jsonMode: true
+            });
+        } else {
+            const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
+            const geminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+            const response = await ai.models.generateContent({
+                model: geminiModel.replace(/^models\//, ''),
+                contents: prompt,
+                config: {
+                    temperature: 0.7,
+                }
+            });
+            text = response.text || '';
+        }
         
         // Clean up markdown formatting if the model still includes it
         text = text.trim();

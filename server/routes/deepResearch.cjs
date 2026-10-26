@@ -2,6 +2,7 @@ const express = require('express');
 const { GoogleGenAI } = require("@google/genai");
 const jwt = require('jsonwebtoken');
 const db = require('../db.cjs');
+const llmAdapter = require('../services/llmAdapter.cjs');
 
 const router = express.Router();
 
@@ -49,8 +50,11 @@ router.post('/start', async (req, res) => {
         }
 
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            return res.status(500).json({ error: 'Gemini API Key not configured' });
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
+
+        if (!apiKey && !claudeApiKey) {
+            return res.status(500).json({ error: 'Gemini API Key または Claude API Key が設定されていません。System Settings で設定してください。' });
         }
 
         const token = req.cookies.token;
@@ -178,7 +182,7 @@ router.post('/start', async (req, res) => {
         const jobId = crypto.randomUUID();
 
         // 1. Kick off background Deep Research
-        startDeepResearch(jobId, query, apiKey, finalInstruction, researchModel, podId, selected_article_ids);
+        startDeepResearch(jobId, query, apiKey, finalInstruction, researchModel, podId, selected_article_ids, claudeApiKey, aiProvider);
 
         // Record history
         await new Promise((resolve) => {
@@ -204,8 +208,11 @@ router.post('/extract-tags', async (req, res) => {
         }
 
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            return res.status(500).json({ error: 'Gemini API Key not configured' });
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
+
+        if (!apiKey && !claudeApiKey) {
+            return res.status(500).json({ error: 'Gemini API Key または Claude API Key が設定されていません。System Settings で設定してください。' });
         }
 
         const token = req.cookies.token;
@@ -216,18 +223,28 @@ router.post('/extract-tags', async (req, res) => {
             return res.status(401).json({ error: 'Invalid token' });
         }
 
-        const genAI = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
-        // Use flash-lite or base flash for fast inference
-        const model = await db.getSetting('GEMINI_MODEL') || process.env.GEMINI_MODEL || 'models/gemini-2.5-flash';
-        
         const prompt = `以下のリサーチ結果から、インデックス検索に役立つ重要なキーワードを3〜5つ抽出し、カンマ区切りで出力してください。その他の解説は一切不要です。\n\nリサーチ内容:\n${text.substring(0, 3000)}`;
 
-        const response = await genAI.models.generateContent({
-            model: model,
-            contents: prompt,
-        });
+        let reply = "";
+        if ((aiProvider === 'claude' || !apiKey) && claudeApiKey) {
+            const claudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+            reply = await llmAdapter.generateTextWithClaude({
+                apiKey: claudeApiKey,
+                model: claudeModel,
+                prompt,
+                temperature: 0.3
+            });
+        } else {
+            const genAI = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
+            // Use flash-lite or base flash for fast inference
+            const model = await db.getSetting('GEMINI_MODEL') || process.env.GEMINI_MODEL || 'models/gemini-2.5-flash';
+            const response = await genAI.models.generateContent({
+                model: model,
+                contents: prompt,
+            });
+            reply = response.text || "";
+        }
 
-        const reply = response.text || "";
         const tags = reply.split(',').map(s => s.trim()).filter(s => s.length > 0);
         res.json({ tags });
     } catch (error) {
@@ -279,13 +296,14 @@ router.post('/publish', async (req, res) => {
 
 // GET /status/:id has been moved downstream to avoid matching /workflows
 
-async function startDeepResearch(jobId, query, apiKey, customInstruction = null, targetModel = null, podId = null, selectedArticleIds = null) {
+async function startDeepResearch(jobId, query, apiKey, customInstruction = null, targetModel = null, podId = null, selectedArticleIds = null, claudeApiKeyParam = null, aiProviderParam = null) {
     researchJobs[jobId] = { status: 'in_progress', result: null, error: null };
     console.log(`Starting Deep Research Job ${jobId} (Pod: ${podId || 'None'}, Selected Articles: ${selectedArticleIds ? selectedArticleIds.length : 0})...`);
 
     try {
-        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
-        
+        const claudeApiKey = claudeApiKeyParam || await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = aiProviderParam || (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
+
         // --- Pod RAG 連携: 選択された過去ナレッジ記事の結合処理 ---
         let knowledgeContext = "";
         if (selectedArticleIds && Array.isArray(selectedArticleIds) && selectedArticleIds.length > 0) {
@@ -314,17 +332,39 @@ async function startDeepResearch(jobId, query, apiKey, customInstruction = null,
                 console.log(`Merged ${articles.length} selected knowledge articles into prompt for Job ${jobId}.`);
             }
         }
-        
-        // Deep Research Pro Preview specifically uses background=true.
-        // It's often required to use the Interactions API.
-        const customAgent = targetModel || await db.getSetting('GEMINI_RESEARCH_MODEL');
-        const agentName = customAgent ? customAgent.replace('models/', '') : 'deep-research-pro-preview-12-2025';
-        
+
         // 過去のナレッジコンテキストをinputの前に差し込む
         let finalInput = query;
         if (knowledgeContext) {
             finalInput = `${knowledgeContext}【現在の調査依頼】\n${query}`;
         }
+
+        const customAgent = targetModel || (aiProvider === 'claude'
+            ? (await db.getSetting('CLAUDE_RESEARCH_MODEL') || await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6')
+            : (await db.getSetting('GEMINI_RESEARCH_MODEL')));
+
+        const useClaude = (llmAdapter.isClaudeModel(customAgent) && !!claudeApiKey) || (!apiKey && !!claudeApiKey);
+        if (useClaude) {
+            const claudeResModel = llmAdapter.isClaudeModel(customAgent)
+                ? customAgent
+                : (await db.getSetting('CLAUDE_RESEARCH_MODEL') || await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6');
+            console.log(`Delegating Deep Research Job ${jobId} to Anthropic Claude (${claudeResModel})...`);
+            await llmAdapter.runClaudeDeepResearchJob({
+                jobId,
+                apiKey: claudeApiKey,
+                model: claudeResModel,
+                prompt: finalInput,
+                customInstruction,
+                researchJobs,
+                db
+            });
+            return;
+        }
+
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
+        const agentName = (customAgent && !llmAdapter.isClaudeModel(customAgent))
+            ? customAgent.replace('models/', '')
+            : 'deep-research-pro-preview-12-2025';
         
         const interactionOptions = {
             agent: agentName,
@@ -401,13 +441,16 @@ async function cancelInProgressJobs() {
     const cancelPromises = [];
     for (const jobId in researchJobs) {
         const job = researchJobs[jobId];
-        if (job.status === 'in_progress' && job.client && job.interactionId) {
-            console.log(`[Graceful Shutdown] Cancelling Deep Research Interaction ${job.interactionId} for Job ${jobId}...`);
-            cancelPromises.push(
-                job.client.interactions.cancel(job.interactionId)
-                    .then(() => console.log(`[Graceful Shutdown] Cancelled Interaction ${job.interactionId}`))
-                    .catch(err => console.error(`[Graceful Shutdown] Failed to cancel Interaction ${job.interactionId}:`, err))
-            );
+        if (job.status === 'in_progress') {
+            job.abortRequested = true;
+            if (job.client && job.interactionId) {
+                console.log(`[Graceful Shutdown] Cancelling Deep Research Interaction ${job.interactionId} for Job ${jobId}...`);
+                cancelPromises.push(
+                    job.client.interactions.cancel(job.interactionId)
+                        .then(() => console.log(`[Graceful Shutdown] Cancelled Interaction ${job.interactionId}`))
+                        .catch(err => console.error(`[Graceful Shutdown] Failed to cancel Interaction ${job.interactionId}:`, err))
+                );
+            }
             job.status = 'cancelled';
         }
     }

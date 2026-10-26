@@ -86,6 +86,15 @@ const renderSourceInfo = (sourceInfo) => {
         );
     }
 
+    if (sourceInfo.type === 'anthropic_web_search') {
+        return (
+            <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-500/20 text-[10px]">🌐</span>
+                <span>情報源: Anthropic Web Search (Claude パブリックWeb検索)</span>
+            </div>
+        );
+    }
+
     if (sourceInfo.type === 'local_ai') {
         return (
             <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-1.5 text-xs font-semibold text-indigo-300">
@@ -99,7 +108,7 @@ const renderSourceInfo = (sourceInfo) => {
         return (
             <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center gap-1.5 text-xs text-purple-200/80">
                 <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-500/20 text-[10px]">🧠</span>
-                <span>情報源: パブリック一般知識 (Gemini 事前学習データ)</span>
+                <span>情報源: パブリック一般知識 ({sourceInfo.provider === 'claude' ? 'Claude' : 'Gemini'} 事前学習データ)</span>
             </div>
         );
     }
@@ -130,6 +139,16 @@ const Gemini = ({ user: initialUser }) => {
     const [historyIndex, setHistoryIndex] = useState(-1);
     const [popularQueries, setPopularQueries] = useState([]);
     const [chatPresets, setChatPresets] = useState({});
+
+    // Multi-LLM Provider & Model states
+    const [aiProvider, setAiProvider] = useState('gemini');
+    const [isGeminiConfigured, setIsGeminiConfigured] = useState(true);
+    const [isClaudeConfigured, setIsClaudeConfigured] = useState(false);
+    const [geminiModels, setGeminiModels] = useState([]);
+    const [claudeModels, setClaudeModels] = useState([]);
+    const [selectedChatModel, setSelectedChatModel] = useState('');
+    const [defaultGeminiModel, setDefaultGeminiModel] = useState('');
+    const [defaultClaudeModel, setDefaultClaudeModel] = useState('');
 
     const [copiedIndex, setCopiedIndex] = useState(null);
     const messagesEndRef = useRef(null);
@@ -202,10 +221,26 @@ const Gemini = ({ user: initialUser }) => {
                 if (data.googleDriveRagFolders) {
                     setRagFolders(data.googleDriveRagFolders);
                 }
+                if (data.aiProvider) setAiProvider(data.aiProvider);
+                if (data.isGeminiConfigured !== undefined) setIsGeminiConfigured(data.isGeminiConfigured);
+                if (data.isClaudeConfigured !== undefined) setIsClaudeConfigured(data.isClaudeConfigured);
+                if (data.geminiModel) setDefaultGeminiModel(data.geminiModel);
+                if (data.claudeModel) setDefaultClaudeModel(data.claudeModel);
             } catch (err) {
                 console.error("Failed to fetch config for RAG expiry check:", err);
             } finally {
                 setIsConfigLoaded(true);
+            }
+
+            try {
+                const modelsRes = await fetch('/api/gemini/models');
+                if (modelsRes.ok) {
+                    const modelsData = await modelsRes.json();
+                    if (Array.isArray(modelsData.models)) setGeminiModels(modelsData.models);
+                    if (Array.isArray(modelsData.claudeModels)) setClaudeModels(modelsData.claudeModels);
+                }
+            } catch (err) {
+                console.error("Failed to load models list:", err);
             }
 
             try {
@@ -559,8 +594,9 @@ const Gemini = ({ user: initialUser }) => {
                     mode: mode, 
                     grounding: useGrounding, 
                     targetRagFolderId: targetRagFolderId,
-                    systemInstruction: dynamicSystemInstruction
-                } // Pass selected mode, grounding flag and custom instruction
+                    systemInstruction: dynamicSystemInstruction,
+                    model: selectedChatModel || undefined
+                } // Pass selected mode, grounding flag, custom instruction, and optional model override
             };
 
             const response = await fetch('/api/gemini', {
@@ -577,7 +613,10 @@ const Gemini = ({ user: initialUser }) => {
 
             const jobId = data.jobId;
             let attempts = 0;
-            const maxAttempts = 60; // 60 * 1s = 60 seconds timeout
+            // RAGやClaude利用時はドキュメント解析(PDF/Prompt Caching)に時間を要するためタイムアウトを180秒に拡張
+            const isRAG = mode === 'rag' || mode === 'research';
+            const isClaude = (selectedChatModel && selectedChatModel.startsWith('claude')) || (aiProvider === 'claude');
+            const maxAttempts = (isRAG || isClaude) ? 180 : 60; // 180s for RAG/Claude, 60s for standard Gemini
 
             // Poll for result
             const pollInterval = setInterval(async () => {
@@ -603,7 +642,10 @@ const Gemini = ({ user: initialUser }) => {
                         setIsLoading(false);
                     } else if (attempts >= maxAttempts) {
                         clearInterval(pollInterval);
-                        setMessages(prev => [...prev, { role: 'model', text: "Request timed out." }]);
+                        setMessages(prev => [...prev, { 
+                            role: 'model', 
+                            text: `⚠️ リクエストがタイムアウトしました (${maxAttempts}秒)。ドキュメントサイズが大きいか、AIプロバイダーの解析に時間を要しています。` 
+                        }]);
                         setIsLoading(false);
                     }
                 } catch (err) {
@@ -683,6 +725,10 @@ const Gemini = ({ user: initialUser }) => {
         inputRef.current?.focus();
     };
 
+    const isClaudeActive = selectedChatModel
+        ? selectedChatModel.startsWith('claude-')
+        : aiProvider === 'claude';
+
     return (
         <div className="relative h-full overflow-hidden bg-gradient-to-br from-purple-600 via-pink-500 to-blue-500 flex flex-col font-sans">
             {/* Animated gradient overlay */}
@@ -693,30 +739,77 @@ const Gemini = ({ user: initialUser }) => {
 
                 {/* Header / Mode Selector */}
                 <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-center gap-2">
-                    <div className="relative min-w-0 flex-1 max-w-[210px] bg-white/20 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
-                        <select
-                            value={mode === 'rag' ? `rag_${targetRagFolderId}` : mode}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                setPreviousInteractionId(null);
-                                setEnvironmentId(null);
-                                if (val === 'normal') { setMode('normal'); setUseGrounding(true); setTargetRagFolderId(null); }
-                                else if (val.startsWith('rag_')) { setMode('rag'); setUseGrounding(false); setTargetRagFolderId(val.replace('rag_', '')); }
-                                else { setMode(val); setUseGrounding(false); setTargetRagFolderId(null); }
-                            }}
-                            className="w-full truncate bg-transparent border-none text-white text-sm font-medium outline-none cursor-pointer appearance-none pr-6 pl-3 py-1.5 focus:ring-0"
-                            style={{ backgroundImage: 'none' }}
-                        >
-                            <option value="normal" className="text-gray-800">💬 Normal Chat</option>
-                            <option value="local_rag" className="text-gray-800">🛡️ Gemma 4 Local RAG (完全社内完結)</option>
-                            {accessibleRagFolders.map((f, idx) => (
-                                <option key={f.id || idx} value={`rag_${f.id}`} className="text-gray-800">📚 Cloud: {f.name}</option>
-                            ))}
-                            <option value="gemma4" className="text-gray-800">🦙 Gemma 4 (Direct)</option>
-                            <option value="research" className="text-gray-800">🔍 Deep Research</option>
-                            <option value="html_svg" className="text-gray-800">🎨 HTML/SVG Dev</option>
-                        </select>
-                        <span className="text-white/80 text-[10px] pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 transform">▼</span>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="relative min-w-0 flex-1 max-w-[200px] bg-white/20 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
+                            <select
+                                value={mode === 'rag' ? `rag_${targetRagFolderId}` : mode}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setPreviousInteractionId(null);
+                                    setEnvironmentId(null);
+                                    if (val === 'normal') { setMode('normal'); setUseGrounding(true); setTargetRagFolderId(null); }
+                                    else if (val.startsWith('rag_')) { setMode('rag'); setUseGrounding(false); setTargetRagFolderId(val.replace('rag_', '')); }
+                                    else { setMode(val); setUseGrounding(false); setTargetRagFolderId(null); }
+                                }}
+                                className="w-full truncate bg-transparent border-none text-white text-sm font-medium outline-none cursor-pointer appearance-none pr-6 pl-3 py-1.5 focus:ring-0"
+                                style={{ backgroundImage: 'none' }}
+                            >
+                                <option value="normal" className="text-gray-800">💬 Normal Chat</option>
+                                <option value="local_rag" className="text-gray-800">🛡️ Gemma 4 Local RAG (完全社内完結)</option>
+                                {accessibleRagFolders.map((f, idx) => (
+                                    <option key={f.id || idx} value={`rag_${f.id}`} className="text-gray-800">📚 Cloud: {f.name}</option>
+                                ))}
+                                <option value="gemma4" className="text-gray-800">🦙 Gemma 4 (Direct)</option>
+                                <option value="research" className="text-gray-800">🔍 Deep Research</option>
+                                <option value="html_svg" className="text-gray-800">🎨 HTML/SVG Dev</option>
+                            </select>
+                            <span className="text-white/80 text-[10px] pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 transform">▼</span>
+                        </div>
+
+                        {mode !== 'gemma4' && mode !== 'local_rag' && (
+                            <div className="relative min-w-0 flex-1 max-w-[220px] bg-white/15 backdrop-blur-md rounded-lg p-1 flex items-center shadow-sm border border-white/10">
+                                <select
+                                    value={selectedChatModel}
+                                    onChange={(e) => {
+                                        setSelectedChatModel(e.target.value);
+                                        setPreviousInteractionId(null);
+                                        setEnvironmentId(null);
+                                    }}
+                                    className="w-full truncate bg-transparent border-none text-white text-xs font-medium outline-none cursor-pointer appearance-none pr-5 pl-2.5 py-1.5 focus:ring-0"
+                                    style={{ backgroundImage: 'none' }}
+                                    title="使用するAIモデルを切り替え (System Default / Gemini / Claude)"
+                                >
+                                    <option value="" className="text-gray-800">
+                                        {aiProvider === 'claude' ? `🟣 Default (${defaultClaudeModel || 'Claude'})` : `✨ Default (${defaultGeminiModel || 'Gemini'})`}
+                                    </option>
+                                    {geminiModels.length > 0 && (
+                                        <optgroup label="✨ Google Gemini" className="text-gray-800">
+                                            {geminiModels.map(m => {
+                                                const val = m.name.replace('models/', '');
+                                                return (
+                                                    <option key={val} value={val} className="text-gray-800">
+                                                        ✨ {m.displayName || val}
+                                                    </option>
+                                                );
+                                            })}
+                                        </optgroup>
+                                    )}
+                                    {claudeModels.length > 0 && (
+                                        <optgroup label="🟣 Anthropic Claude" className="text-gray-800">
+                                            {claudeModels.map(m => {
+                                                const val = m.name.replace('models/', '');
+                                                return (
+                                                    <option key={val} value={val} className="text-gray-800">
+                                                        🟣 {m.displayName || val}
+                                                    </option>
+                                                );
+                                            })}
+                                        </optgroup>
+                                    )}
+                                </select>
+                                <span className="text-white/80 text-[10px] pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 transform">▼</span>
+                            </div>
+                        )}
                     </div>
                     {mode === 'normal' && (
                         <div className="flex-shrink-0 flex items-center bg-white/10 backdrop-blur-md rounded-lg px-3 py-1.5 border border-white/10 cursor-pointer" onClick={() => setUseGrounding(!useGrounding)}>
@@ -732,7 +825,7 @@ const Gemini = ({ user: initialUser }) => {
                             <span className="text-[11px] font-semibold text-indigo-200 whitespace-nowrap">🛡️ Air-Gapped</span>
                         </div>
                     )}
-                    {mode === 'rag' && isRagExpired && (
+                    {mode === 'rag' && isRagExpired && !isClaudeActive && (
                         <div className="flex-shrink-0 flex items-center bg-amber-500/90 backdrop-blur-md rounded-lg px-2.5 py-1 text-white text-xs shadow-md border border-amber-400/30">
                             <span className="mr-2 font-medium">⚠️ 期限切れ (40h)</span>
                             <button
@@ -750,8 +843,6 @@ const Gemini = ({ user: initialUser }) => {
                             <span className="text-xs font-semibold text-emerald-200">⚡️ Local MoE (Apple MLX)</span>
                         </div>
                     )}
-
-                    
                 </div>
 
                 {/* Messages Area */}
@@ -759,14 +850,30 @@ const Gemini = ({ user: initialUser }) => {
                     {messages.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-white/90 text-center mt-10 animate-fadeIn">
                             <div className="w-20 h-20 mb-4 rounded-full bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-lg ring-1 ring-white/40">
-                                <span className="text-4xl">✨</span>
+                                <span className="text-4xl">{isClaudeActive ? '🟣' : '✨'}</span>
                             </div>
-                            <h2 className="text-2xl font-medium mb-1">Gemini AI</h2>
+                            <h2 className="text-2xl font-medium mb-1">{isClaudeActive ? 'Claude AI' : 'Gemini AI'}</h2>
                             <p className="text-sm opacity-80 mb-4">How can I help you today?</p>
 
-                            <div className="bg-white/10 px-3 py-1 mb-6 rounded-full text-xs font-medium border border-white/10">
-                                {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Google Search' : 'Mode: Chat'}
+                            <div className="bg-white/10 px-3 py-1 mb-4 rounded-full text-xs font-medium border border-white/10">
+                                {mode === 'rag' ? 'Using: Personal Documents' : mode === 'search' ? 'Using: Web Search' : `Mode: Chat (${selectedChatModel || (isClaudeActive ? defaultClaudeModel || 'Claude' : defaultGeminiModel || 'Gemini')})`}
                             </div>
+
+                            {isConfigLoaded && !isGeminiConfigured && !isClaudeConfigured && mode !== 'gemma4' && mode !== 'local_rag' && (
+                                <div className="max-w-md mb-4 p-3 rounded-xl bg-amber-500/30 border border-amber-300/40 text-xs text-white backdrop-blur-md">
+                                    ⚠️ Gemini API Key および Claude API Key が未設定です。System Settings ＞ System タブからいずれかのAPIキーを設定してください。
+                                </div>
+                            )}
+                            {isConfigLoaded && isClaudeActive && !isClaudeConfigured && mode !== 'gemma4' && mode !== 'local_rag' && (
+                                <div className="max-w-md mb-4 p-3 rounded-xl bg-amber-500/30 border border-amber-300/40 text-xs text-white backdrop-blur-md">
+                                    ⚠️ Claude モデルが選択されていますが、Claude API Key が未設定です。System Settings から設定するか、モデル選択で Gemini に切り替えてください。
+                                </div>
+                            )}
+                            {isConfigLoaded && !isClaudeActive && !isGeminiConfigured && mode !== 'gemma4' && mode !== 'local_rag' && (
+                                <div className="max-w-md mb-4 p-3 rounded-xl bg-amber-500/30 border border-amber-300/40 text-xs text-white backdrop-blur-md">
+                                    ⚠️ Gemini モデルが選択されていますが、Gemini API Key が未設定です。System Settings から設定するか、モデル選択で Claude に切り替えてください。
+                                </div>
+                            )}
 
                             {mode === 'rag' && popularQueries.length > 0 && (
                                 <div className="max-w-md w-full">
@@ -973,10 +1080,17 @@ const Gemini = ({ user: initialUser }) => {
                                 </svg>
                             </div>
                             <div className="bg-white/20 text-white border border-white/20 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm backdrop-blur-md">
-                                <div className="flex gap-1.5 items-center h-5">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                                <div className="flex gap-2 items-center h-5">
+                                    <div className="flex gap-1.5 items-center">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-white/90 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                                    </div>
+                                    {mode === 'rag' && (
+                                        <span className="text-xs text-white/90 ml-1.5 animate-pulse font-medium">
+                                            {isClaudeActive ? '社内ドキュメントを解析中 (Claude Prompt Caching)...' : '社内ドキュメントを参照中...'}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1073,7 +1187,7 @@ const Gemini = ({ user: initialUser }) => {
                             value={input}
                             onChange={handleInputChange}
                             onKeyDown={handleKeyDown}
-                            placeholder="Ask Gemini..."
+                            placeholder={isClaudeActive ? "Ask Claude..." : "Ask Gemini..."}
                             className="flex-1 bg-transparent border-none focus:outline-none text-white placeholder-white/50 text-[15px] px-3 py-1.5"
                         />
                         <button

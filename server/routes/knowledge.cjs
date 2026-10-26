@@ -1,13 +1,21 @@
 const express = require('express');
 const db = require('../db.cjs');
 const { GoogleGenAI } = require('@google/genai');
+const llmAdapter = require('../services/llmAdapter.cjs');
 
 const router = express.Router();
 
 async function calculateTokens(content) {
     if (!content) return 0;
     try {
-        const apiKey = await db.getSetting('GEMINI_API_KEY');
+        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
+
+        if ((aiProvider === 'claude' || !apiKey) && claudeApiKey) {
+            const claudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+            return await llmAdapter.countClaudeTokens({ apiKey: claudeApiKey, model: claudeModel, content });
+        }
         if (apiKey) {
             const ai = new GoogleGenAI({ apiKey: apiKey, httpOptions: { timeout: 300000 } });
             const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-pro';

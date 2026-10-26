@@ -10,6 +10,7 @@ const auditDb = require('./auditDb.cjs');
 const { encrypt, decrypt } = require('./crypto.cjs');
 const crypto = require('crypto');
 const mcpChatRouter = require('./routes/mcpChat.cjs');
+const llmAdapter = require('./services/llmAdapter.cjs');
 
 // クライアントのIPアドレスおよびUser-AgentからZTA用のハッシュを生成するヘルパー関数
 function getContextHashes(req) {
@@ -116,6 +117,8 @@ app.get('/api/config', async (req, res) => {
         const clientId = await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID;
         const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET') || process.env.GOOGLE_CLIENT_SECRET;
         const geminiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const claudeKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeKey && !geminiKey ? 'claude' : 'gemini');
         const isConfigured = !!(clientId && clientSecret);
 
         let maskedClientId = '';
@@ -150,7 +153,9 @@ app.get('/api/config', async (req, res) => {
                 clientId,
                 maskedClientId,
                 isConfigured,
-                isGeminiConfigured: !!geminiKey
+                isGeminiConfigured: !!geminiKey,
+                isClaudeConfigured: !!claudeKey,
+                aiProvider
             });
         }
 
@@ -170,14 +175,19 @@ app.get('/api/config', async (req, res) => {
         }
 
         const geminiModel = await db.getSetting('GEMINI_MODEL');
+        const claudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
 
         const lastRagSyncTime = await db.getSetting('LAST_RAG_SYNC_TIME');
         const geminiResearchFolderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
         const globalGeminiModel = geminiModel || 'gemini-3.6-flash';
+        const globalClaudeModel = claudeModel || 'claude-sonnet-4-6';
         const nanoBananaModel = await db.getSetting('GEMINI_NANO_BANANA_MODEL') || globalGeminiModel;
         const geminiResearchModel = await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel;
         const geminiHtmlSvgModel = await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel;
         const geminiMcpChatModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || globalGeminiModel;
+        const claudeResearchModel = await db.getSetting('CLAUDE_RESEARCH_MODEL') || globalClaudeModel;
+        const claudeHtmlSvgModel = await db.getSetting('CLAUDE_HTML_SVG_MODEL') || globalClaudeModel;
+        const claudeMcpChatModel = await db.getSetting('CLAUDE_MCP_CHAT_MODEL') || globalClaudeModel;
         const nanoBananaPrompt = await db.getSetting('NANO_BANANA_2_PROMPT') || '';
         const deepResearchPrompt = await db.getSetting('DEEP_RESEARCH_PROMPT') || '';
         const htmlSvgPrompt = await db.getSetting('HTML_SVG_PROMPT') || '';
@@ -247,7 +257,10 @@ app.get('/api/config', async (req, res) => {
             maskedClientId,
             isConfigured,
             isGeminiConfigured: !!geminiKey,
+            isClaudeConfigured: !!claudeKey,
+            aiProvider,
             geminiModel,
+            claudeModel,
             googleDriveRootId: googleDriveRootId || '',
             googleDriveRagFolders,
             lastRagSyncTime: lastRagSyncTime || null,
@@ -256,6 +269,9 @@ app.get('/api/config', async (req, res) => {
             geminiResearchModel,
             geminiHtmlSvgModel,
             geminiMcpChatModel,
+            claudeResearchModel,
+            claudeHtmlSvgModel,
+            claudeMcpChatModel,
             nanoBananaPrompt,
             deepResearchPrompt,
             htmlSvgPrompt,
@@ -306,7 +322,7 @@ async function requireAuthIfConfigured(req, res, next) {
 }
 
 app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature, geminiLiveAvailableModels, geminiLiveDefaultModel, mcpChatSystemInstruction, mcpChatMaxTurns } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, claudeApiKey, claudeModel, aiProvider, claudeResearchModel, claudeHtmlSvgModel, claudeMcpChatModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature, geminiLiveAvailableModels, geminiLiveDefaultModel, mcpChatSystemInstruction, mcpChatMaxTurns } = req.body;
 
     try {
         const isConfigured = !!(await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID);
@@ -354,6 +370,12 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             if (geminiApiKey) {
                 await db.setSetting('GEMINI_API_KEY', geminiApiKey.trim());
             }
+            if (claudeApiKey) {
+                await db.setSetting('CLAUDE_API_KEY', claudeApiKey.trim());
+            }
+            if (aiProvider && (aiProvider === 'gemini' || aiProvider === 'claude')) {
+                await db.setSetting('AI_PROVIDER', aiProvider);
+            }
             if (mcpServerEndpoint !== undefined) await db.setSetting('MCP_SERVER_ENDPOINT', mcpServerEndpoint);
             if (mcpTokenUrl !== undefined) await db.setSetting('MCP_TOKEN_URL', mcpTokenUrl);
             if (mcpClientId !== undefined) await db.setSetting('MCP_CLIENT_ID', mcpClientId);
@@ -394,10 +416,14 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
         const hasHtml = hasWorkflowEdit || allowedWidgets.includes('workflow:deepresearch_html') || allowedWidgets.includes('workflow:deepresearch_full');
         const hasInfo = hasWorkflowEdit || allowedWidgets.includes('workflow:deepresearch_infographic') || allowedWidgets.includes('workflow:deepresearch_full');
 
-        // Manage General Gemini Model
+        // Manage General Gemini & Claude Model
         if (geminiModel) {
             if (!hasWorkflowEdit) return res.status(403).json({ error: 'Permission denied. Requires action:edit_workflow_model' });
             await db.setSetting('GEMINI_MODEL', geminiModel);
+        }
+        if (claudeModel) {
+            if (!hasWorkflowEdit) return res.status(403).json({ error: 'Permission denied. Requires action:edit_workflow_model' });
+            await db.setSetting('CLAUDE_MODEL', claudeModel);
         }
 
         // Manage MCP Chat Model
@@ -405,19 +431,25 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
             await db.setSetting('GEMINI_MCP_CHAT_MODEL', geminiMcpChatModel);
         }
+        if (claudeMcpChatModel) {
+            if (!hasSysSettings) return res.status(403).json({ error: 'Permission denied. Requires action:manage_system_settings' });
+            await db.setSetting('CLAUDE_MCP_CHAT_MODEL', claudeMcpChatModel);
+        }
 
         // Manage Base Research Model fields
-        if (geminiResearchModel || deepResearchPrompt !== undefined || geminiResearchFolderId !== undefined) {
+        if (geminiResearchModel || claudeResearchModel || deepResearchPrompt !== undefined || geminiResearchFolderId !== undefined) {
             if (!hasBase) return res.status(403).json({ error: 'Permission denied. Requires workflow:deepresearch_*' });
             if (geminiResearchModel) await db.setSetting('GEMINI_RESEARCH_MODEL', geminiResearchModel);
+            if (claudeResearchModel) await db.setSetting('CLAUDE_RESEARCH_MODEL', claudeResearchModel);
             if (deepResearchPrompt !== undefined) await db.setSetting('DEEP_RESEARCH_PROMPT', deepResearchPrompt);
             if (geminiResearchFolderId !== undefined) await db.setSetting('GEMINI_RESEARCH_FOLDER_ID', geminiResearchFolderId);
         }
 
         // Manage HTML/SVG Model fields
-        if (geminiHtmlSvgModel || htmlSvgPrompt !== undefined) {
+        if (geminiHtmlSvgModel || claudeHtmlSvgModel || htmlSvgPrompt !== undefined) {
             if (!hasHtml) return res.status(403).json({ error: 'Permission denied. Requires workflow:deepresearch_html' });
             if (geminiHtmlSvgModel) await db.setSetting('GEMINI_HTML_SVG_MODEL', geminiHtmlSvgModel);
+            if (claudeHtmlSvgModel) await db.setSetting('CLAUDE_HTML_SVG_MODEL', claudeHtmlSvgModel);
             if (htmlSvgPrompt !== undefined) await db.setSetting('HTML_SVG_PROMPT', htmlSvgPrompt);
         }
 
@@ -1779,12 +1811,11 @@ app.post('/api/virtual-office/settings', requireAuth, async (req, res) => {
         if (isPromptChanged) {
             const companyWorkPolicy = await db.getSetting('COMPANY_WORK_POLICY') || '';
             const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+            const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+            const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
 
-            if (apiKey && companyWorkPolicy) {
+            if ((apiKey || claudeApiKey) && companyWorkPolicy) {
                 try {
-                    const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
-                    const model = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
-
                     const systemInstruction = `あなたは会社のコンプライアンスおよび労働管理（36協定）の監査用AIです。
 提供された「就業規則」と、ユーザーが設定しようとしている「AIアシスタント用プロンプト」を比較し、AIアシスタントの指示が就業規則に違反している（または違反を助長している）疑いがないかを判定してください。
 
@@ -1807,35 +1838,52 @@ ${companyWorkPolicy}
 【AIアシスタント用プロンプト】
 ${newPrompt}`;
 
-                    const response = await client.models.generateContent({
-                        model: model,
-                        contents: userContent,
-                        config: {
-                            systemInstruction: systemInstruction,
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: "OBJECT",
-                                properties: {
-                                    compliant: { type: "BOOLEAN", description: "Whether the prompt is compliant with the work policy" },
-                                    reason: { type: "STRING", description: "The detailed reason if there is a suspected violation" }
-                                },
-                                required: ["compliant", "reason"]
+                    let rawJsonText = '';
+                    if ((aiProvider === 'claude' || !apiKey) && claudeApiKey) {
+                        const claudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+                        rawJsonText = await llmAdapter.generateTextWithClaude({
+                            apiKey: claudeApiKey,
+                            model: claudeModel,
+                            prompt: userContent,
+                            systemInstruction,
+                            temperature: 0.2,
+                            jsonMode: true
+                        });
+                    } else if (apiKey) {
+                        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
+                        const model = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+                        const response = await client.models.generateContent({
+                            model: model,
+                            contents: userContent,
+                            config: {
+                                systemInstruction: systemInstruction,
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        compliant: { type: "BOOLEAN", description: "Whether the prompt is compliant with the work policy" },
+                                        reason: { type: "STRING", description: "The detailed reason if there is a suspected violation" }
+                                    },
+                                    required: ["compliant", "reason"]
+                                }
                             }
-                        }
-                    });
+                        });
+                        rawJsonText = response.text || '';
+                    }
 
-                    if (response.text) {
+                    if (rawJsonText) {
                         try {
-                            const evaluation = JSON.parse(response.text.trim());
+                            const cleanJson = rawJsonText.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+                            const evaluation = JSON.parse(cleanJson);
                             isCompliant = evaluation.compliant !== false;
                             warningReason = evaluation.reason || '';
                         } catch (parseErr) {
-                            console.error("Failed to parse Gemini compliance response JSON:", parseErr, response.text);
+                            console.error("Failed to parse compliance response JSON:", parseErr, rawJsonText);
                         }
                     }
                 } catch (geminiErr) {
-                    console.error("Failed to evaluate prompt compliance via Gemini:", geminiErr);
-                    // Gemini APIで何らかのエラーが起きた場合は、システム全体がブロックされないように適合扱いとする
+                    console.error("Failed to evaluate prompt compliance via AI:", geminiErr);
+                    // AI APIで何らかのエラーが起きた場合は、システム全体がブロックされないように適合扱いとする
                 }
             }
         }
@@ -2187,9 +2235,29 @@ const DEFAULT_GEMINI_MODELS = [
 app.get('/api/gemini/models', requireAuth, requireWidgetAccess('app:gemini'), async (req, res) => {
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
+
+        let claudeModelsList = llmAdapter.INITIAL_CLAUDE_MODELS;
+        try {
+            const rawClaude = await llmAdapter.listClaudeModels(claudeApiKey, db);
+            if (Array.isArray(rawClaude) && rawClaude.length > 0) {
+                claudeModelsList = rawClaude;
+            } else if (rawClaude && Array.isArray(rawClaude.models)) {
+                claudeModelsList = rawClaude.models;
+            }
+        } catch (cErr) {
+            console.warn("Could not list Claude models in /api/gemini/models:", cErr.message);
+        }
 
         if (!apiKey) {
-            return res.json({ models: DEFAULT_GEMINI_MODELS, isConfigured: false });
+            return res.json({
+                models: DEFAULT_GEMINI_MODELS,
+                claudeModels: claudeModelsList,
+                isConfigured: false,
+                isClaudeConfigured: !!claudeApiKey,
+                aiProvider
+            });
         }
 
         const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 60000 } });
@@ -2219,17 +2287,62 @@ app.get('/api/gemini/models', requireAuth, requireWidgetAccess('app:gemini'), as
             displayName: m.displayName || m.name,
             description: m.description || '',
             inputTokenLimit: m.inputTokenLimit || 1048576,
-            outputTokenLimit: m.outputTokenLimit || 8192
+            outputTokenLimit: m.outputTokenLimit || 8192,
+            provider: 'gemini'
         }));
 
         if (models.length === 0) {
-            models = DEFAULT_GEMINI_MODELS;
+            models = DEFAULT_GEMINI_MODELS.map(m => ({ ...m, provider: 'gemini' }));
         }
 
-        res.json({ models, isConfigured: true });
+        res.json({
+            models,
+            claudeModels: claudeModelsList,
+            isConfigured: true,
+            isClaudeConfigured: !!claudeApiKey,
+            aiProvider
+        });
     } catch (error) {
         console.error("Error listing models, returning default models:", error);
-        res.json({ models: DEFAULT_GEMINI_MODELS, isConfigured: false, warning: "Using fallback model list" });
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        let claudeModelsList = llmAdapter.INITIAL_CLAUDE_MODELS;
+        try {
+            const rawClaude = await llmAdapter.listClaudeModels(claudeApiKey, db);
+            if (Array.isArray(rawClaude) && rawClaude.length > 0) {
+                claudeModelsList = rawClaude;
+            }
+        } catch (_) {}
+        res.json({
+            models: DEFAULT_GEMINI_MODELS,
+            claudeModels: claudeModelsList,
+            isConfigured: false,
+            isClaudeConfigured: !!claudeApiKey,
+            warning: "Using fallback model list"
+        });
+    }
+});
+
+// Anthropic Claude Models API (Dynamic Model List via API Key)
+app.get('/api/claude/models', requireAuth, async (req, res) => {
+    try {
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const result = await llmAdapter.listClaudeModels(claudeApiKey, db);
+        const modelsList = Array.isArray(result) ? result : (result?.models || llmAdapter.INITIAL_CLAUDE_MODELS);
+        res.json({
+            models: modelsList,
+            claudeModels: modelsList,
+            isConfigured: !!claudeApiKey,
+            isClaudeConfigured: !!claudeApiKey
+        });
+    } catch (error) {
+        console.error("Error listing Claude models:", error);
+        res.json({
+            models: llmAdapter.INITIAL_CLAUDE_MODELS,
+            claudeModels: llmAdapter.INITIAL_CLAUDE_MODELS,
+            isConfigured: false,
+            isClaudeConfigured: false,
+            warning: error.message
+        });
     }
 });
 
@@ -2277,7 +2390,7 @@ app.post('/api/gemini/tts', requireWidgetAccess('app:gemini'), async (req, res) 
         if (!text) return res.status(400).json({ error: 'Text is required' });
 
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        if (!apiKey) return res.status(500).json({ error: 'Gemini API Key not configured' });
+        if (!apiKey) return res.status(400).json({ error: '⚠️ 音声読み上げ（TTS）は Google Gemini 専用機能です。利用するには System Settings で Gemini API Key を設定してください。', geminiOnly: true });
 
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`, {
             method: "POST",
@@ -2315,7 +2428,7 @@ app.post('/api/gemini/proxy', requireWidgetAccess('app:gemini'), async (req, res
         if (!targetUrl) return res.status(400).json({ error: 'Target URL is required' });
 
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        if (!apiKey) return res.status(500).json({ error: 'Gemini API Key not configured' });
+        if (!apiKey) return res.status(400).json({ error: '⚠️ 音声読み上げ（TTS）は Google Gemini 専用機能です。利用するには System Settings で Gemini API Key を設定してください。', geminiOnly: true });
 
         // Construct the new URL with the server-side API key
         const urlObj = new URL(targetUrl);
@@ -2359,7 +2472,7 @@ app.post('/api/avatar/generate', requireAuth, async (req, res) => {
     try {
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         if (!apiKey) {
-            return res.status(500).json({ error: 'Gemini API Key not configured' });
+            return res.status(400).json({ error: '⚠️ AIアバター画像生成は Google Gemini 専用機能です。利用するには System Settings で Gemini API Key を設定してください。', geminiOnly: true });
         }
 
         const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
@@ -2497,16 +2610,20 @@ app.post('/api/gemini', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Access denied. Requires widget access: app:gemini' });
         }
 
-        const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.1-flash-lite-preview';
+        const geminiApiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const configuredProvider = config?.provider || (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !geminiApiKey ? 'claude' : 'gemini');
 
-        if (!apiKey) {
-            return res.status(500).json({ error: 'Gemini API Key not configured' });
-        }
-
-        // ZTA: Enforce Model Access (PEP)
-        let requestedModel = modelName;
+        const globalGeminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+        const globalClaudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
         const mode = config?.mode || 'rag';
+
+        if (mode === 'nanobanana' && !geminiApiKey) {
+            return res.status(400).json({
+                error: '⚠️ インフォグラフィック・画像生成（NanoBanana）は Google Gemini 専用機能です。利用するには System Settings で Gemini API Key を設定してください。',
+                geminiOnly: true
+            });
+        }
 
         // Retrieve custom workflow settings if provided
         let customWorkflow = null;
@@ -2517,14 +2634,38 @@ app.post('/api/gemini', requireAuth, async (req, res) => {
                 });
             });
         }
-        const globalGeminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
-        
+
+        // ZTA: Enforce Model Access (PEP)
+        let requestedModel = config?.model || (configuredProvider === 'claude' ? globalClaudeModel : globalGeminiModel);
         if (mode === 'research') {
-            requestedModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel;
+            const defaultResModel = configuredProvider === 'claude'
+                ? (await db.getSetting('CLAUDE_RESEARCH_MODEL') || globalClaudeModel)
+                : (await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel);
+            requestedModel = customWorkflow?.research_model || config?.model || defaultResModel;
         } else if (mode === 'nanobanana') {
             requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL') || globalGeminiModel;
         } else if (mode === 'html_svg') {
-            requestedModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel;
+            const defaultHtmlModel = configuredProvider === 'claude'
+                ? (await db.getSetting('CLAUDE_HTML_SVG_MODEL') || globalClaudeModel)
+                : (await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel);
+            requestedModel = customWorkflow?.output_model || config?.model || defaultHtmlModel;
+        }
+
+        // Fallback if selected provider key is missing but the other provider key is configured
+        if (mode !== 'nanobanana') {
+            if (llmAdapter.isClaudeModel(requestedModel) && !claudeApiKey && geminiApiKey) {
+                requestedModel = globalGeminiModel;
+            } else if (!llmAdapter.isClaudeModel(requestedModel) && !geminiApiKey && claudeApiKey) {
+                requestedModel = globalClaudeModel;
+            }
+        }
+
+        const isTargetClaude = mode !== 'nanobanana' && llmAdapter.isClaudeModel(requestedModel);
+        if (isTargetClaude && !claudeApiKey) {
+            return res.status(400).json({ error: 'Claude API Key が設定されていません。System Settings で Claude API Key を設定してください。' });
+        }
+        if (!isTargetClaude && !geminiApiKey) {
+            return res.status(400).json({ error: 'Gemini API Key が設定されていません。System Settings で Gemini API Key を設定してください。' });
         }
 
         const allowedModels = req.user.allowed_models || [];
@@ -2532,7 +2673,10 @@ app.post('/api/gemini', requireAuth, async (req, res) => {
         const hasDirectModelAccess = allowedModels.includes('*') || 
             allowedModels.includes(`model:${requestedModel}`) || 
             allowedModels.includes(`model:${cleanRequestedModel}`) ||
-            (allowedModels.includes('model:gemini-flash') && (cleanRequestedModel.includes('flash') || requestedModel === globalGeminiModel));
+            (allowedModels.includes('model:gemini-flash') && (cleanRequestedModel.includes('flash') || requestedModel === globalGeminiModel || requestedModel === globalClaudeModel)) ||
+            (allowedModels.includes('model:claude-haiku') && cleanRequestedModel.includes('haiku')) ||
+            (allowedModels.includes('model:claude-sonnet') && (cleanRequestedModel.includes('sonnet') || requestedModel === globalClaudeModel)) ||
+            (allowedModels.includes('model:claude-opus') && cleanRequestedModel.includes('opus'));
             
         const isAvatarCreationModel = isAvatarCreation && (
             requestedModel === globalGeminiModel || 
@@ -2567,7 +2711,7 @@ app.post('/api/gemini', requireAuth, async (req, res) => {
         const jobId = crypto.randomUUID();
 
         // Start background job
-        processGeminiJob(jobId, message, history, apiKey, requestedModel, config, req.user.googleId, images, previous_interaction_id, environment_id, workflowDefinitionId);
+        processGeminiJob(jobId, message, history, geminiApiKey, requestedModel, config, req.user.googleId, images, previous_interaction_id, environment_id, workflowDefinitionId, claudeApiKey);
 
         // Track RAG query usage for FAQ feature
         if (config?.mode === 'rag' && message.trim()) {
@@ -2591,16 +2735,16 @@ app.post('/api/gemini', requireAuth, async (req, res) => {
 
 // ...
 
-// Background Gemini Job Processor
-async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images, previous_interaction_id, environment_id, workflowDefinitionId) {
+// Background Gemini / Claude Job Processor
+async function processGeminiJob(jobId, message, history, apiKey, modelName, customConfig, googleId, images, previous_interaction_id, environment_id, workflowDefinitionId, claudeApiKeyParam) {
     geminiJobs[jobId] = { state: 'processing', reply: null, error: null, googleId };
-    console.log(`Starting Gemini Job ${jobId}...`);
+    console.log(`Starting AI Job ${jobId}...`);
     console.log(`Job Config: mode=${customConfig?.mode}, grounding=${customConfig?.grounding}, model=${modelName}`);
 
     try {
-        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
-
         let mode = customConfig?.mode || 'rag'; // Default to RAG
+        const claudeApiKey = claudeApiKeyParam || await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const aiProvider = customConfig?.provider || (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
 
         // Retrieve custom workflow settings if provided
         let customWorkflow = null;
@@ -2613,21 +2757,30 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
         }
 
         const globalGeminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+        const globalClaudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
 
-        // Deep Research: Force Custom Tools model if not explicitly configured
+        // Deep Research / Output Mode model resolution (respecting Claude models if selected)
         if (mode === 'research') {
-            const configuredResearchModel = customWorkflow?.research_model || await db.getSetting('GEMINI_RESEARCH_MODEL');
-            modelName = configuredResearchModel || globalGeminiModel;
+            const defaultRes = llmAdapter.isClaudeModel(modelName) || aiProvider === 'claude'
+                ? (await db.getSetting('CLAUDE_RESEARCH_MODEL') || globalClaudeModel)
+                : (await db.getSetting('GEMINI_RESEARCH_MODEL') || globalGeminiModel);
+            const configuredResearchModel = customWorkflow?.research_model || customConfig?.model || defaultRes;
+            modelName = configuredResearchModel;
             console.log(`Research Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'nanobanana') {
             const configuredNanoModel = customWorkflow?.output_model || await db.getSetting('GEMINI_NANO_BANANA_MODEL');
             modelName = configuredNanoModel || globalGeminiModel;
             console.log(`Nano Banana Mode Activated: Enforcing model ${modelName}`);
         } else if (mode === 'html_svg') {
-            const configuredHtmlSvgModel = customWorkflow?.output_model || await db.getSetting('GEMINI_HTML_SVG_MODEL');
-            modelName = configuredHtmlSvgModel || globalGeminiModel;
+            const defaultHtml = llmAdapter.isClaudeModel(modelName) || aiProvider === 'claude'
+                ? (await db.getSetting('CLAUDE_HTML_SVG_MODEL') || globalClaudeModel)
+                : (await db.getSetting('GEMINI_HTML_SVG_MODEL') || globalGeminiModel);
+            const configuredHtmlSvgModel = customWorkflow?.output_model || customConfig?.model || defaultHtml;
+            modelName = configuredHtmlSvgModel;
             console.log(`HTML/SVG Mode Activated: Enforcing model ${modelName}`);
         }
+
+        const useClaude = mode !== 'nanobanana' && (llmAdapter.isClaudeModel(modelName) || (!apiKey && !!claudeApiKey));
 
         // Get RAG files (if mode is 'rag' or 'research')
         let ragFiles = [];
@@ -2639,10 +2792,10 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
 
         if (mode === 'rag' || mode === 'research') {
             const targetFolderId = customConfig?.targetRagFolderId;
-            ragFiles = await new Promise((resolve, reject) => {
-                // Only use files synced within the last 40 hours (Gemini File API limit is 48h)
-                const expirationLimit = new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString();
-                let query = "SELECT gemini_file_uri, drive_file_id, file_name, mime_type FROM rag_files WHERE datetime(last_synced_at) > datetime(?)";
+            ragFiles = await new Promise((resolve) => {
+                // For Gemini File API, limit to 40h unless using Claude with local_cache_path
+                const expirationLimit = new Date(Date.now() - (useClaude ? 365 * 24 : 40) * 60 * 60 * 1000).toISOString();
+                let query = "SELECT gemini_file_uri, drive_file_id, file_name, mime_type, local_cache_path FROM rag_files WHERE datetime(last_synced_at) > datetime(?)";
                 let params = [expirationLimit];
                 
                 if (mode === 'rag' && targetFolderId) {
@@ -2801,6 +2954,122 @@ async function processGeminiJob(jobId, message, history, apiKey, modelName, cust
                 else resolve(row.access_token);
             });
         });
+
+        // 0. Anthropic Claude Execution Path (Normal / RAG / Search / Research / HTML_SVG)
+        if (useClaude) {
+            if (!claudeApiKey) {
+                throw new Error("Claude API Key が設定されていません。System Settings で Claude API Key を設定してください。");
+            }
+
+            console.log(`Executing job ${jobId} via Anthropic Claude (${modelName}) in mode=${mode}...`);
+
+            const enableWebSearch = mode === 'search' || mode === 'research' || (mode === 'normal' && !!customConfig?.grounding);
+            const enableDriveSaveTool = mode === 'search';
+
+            const saveToDriveCallback = async ({ filename, content, mimeType }) => {
+                const folderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
+                if (!folderId) {
+                    return { error: "Research Folder ID not configured in System Settings." };
+                }
+                if (!accessToken) {
+                    return { error: "User authorization missing. Cannot save to Drive." };
+                }
+                const { google } = require('googleapis');
+                const auth = new google.auth.OAuth2();
+                auth.setCredentials({ access_token: decrypt(accessToken) });
+                const drive = google.drive({ version: 'v3', auth });
+
+                const res = await drive.files.create({
+                    requestBody: {
+                        name: filename,
+                        parents: [folderId],
+                        mimeType: mimeType || 'text/markdown'
+                    },
+                    media: {
+                        mimeType: mimeType || 'text/markdown',
+                        body: content
+                    }
+                });
+                return { success: true, fileId: res.data.id, message: `File '${filename}' saved successfully.` };
+            };
+
+            const claudeRes = await llmAdapter.runClaudeChatJob({
+                apiKey: claudeApiKey,
+                model: modelName,
+                message,
+                history,
+                images,
+                ragFiles,
+                systemInstruction,
+                temperature: customConfig?.temperature ?? 0.7,
+                maxOutputTokens: customConfig?.maxOutputTokens ?? 16384,
+                enableWebSearch,
+                enableDriveSaveTool,
+                saveToDriveCallback
+            });
+
+            let finalReply = claudeRes.reply || "No content generated.";
+
+            // Deep Research Auto-Save to Drive for Claude as well
+            if (mode === 'research' && claudeRes.reply) {
+                try {
+                    const folderId = await db.getSetting('GEMINI_RESEARCH_FOLDER_ID');
+                    if (folderId && googleId) {
+                        const userRow = await new Promise((resolve, reject) => {
+                            db.get("SELECT access_token, refresh_token FROM users WHERE google_id = ?", [googleId], (err, row) => {
+                                if (err) reject(err);
+                                else resolve(row);
+                            });
+                        });
+                        if (userRow && userRow.access_token) {
+                            const { google } = require('googleapis');
+                            const oAuth2Client = await getOAuthClient();
+                            oAuth2Client.setCredentials({
+                                access_token: userRow.access_token,
+                                refresh_token: userRow.refresh_token
+                            });
+                            const drive = google.drive({ version: 'v3', auth: oAuth2Client });
+                            const dateStr = new Date().toISOString().split('T')[0];
+                            const filename = `DeepResearch_Report_${dateStr}_${Date.now()}.md`;
+                            try {
+                                await drive.files.create({
+                                    requestBody: { name: filename, parents: [folderId], mimeType: 'text/markdown' },
+                                    media: { mimeType: 'text/markdown', body: claudeRes.reply },
+                                    supportsAllDrives: true
+                                });
+                                finalReply += `\n\n---\n✅ **System Notification:** \nResearch report has been successfully saved to your Google Drive folder as \`${filename}\`.`;
+                            } catch (folderErr) {
+                                await drive.files.create({
+                                    requestBody: { name: filename, mimeType: 'text/markdown' },
+                                    media: { mimeType: 'text/markdown', body: claudeRes.reply }
+                                });
+                                finalReply += `\n\n---\n⚠️ **System Notification:** \nCould not access the specified folder (ID: ${folderId}). The research report was saved to the root of your Google Drive as \`${filename}\`.`;
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Failed to auto-save Claude research to drive:", err);
+                    finalReply += `\n\n---\n⚠️ **System Notification:** \nCould not save the research report to Google Drive. Error: ${err.message}`;
+                }
+            }
+
+            geminiJobs[jobId] = {
+                ...geminiJobs[jobId],
+                state: 'completed',
+                reply: finalReply,
+                usageMetadata: claudeRes.usageMetadata,
+                sourceInfo,
+                provider: 'claude',
+                model: modelName,
+                error: null,
+                interactionId: claudeRes.interactionId,
+                environmentId: 'anthropic'
+            };
+            console.log(`Claude Job ${jobId} completed.`);
+            return;
+        }
+
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 600000 } });
 
         // 1. Nanobanana (Image Generation) Mode
         if (mode === 'nanobanana') {
@@ -3294,7 +3563,11 @@ async function performRagSync(drive, ragFolders, apiKey) {
     console.log("Starting background RAG sync for multiple folders...");
 
     try {
-        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
+        const client = apiKey ? new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } }) : null;
+        const ragCacheDir = path.resolve(__dirname, '../data/rag_cache');
+        if (!fs.existsSync(ragCacheDir)) {
+            fs.mkdirSync(ragCacheDir, { recursive: true });
+        }
 
         let allDriveFiles = [];
         let folderIdMap = new Map(); // drive_file_id -> folder_id
@@ -3357,27 +3630,33 @@ async function performRagSync(drive, ragFolders, apiKey) {
                     if (mimeType === 'application/pdf') extension = 'pdf';
                 }
 
-                // Upload to Gemini
-                const fs = require('fs');
-                const path = require('path');
-                const os = require('os');
-                const tempFilePath = path.join(os.tmpdir(), `gemini_upload_${file.id}.${extension}`);
-                fs.writeFileSync(tempFilePath, content);
+                // Save persistent local cache for Claude & offline RAG access
+                const safeId = String(file.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+                const localCachePath = path.join(ragCacheDir, `${safeId}.${extension || 'bin'}`);
+                fs.writeFileSync(localCachePath, content);
 
-                const uploadResult = await client.files.upload({
-                    file: tempFilePath,
-                    config: {
-                        displayName: file.name,
-                        mimeType: mimeType
-                    }
-                });
+                // Upload to Gemini File API if Gemini API Key is configured
+                let geminiUri = `local://${safeId}`;
+                if (client) {
+                    const os = require('os');
+                    const tempFilePath = path.join(os.tmpdir(), `gemini_upload_${safeId}.${extension}`);
+                    fs.writeFileSync(tempFilePath, content);
 
-                fs.unlinkSync(tempFilePath);
+                    const uploadResult = await client.files.upload({
+                        file: tempFilePath,
+                        config: {
+                            displayName: file.name,
+                            mimeType: mimeType
+                        }
+                    });
+                    geminiUri = uploadResult.uri;
+                    fs.unlinkSync(tempFilePath);
+                }
 
-                // Store in DB
+                // Store in DB (including local_cache_path)
                 await new Promise((resolve, reject) => {
-                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, folder_id, file_name, mime_type, last_synced_at) VALUES (?, ?, ?, ?, ?, ?)`,
-                        [file.id, uploadResult.uri, currentFolderId, file.name, mimeType, new Date().toISOString()],
+                    db.run(`INSERT OR REPLACE INTO rag_files (drive_file_id, gemini_file_uri, folder_id, file_name, mime_type, local_cache_path, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                        [file.id, geminiUri, currentFolderId, file.name, mimeType, localCachePath, new Date().toISOString()],
                         (err) => {
                             if (err) reject(err);
                             else resolve();
@@ -3385,7 +3664,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
                     );
                 });
 
-                syncedFiles.push({ name: file.name, uri: uploadResult.uri });
+                syncedFiles.push({ name: file.name, uri: geminiUri });
 
             } catch (fileErr) {
                 console.error(`Failed to sync file ${file.name}:`, fileErr);
@@ -3460,8 +3739,9 @@ app.post('/api/rag/sync', requireAuth, async (req, res) => {
         }
 
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            return res.status(500).json({ error: "GEMINI_API_KEY is not set on server" });
+        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        if (!apiKey && !claudeApiKey) {
+            return res.status(500).json({ error: "GEMINI_API_KEY または CLAUDE_API_KEY が設定されていません。" });
         }
 
         // Start background process
@@ -4296,13 +4576,10 @@ function getCommonFreeSlotsProgrammatic(now, y, m, d, mergedBusy, settings) {
 }
 
 // カレンダーの予定一覧から移動が必要な予定を検出し、移動時間を推測する
-async function estimateTravelTimes(apiKey, events, ownerName) {
+async function estimateTravelTimes(apiKey, events, ownerName, claudeApiKey = null, aiProvider = 'gemini') {
     if (!events || events.length === 0) return [];
     
     try {
-        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
-        const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
-
         const formatEventsForTravel = (events) => {
             return events.map(e => {
                 const start = e.start.dateTime || e.start.date;
@@ -4344,15 +4621,29 @@ async function estimateTravelTimes(apiKey, events, ownerName) {
 【予定リスト】
 ${eventsText}`;
 
-        const aiResponse = await client.models.generateContent({
-            model: modelName,
-            contents: prompt
-        });
+        let textResponse = '';
+        if ((aiProvider === 'claude' || !apiKey) && claudeApiKey) {
+            const claudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+            textResponse = (await llmAdapter.generateTextWithClaude({
+                apiKey: claudeApiKey,
+                model: claudeModel,
+                prompt,
+                temperature: 0.2,
+                jsonMode: true
+            })).trim();
+        } else {
+            const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
+            const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
+            const aiResponse = await client.models.generateContent({
+                model: modelName,
+                contents: prompt
+            });
+            textResponse = (aiResponse.text || '').trim();
+        }
 
-        const textResponse = aiResponse.text.trim();
-        console.log(`Gemini Travel Time Estimation Output (${ownerName}):`, textResponse);
+        console.log(`AI Travel Time Estimation Output (${ownerName}):`, textResponse);
 
-        const cleanJson = textResponse.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
+        const cleanJson = textResponse.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
         const travelEstimations = JSON.parse(cleanJson);
         
         if (Array.isArray(travelEstimations)) {
@@ -4365,7 +4656,7 @@ ${eventsText}`;
     }
 }
 
-// Helper: 本日の双方の共通空きスロット（30分以上）を計算（Gemini推論併用）
+// Helper: 本日の双方の共通空きスロット（30分以上）を計算（Gemini / Claude 推論併用）
 async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
     const calendarSelf = await getCalendarClient(req, res, null); // ログインユーザー
     const calendarTarget = await getCalendarClient(req, res, targetEmail); // 相手
@@ -4404,12 +4695,14 @@ async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
     const filteredSelf = filterDefault(eventsSelf);
     const filteredTarget = filterDefault(eventsTarget);
 
-    // Gemini APIキーの有無をチェック
+    // Gemini / Claude APIキーの有無をチェック
     const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+    const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+    const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
     
     // APIキーがない場合は従来のロジックで移動時間を0としてフォールバック
-    if (!apiKey) {
-        console.log("Gemini API Key not set. Falling back to programmatic free slots calculator (no travel time).");
+    if (!apiKey && !claudeApiKey) {
+        console.log("AI API Key not set. Falling back to programmatic free slots calculator (no travel time).");
         const busySlots = [];
         [...filteredSelf, ...filteredTarget].forEach(event => {
             const start = new Date(event.start.dateTime || event.start.date);
@@ -4436,10 +4729,10 @@ async function getCommonFreeSlots(req, res, targetEmail, settings = {}) {
     }
 
     try {
-        console.log("Estimating travel times using Gemini...");
+        console.log(`Estimating travel times using ${aiProvider}...`);
         const [travelSelf, travelTarget] = await Promise.all([
-            estimateTravelTimes(apiKey, filteredSelf, 'BOSS'),
-            estimateTravelTimes(apiKey, filteredTarget, '対話相手')
+            estimateTravelTimes(apiKey, filteredSelf, 'BOSS', claudeApiKey, aiProvider),
+            estimateTravelTimes(apiKey, filteredTarget, '対話相手', claudeApiKey, aiProvider)
         ]);
 
         const busySlots = [];
@@ -4810,15 +5103,14 @@ Instructions:
                         }
                     }
 
-                    // 3. Gemini による動的応答生成の試行 (Local AI 未使用または失敗時)
+                    // 3. Gemini / Claude による動的応答生成の試行 (Local AI 未使用または失敗時)
                     if (!replyText) {
                         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
-                        if (apiKey) {
-                            try {
-                                const { GoogleGenAI } = require("@google/genai");
-                                const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
-                                const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
+                        const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+                        const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
 
+                        if (apiKey || claudeApiKey) {
+                            try {
                                 const defaultPrompt = await db.getSetting('DEFAULT_ASSISTANT_PROMPT') || '';
                                 const basePrompt = targetUser.assistant_prompt || defaultPrompt;
 
@@ -4844,19 +5136,33 @@ ${freeSlotsText}
                                 
                                 finalSystemInstruction += `\n\n${contextText}\n\n${langInstruction}`;
 
-                                const aiResponse = await client.models.generateContent({
-                                    model: modelName,
-                                    contents: `ユーザーからのメッセージ: "${text}"`,
-                                    config: {
+                                if ((aiProvider === 'claude' || !apiKey) && claudeApiKey) {
+                                    const claudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+                                    replyText = (await llmAdapter.generateTextWithClaude({
+                                        apiKey: claudeApiKey,
+                                        model: claudeModel,
+                                        prompt: `ユーザーからのメッセージ: "${text}"`,
                                         systemInstruction: finalSystemInstruction,
                                         temperature: 0.5
-                                    }
-                                });
+                                    })).trim();
+                                } else if (apiKey) {
+                                    const { GoogleGenAI } = require("@google/genai");
+                                    const client = new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } });
+                                    const modelName = await db.getSetting('GEMINI_MODEL') || 'gemini-2.5-flash';
 
-                                replyText = (aiResponse.text || '').trim();
+                                    const aiResponse = await client.models.generateContent({
+                                        model: modelName,
+                                        contents: `ユーザーからのメッセージ: "${text}"`,
+                                        config: {
+                                            systemInstruction: finalSystemInstruction,
+                                            temperature: 0.5
+                                        }
+                                    });
+                                    replyText = (aiResponse.text || '').trim();
+                                }
                                 if (replyText) isAssistant = true;
                             } catch (aiErr) {
-                                console.error("Failed to generate assistant reply using Gemini:", aiErr);
+                                console.error("Failed to generate assistant reply using AI:", aiErr);
                             }
                         }
                     }

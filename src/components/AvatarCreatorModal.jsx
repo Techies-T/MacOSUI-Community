@@ -7,8 +7,18 @@ const AvatarCreatorModal = ({ onClose, onAvatarUpdate }) => {
     const [capturedImage, setCapturedImage] = useState(null);
     const [stage, setStage] = useState('camera'); // 'camera', 'preview', 'generating', 'success', 'error'
     const [errorMsg, setErrorMsg] = useState('');
+    const [isGeminiConfigured, setIsGeminiConfigured] = useState(true);
 
     useEffect(() => {
+        fetch('/api/config')
+            .then(res => res.json())
+            .then(data => {
+                if (data.isGeminiConfigured !== undefined) {
+                    setIsGeminiConfigured(data.isGeminiConfigured);
+                }
+            })
+            .catch(() => {});
+
         // Start camera when component mounts
         startCamera();
         return () => {
@@ -116,6 +126,14 @@ const AvatarCreatorModal = ({ onClose, onAvatarUpdate }) => {
                 </div>
                 
                 <div className="p-6 flex flex-col items-center">
+                    {!isGeminiConfigured && (
+                        <div className="w-full mb-4 p-3 rounded-xl bg-amber-900/40 border border-amber-500/40 text-xs text-amber-200 flex items-start gap-2">
+                            <span className="text-base leading-none">⚠️</span>
+                            <div>
+                                <strong>Google Gemini 専用機能:</strong> AI アバター生成（画像生成）は Google Gemini 専用機能です。利用するには System Settings ＞ System タブで Gemini API Key を設定してください。
+                            </div>
+                        </div>
+                    )}
                     {stage === 'camera' && (
                         <>
                             <div className="w-64 h-64 bg-black rounded-full overflow-hidden shadow-inner border-4 border-indigo-500/30 mb-6 relative">

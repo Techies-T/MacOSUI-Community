@@ -1007,6 +1007,24 @@ ${reportText.substring(0, 1500)}...`;
                     </div>
                 </div>
 
+                {/* Gemini-Only / Provider Configuration Warnings */}
+                {config && config.isGeminiConfigured === false && selectedWorkflow?.output_type === 'infographic' && (
+                    <div className="mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2 shadow-sm">
+                        <span className="text-base leading-none">⚠️</span>
+                        <div>
+                            <strong>Gemini API Key 未設定の警告:</strong> 選択中のワークフロー「{selectedWorkflow.name}」は出力形式が<strong>インフォグラフィック画像（NanoBanana）</strong>に設定されています。ラスター画像生成は <strong>Google Gemini 専用機能</strong>のため、実行には System Settings で Gemini API Key の設定が必要です（Claude のみで運用する場合は「HTML/SVG ダッシュボード」形式のワークフローを選択してください）。
+                        </div>
+                    </div>
+                )}
+                {config && config.isClaudeConfigured === false && (selectedWorkflow?.research_model?.startsWith('claude-') || selectedWorkflow?.output_model?.startsWith('claude-') || (!selectedWorkflow?.research_model && config.aiProvider === 'claude')) && (
+                    <div className="mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2 shadow-sm">
+                        <span className="text-base leading-none">⚠️</span>
+                        <div>
+                            <strong>Claude API Key 未設定の警告:</strong> Claude モデルを使用する設定になっていますが、Claude API Key が未設定です。System Settings ＞ System タブから Claude API Key を設定してください。
+                        </div>
+                    </div>
+                )}
+
                 {/* Knowledge RAG Selector */}
                 {selectedWorkflow?.reference_knowledge === 1 && Array.isArray(availableArticles) && availableArticles.length > 0 && (
                     <div className="mb-4 bg-indigo-50/20 rounded-xl border border-indigo-100/40 p-3 shadow-sm">

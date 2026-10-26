@@ -128,6 +128,16 @@ const LiveConciergeTab = ({
 
     return (
         <div className="space-y-6">
+            {initialConfig.isGeminiConfigured === false && (
+                <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 space-y-1 shadow-sm">
+                    <div className="font-bold text-amber-800 flex items-center gap-1.5 text-sm">
+                        <span>⚠️ Live Concierge は Google Gemini 専用機能です（Gemini API Key 未設定）</span>
+                    </div>
+                    <p className="leading-relaxed">
+                        Live Concierge（WebSocket リアルタイム音声・画面共有対話）は Google の <strong>Multimodal Live API</strong> を使用する専用機能です。現在 Gemini API Key が設定されていないため、Live Concierge を利用するには「System」タブで <strong>Gemini API Key</strong> を設定してください。
+                    </p>
+                </div>
+            )}
             {/* ヘッダー情報バナー */}
             <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-xl p-5 shadow-sm border border-indigo-800">
                 <div className="flex items-center gap-3 mb-2">

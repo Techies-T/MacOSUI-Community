@@ -334,6 +334,60 @@ const RolesTab = ({ user, rbacPolicies, onSaveRbacPolicies, ragFolders = [] }) =
                                 ))}
 
                                 <tr className="bg-gray-50/50">
+                                    <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">🤖 AI Models Access (Gemini & Claude 利用許可モデル)</td>
+                                </tr>
+                                {[
+                                    { id: 'model:gemini-flash', label: 'Google Gemini Flash / Default Series (model:gemini-flash)' },
+                                    { id: 'model:gemini-pro', label: 'Google Gemini Pro Series (model:gemini-pro)' },
+                                    { id: 'model:claude-haiku', label: 'Anthropic Claude Haiku Series (model:claude-haiku)' },
+                                    { id: 'model:claude-sonnet', label: 'Anthropic Claude Sonnet Series (model:claude-sonnet)' },
+                                    { id: 'model:claude-opus', label: 'Anthropic Claude Opus Series (model:claude-opus)' }
+                                ].map(modelPerm => (
+                                    <tr key={modelPerm.id} className="hover:bg-purple-50/30 transition-colors">
+                                        <td className="px-4 py-2 border-r border-gray-200 sticky left-0 bg-inherit text-gray-700 pl-6">
+                                            {modelPerm.label}
+                                        </td>
+                                        {Object.keys(rbacPolicies).map(roleKey => {
+                                            const allowed = rbacPolicies[roleKey].allowed_models || [];
+                                            const isChecked = allowed.includes('*') || allowed.includes(modelPerm.id);
+                                            const isDisabled = allowed.includes('*') && roleKey === 'admin';
+                                            const handleToggleModel = () => {
+                                                const role = rbacPolicies[roleKey];
+                                                if (!role) return;
+                                                let nextAllowed = [...(role.allowed_models || [])];
+                                                if (nextAllowed.includes('*')) {
+                                                    alert("This role has '*' (all models).");
+                                                    return;
+                                                }
+                                                if (nextAllowed.includes(modelPerm.id)) {
+                                                    nextAllowed = nextAllowed.filter(m => m !== modelPerm.id);
+                                                } else {
+                                                    nextAllowed.push(modelPerm.id);
+                                                }
+                                                onSaveRbacPolicies({
+                                                    ...rbacPolicies,
+                                                    [roleKey]: {
+                                                        ...role,
+                                                        allowed_models: nextAllowed
+                                                    }
+                                                });
+                                            };
+                                            return (
+                                                <td key={roleKey} className="px-4 py-2 text-center border-r border-gray-200 last:border-0">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        disabled={isDisabled}
+                                                        onChange={() => !isDisabled && handleToggleModel()}
+                                                        className={`w-3.5 h-3.5 rounded cursor-pointer ${isDisabled ? 'text-gray-400 opacity-50' : 'text-purple-600 focus:ring-purple-500'}`}
+                                                    />
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+
+                                <tr className="bg-gray-50/50">
                                     <td colSpan={Object.keys(rbacPolicies).length + 1} className="px-4 py-2 font-semibold text-gray-700">📦 Pods Access (論理境界へのアクセス制限)</td>
                                 </tr>
                                 {[

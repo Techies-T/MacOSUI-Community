@@ -3,6 +3,35 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v3.0.0] - 2026-10-26
+
+### 🟣 Multi-LLM Engine: Google Gemini & Anthropic Claude Dual-Support メジャーリリース
+
+#### ✨ New Features (新機能・マルチLLM対応)
+- **Anthropic Claude API 公式統合 & ランタイム切り替え**:
+  - Google Gemini の全機能を 100% 維持したまま、Anthropic Claude API（`@anthropic-ai/sdk`）をフルサポート。
+  - **System Settings（システム設定）** に「AI Engine Configuration (Multi-LLM Switcher)」を追加。Claude API Key の AES-256-GCM 暗号化保存および、動的な Claude モデル一覧取得（SELECT Box）に対応。
+  - チャットアプリ（`Gemini.jsx`）の上部ヘッダーにモデル切り替え SELECT Box を配備し、Gemini モデルと Claude モデルを会話中にワンクリックでスイッチ可能に。
+  - 判定優先順位：ユーザーがチャット画面等で個別に指定したモデルを最優先とし、未指定時は System Settings の「Default AI Provider」およびデフォルトモデルへ自動フォールバック。
+- **Anthropic Prompt Caching 統合による Personal RAG の高速化 & 大幅コスト削減**:
+  - Google Drive から同期された社内文書（PDF/テキスト/Markdown）をローカルキャッシュ領域（`data/rag_cache`）から Claude にネイティブ連携。
+  - Anthropic Document API（PDF Base64 送信）と **Anthropic Prompt Caching (`cache_control: { type: 'ephemeral' }`)** を自動適用。2回目以降の同一文書への質問において、トークンコストを最大 90% 削減しレスポンスを劇的に高速化。
+  - RAG 処理時および Claude 実行時のタイムアウト上限を 60 秒から **180 秒（3分）** に拡張し、ローディング表示に「社内ドキュメントを解析中 (Claude Prompt Caching)...」の状態インジケーターを導入。
+- **自律型 Deep Research ワークフローの Claude スイッチ対応**:
+  - Deep Research Task 1（情報調査・計画フェーズ）および Task 2（HTML/SVG レポート生成フェーズ）において、Gemini と Claude を個別に選択・組み合わせ可能に（例: 調査は Claude、レポート生成は Gemini など）。
+- **MCP Client（McpChat）での Claude 自律ツール実行ループ**:
+  - MCP サーバーから取得したツールスキーマを Anthropic 形式（`tools`）へ自動変換し、Claude によるマルチターンの自律ツール実行（Tool Use ループ）を実現。
+  - チャット画面上部ヘッダーから直接 Gemini / Claude モデルを即座にスイッチ可能。
+
+#### 🛡️ Stability & Security Enhancements (安定化 & 自動自己修復)
+- **推論特化型モデル（Claude Opus 5系等）における `temperature` 非推奨エラーの自動自己修復（Auto-healing）**:
+  - 最新の推論・思考特化型モデル（`claude-opus-5-5` や Extended Thinking モデル等）において、API 仕様で非推奨とされている `temperature` パラメータを自動判定・除外。
+  - 万一 API から `temperature is deprecated` エラーが返された場合も、バックグラウンドで即座に `temperature` を除外して自動リトライするフォールバックリカバリーを実装。
+- **MCP 設定導線の重複解消と一本化**:
+  - `System` タブにあった重複する MCP Agent Model 設定を削除し、管理者向け設定を `MCP Connections`（Server Monitor ＞ MCP Chat Model サブタブ）に一元化。
+
+---
+
 ## [v2.9.2] - 2026-10-23
 
 ### 🖥️ クロスプラットフォーム UI/レイアウト安定化 & ZTA セッションタイムアウト強制ログアウト強化（安定版）

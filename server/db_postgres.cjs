@@ -230,6 +230,7 @@ async function initDb() {
     await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN mime_type TEXT", () => r()));
     await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN folder_id TEXT", () => r()));
     await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN file_name TEXT", () => r()));
+    await new Promise(r => pool.query("ALTER TABLE rag_files ADD COLUMN local_cache_path TEXT", () => r()));
 
     // User Preferences (Window State & Personal Chat Presets)
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS user_preferences (
@@ -615,6 +616,29 @@ async function autoActivate() {
                 console.log('DEBUG: Auto-configured GEMINI_API_KEY from environment.');
             }
         }
+        const envClaudeKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+        if (envClaudeKey) {
+            const existingClaude = await db.getSetting('CLAUDE_API_KEY');
+            if (!existingClaude) {
+                await db.setSetting('CLAUDE_API_KEY', envClaudeKey);
+                console.log('DEBUG: Auto-configured CLAUDE_API_KEY from environment.');
+            }
+        }
+        if (!(await db.getSetting('AI_PROVIDER'))) {
+            await db.setSetting('AI_PROVIDER', process.env.AI_PROVIDER || 'gemini');
+        }
+        if (!(await db.getSetting('CLAUDE_MODEL'))) {
+            await db.setSetting('CLAUDE_MODEL', process.env.CLAUDE_MODEL || 'claude-sonnet-4-5');
+        }
+        if (!(await db.getSetting('CLAUDE_RESEARCH_MODEL'))) {
+            await db.setSetting('CLAUDE_RESEARCH_MODEL', process.env.CLAUDE_RESEARCH_MODEL || 'claude-sonnet-4-5');
+        }
+        if (!(await db.getSetting('CLAUDE_HTML_SVG_MODEL'))) {
+            await db.setSetting('CLAUDE_HTML_SVG_MODEL', process.env.CLAUDE_HTML_SVG_MODEL || 'claude-sonnet-4-5');
+        }
+        if (!(await db.getSetting('CLAUDE_MCP_CHAT_MODEL'))) {
+            await db.setSetting('CLAUDE_MCP_CHAT_MODEL', process.env.CLAUDE_MCP_CHAT_MODEL || 'claude-sonnet-4-5');
+        }
         if (process.env.MCP_CLIENT_ID && process.env.MCP_CLIENT_SECRET) {
             const existingMcpId = await db.getSetting('MCP_CLIENT_ID');
             if (!existingMcpId) {
@@ -811,6 +835,10 @@ async function autoActivate() {
             {
                 label: "2025年阪神タイガース優勝の立役者",
                 prompt: "MariaDBの「打者成績（batting_stats）」および「投手成績（pitching_stats）」から、2024年と2025年の2カ年データを比較し、セ・パ両リーグの他球団ライバルを含めた【2024 vs 2025 NPB 投打総合・戦力進化ダッシュボード】を作成してください。\n\n情報量が多くてもUIがビジー（過密）にならず、直感的に戦力UPがわかる以下のGenUI設計要件を満たしてください：\n\n1. 【最上部：2024 ➔ 2025 戦力UP・最大跳躍サマリー（3分割カード）】：\n   - ①「最大跳躍スラッガー」：前年から最もWAR・本塁打を伸ばした野手（例: 佐藤輝明 +3.4 WAR、森下翔太など）\n   - ②「最大跳躍エース」：前年から防御率・投球回・WARを劇的に改善した先発投手（例: 才木浩人など）\n   - ③「鉄壁リリーフ進化」：セーブ・ホールド数を大幅に上積みした守護神・セットアッパー（岩崎優、桐敷拓馬、R.マルティネスなど）\n\n2. 【タブ切り替え（Tabs）によるスッキリした画面構成】：\n   画面が混雑しないよう、以下の3つのタブで整理して表示してください：\n   - [⚾ 野手編 (2カ年比較)]\n   - [🎯 先発投手編 (2カ年比較)]\n   - [🛡️ 救援投手編 (クローザー＆中継ぎ)]\n\n3. 【各タブ内の構成（グラフ ＋ 前年比バッジ ＋ クリック連動カード）】：\n   - 【Chart.js 2カ年グループ棒グラフ】：\n     2024年（グレー） vs 2025年（鮮やかなブルー）を選手ごとに2本並べて表示し、一目で伸び代がわかるようにする\n   - 【前年比増減バッジ】：\n     数字の横に「+3.4 ▲（緑色）」や「-0.3 ▼（赤色）」のコンパクトなピルバッジを配置し、戦力増減を瞬時に判別可能にする\n   - 【クリック連動・選手詳細カード】：\n     グラフのバーや一覧の行をクリックすると、下部または右側のカードにその選手の2カ年全スタッツ（打率・本塁打・打点・OPS・タイトル / 防御率・WHIP・K数・S・H）が切り替わって深掘り表示される仕組み\n\n4. 【投手支配力マトリックスと見方ガイド（投手タブ内）】：\n   - WHIP（横軸） vs 防御率（縦軸）の散布図\n   - ★必須：グラフ直下に「※左下（WHIP 1.00未満・防御率1点台）が絶対的守護神・エースの領域」という解説注記を配置\n\n5. 【AIアナリスト戦力分析講評】：\n   - 2024年から2025年にかけて、他球団（ソフトバンク・巨人・中日など）と阪神タイガースのどちらがより戦力を底上げできたかの総合考察"
+            },
+            {
+                label: "2026年日本シリーズ（ソフトバンクvsDeNA）戦力徹底比較",
+                prompt: "MariaDBの「打者成績（batting_stats）」、「投手成績（pitching_stats）」、「対戦データ（games）」、「順位表（team_standings）」から、2026年の日本シリーズで激突する【福岡ソフトバンクホークス vs 横浜DeNAベイスターズ】の戦力を徹底比較・分析したGenUIダッシュボードを作成してください。\n\n阪神タイガースをCSファイナルステージで破って下克上進出を果たした横浜DeNAベイスターズと、圧倒的勝率でパ・リーグを制覇した福岡ソフトバンクホークスの直接対決について、以下の観点を網羅してください：\n1. 【最上部サマリーカード（キーマッチアップ）】：\n   - ①「打撃力対決」：近藤健介・栗原陵矢・山川穂高 vs 牧秀悟・オースティン・佐野恵太・宮﨑敏郎（チーム打率・本塁打・OPS比較）\n   - ②「エース先発対決」：有原航平・モイネロ vs 東克樹・ジャクソン・ケイ（防御率・WHIP・投球回比較）\n   - ③「救援・守護神対決」：杉山一樹・ヘルナンデス vs 森原康平・伊勢大夢（セーブ数・防御率・リリーフ安定度）\n2. 【直接対戦＆過去の日本シリーズ因縁分析】：\n   - 2024年日本シリーズ（DeNAが4勝2敗で日本一）および2026年交流戦（ソフトバンク2勝1敗）の対戦履歴（gamesテーブル）からの傾向分析\n   - DeNAのCSファイナル（阪神戦）での勝ち上がり要因（東・ケイの好投、森原の連続セーブ、牧・オースティンの決定力）\n3. 【投打スタッツ比較グラフ（Chart.js）】：\n   - 主力野手のOPS・本塁打・打点レーダーチャートまたは比較棒グラフ\n   - 主力投手の防御率・WHIP散布図\n4. 【AIアナリストシリーズ展望・勝敗の鍵】：\n   - 横浜スタジアム（セ主催・DHなし）とみずほPayPayドーム（パ主催・DHあり）での戦い方の違いと注目ポイント"
             }
         ];
 

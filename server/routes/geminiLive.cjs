@@ -382,7 +382,7 @@ function setupGeminiLiveWebSocket(server) {
             console.error('[Gemini Live WS] Gemini API Key is not configured.');
             clientWs.send(JSON.stringify({
                 type: 'error',
-                message: 'Gemini APIキーが設定されていません。システム設定画面でAPIキーを登録してください。'
+                message: '⚠️ Live Concierge（リアルタイム音声・画面対話）は Google Gemini 専用機能です。利用するには System Settings で Gemini API Key を設定してください。'
             }));
             clientWs.close(1008, 'API Key missing');
             return;

@@ -32,7 +32,10 @@ const SystemSettings = ({ user }) => {
     // 初期タブ: 全ユーザー共通で 'General' を初期選択
     const [activeTab, setActiveTab] = useState('General');
     const [models, setModels] = useState([]);
+    const [claudeModels, setClaudeModels] = useState([]);
+    const [aiProvider, setAiProvider] = useState('gemini');
     const [currentModel, setCurrentModel] = useState('');
+    const [currentClaudeModel, setCurrentClaudeModel] = useState('claude-sonnet-4-6');
     const [currentNanoBananaModel, setCurrentNanoBananaModel] = useState('');
     const [currentResearchModel, setCurrentResearchModel] = useState('');
     const [currentHtmlSvgModel, setCurrentHtmlSvgModel] = useState('');
@@ -50,10 +53,12 @@ const SystemSettings = ({ user }) => {
     const [newRagFolderName, setNewRagFolderName] = useState('');
     const [researchFolderId, setResearchFolderId] = useState(''); // New state
     const [geminiApiKey, setGeminiApiKey] = useState('');
+    const [claudeApiKey, setClaudeApiKey] = useState('');
     const [googleClientId, setGoogleClientId] = useState('');
     const [googleClientSecret, setGoogleClientSecret] = useState('');
     const [isConfigured, setIsConfigured] = useState(false);
     const [isGeminiConfigured, setIsGeminiConfigured] = useState(false);
+    const [isClaudeConfigured, setIsClaudeConfigured] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
@@ -100,6 +105,28 @@ const SystemSettings = ({ user }) => {
     const [ragFaqs, setRagFaqs] = useState([]);
 
 
+    const refreshModelsList = async () => {
+        if (!canSelectModel) return;
+        try {
+            const [gemRes, claudeRes] = await Promise.all([
+                fetch('/api/gemini/models').then(r => r.json()).catch(() => ({})),
+                fetch('/api/claude/models').then(r => r.json()).catch(() => ({}))
+            ]);
+            if (Array.isArray(gemRes.models)) setModels(gemRes.models);
+            
+            const cList = Array.isArray(claudeRes.models)
+                ? claudeRes.models
+                : (Array.isArray(claudeRes)
+                    ? claudeRes
+                    : (Array.isArray(gemRes.claudeModels) ? gemRes.claudeModels : []));
+            if (cList.length > 0) {
+                setClaudeModels(cList);
+            }
+        } catch (err) {
+            console.error("Failed to refresh models", err);
+        }
+    };
+
     useEffect(() => {
         
         // Fetch Chat Presets
@@ -116,20 +143,25 @@ const SystemSettings = ({ user }) => {
 
         // Fetch models (Only for users with permission to choose/manage models, preventing 403 audit logs)
         if (canSelectModel) {
-            fetch('/api/gemini/models')
-                .then(res => res.json())
-                .then(data => setModels(data.models || []))
-                .catch(err => console.error("Failed to fetch models", err));
+            refreshModelsList();
         }
 
         // Fetch current config
         fetch('/api/config')
             .then(res => res.json())
             .then(data => {
+                if (data.aiProvider) {
+                    setAiProvider(data.aiProvider);
+                }
                 if (data.geminiModel) {
                     setCurrentModel(data.geminiModel);
                 } else {
                     setCurrentModel('gemini-3.1-flash-lite-preview');
+                }
+                if (data.claudeModel) {
+                    setCurrentClaudeModel(data.claudeModel);
+                } else {
+                    setCurrentClaudeModel('claude-sonnet-4-6');
                 }
                 if (data.googleDriveRootId) {
                     setDriveRootId(data.googleDriveRootId);
@@ -145,6 +177,9 @@ const SystemSettings = ({ user }) => {
                 }
                 if (data.isGeminiConfigured !== undefined) {
                     setIsGeminiConfigured(data.isGeminiConfigured);
+                }
+                if (data.isClaudeConfigured !== undefined) {
+                    setIsClaudeConfigured(data.isClaudeConfigured);
                 }
                 if (data.lastRagSyncTime) {
                     setLastRagSyncTime(data.lastRagSyncTime);
@@ -192,10 +227,12 @@ const SystemSettings = ({ user }) => {
                 if (data.mcpQuickPrompts) {
                     setMcpQuickPrompts(data.mcpQuickPrompts);
                 }
-                if (data.geminiMcpChatModel) {
+                if (data.aiProvider === 'claude' && data.claudeMcpChatModel) {
+                    setCurrentMcpChatModel(data.claudeMcpChatModel);
+                } else if (data.geminiMcpChatModel) {
                     setCurrentMcpChatModel(data.geminiMcpChatModel);
                 } else {
-                    setCurrentMcpChatModel(globalGeminiModel);
+                    setCurrentMcpChatModel(data.aiProvider === 'claude' ? (data.claudeModel || 'claude-sonnet-4-6') : globalGeminiModel);
                 }
                 if (data.rbacPolicies) {
                     setRbacPolicies(data.rbacPolicies);
@@ -337,7 +374,9 @@ const SystemSettings = ({ user }) => {
                 payload.mcpTokenUrl = mcpTokenUrl;
                 payload.mcpClientId = mcpClientId;
                 payload.mcpQuickPrompts = mcpQuickPrompts;
+                payload.aiProvider = aiProvider;
                 if (geminiApiKey) payload.geminiApiKey = geminiApiKey;
+                if (claudeApiKey) payload.claudeApiKey = claudeApiKey;
                 if (googleClientSecret) payload.googleClientSecret = googleClientSecret;
                 if (mcpClientSecret) payload.mcpClientSecret = mcpClientSecret;
                 payload.localAiEnabled = localAiEnabled;
@@ -368,7 +407,13 @@ const SystemSettings = ({ user }) => {
                 alert('Settings saved successfully!');
                 if (geminiApiKey) {
                     setIsGeminiConfigured(true);
+                    setGeminiApiKey('');
                 }
+                if (claudeApiKey) {
+                    setIsClaudeConfigured(true);
+                    setClaudeApiKey('');
+                }
+                await refreshModelsList();
             } else {
                 const errData = await res.json().catch(() => ({}));
                 alert(`Failed to save settings: ${errData.error || 'Server error'}`);
@@ -392,6 +437,38 @@ const SystemSettings = ({ user }) => {
         } catch (err) {
             setCurrentModel(prev);
             console.error("Failed to save model selection", err);
+        }
+    };
+
+    const handleClaudeModelChange = async (modelName) => {
+        const prev = currentClaudeModel;
+        setCurrentClaudeModel(modelName);
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ claudeModel: modelName })
+            });
+            if (!res.ok) setCurrentClaudeModel(prev);
+        } catch (err) {
+            setCurrentClaudeModel(prev);
+            console.error("Failed to save Claude model selection", err);
+        }
+    };
+
+    const handleAiProviderChange = async (provider) => {
+        const prev = aiProvider;
+        setAiProvider(provider);
+        try {
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ aiProvider: provider })
+            });
+            if (!res.ok) setAiProvider(prev);
+        } catch (err) {
+            setAiProvider(prev);
+            console.error("Failed to save AI provider selection", err);
         }
     };
 
@@ -447,10 +524,14 @@ const SystemSettings = ({ user }) => {
         const prev = currentMcpChatModel;
         setCurrentMcpChatModel(modelName);
         try {
+            const isClaude = (modelName || '').startsWith('claude-');
+            const payload = isClaude 
+                ? { claudeMcpChatModel: modelName, geminiMcpChatModel: modelName }
+                : { geminiMcpChatModel: modelName };
             const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ geminiMcpChatModel: modelName })
+                body: JSON.stringify(payload)
             });
             if (!res.ok) setCurrentMcpChatModel(prev);
         } catch (err) {
@@ -969,18 +1050,27 @@ const SystemSettings = ({ user }) => {
                     <SystemTab
                         geminiApiKey={geminiApiKey}
                         setGeminiApiKey={setGeminiApiKey}
+                        claudeApiKey={claudeApiKey}
+                        setClaudeApiKey={setClaudeApiKey}
+                        aiProvider={aiProvider}
+                        handleAiProviderChange={handleAiProviderChange}
                         googleClientId={googleClientId}
                         setGoogleClientId={setGoogleClientId}
                         googleClientSecret={googleClientSecret}
                         setGoogleClientSecret={setGoogleClientSecret}
                         isConfigured={isConfigured}
                         isGeminiConfigured={isGeminiConfigured}
+                        isClaudeConfigured={isClaudeConfigured}
                         handleSaveSettings={handleSaveSettings}
                         searchTerm={searchTerm}
                         setSearchTerm={setSearchTerm}
                         filteredModels={filteredModels}
+                        claudeModels={claudeModels}
                         currentModel={currentModel}
                         handleModelChange={handleModelChange}
+                        currentClaudeModel={currentClaudeModel}
+                        handleClaudeModelChange={handleClaudeModelChange}
+                        refreshModelsList={refreshModelsList}
                         currentNanoBananaModel={currentNanoBananaModel}
                         handleNanoBananaModelChange={handleNanoBananaModelChange}
                         currentHtmlSvgModel={currentHtmlSvgModel}
@@ -1000,7 +1090,8 @@ const SystemSettings = ({ user }) => {
                     <LiveConciergeTab
                         initialConfig={{
                             geminiLiveAvailableModels,
-                            geminiLiveDefaultModel
+                            geminiLiveDefaultModel,
+                            isGeminiConfigured
                         }}
                         canManageSettings={canManageSettings}
                         onSaved={({ geminiLiveAvailableModels: newModels, geminiLiveDefaultModel: newDefault }) => {
@@ -1038,6 +1129,10 @@ const SystemSettings = ({ user }) => {
                 {activeTab === 'Deep Research' && (
                     <DeepResearchTab
                         models={models}
+                        claudeModels={claudeModels}
+                        isGeminiConfigured={isGeminiConfigured}
+                        isClaudeConfigured={isClaudeConfigured}
+                        aiProvider={aiProvider}
                         hasWidget={hasWidget}
                         hasAction={hasAction}
                     />
@@ -1049,6 +1144,7 @@ const SystemSettings = ({ user }) => {
                         setMcpQuickPrompts={setMcpQuickPrompts}
                         handleSaveSettings={handleSaveSettings}
                         models={models}
+                        claudeModels={claudeModels}
                         currentMcpChatModel={currentMcpChatModel}
                         handleMcpChatModelChange={handleMcpChatModelChange}
                         mcpChatSystemInstruction={mcpChatSystemInstruction}

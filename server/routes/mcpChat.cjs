@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { GoogleGenAI } = require("@google/genai");
 const { getAllMcpToolsForGemini, callMcpTool, getMcpMetadata } = require('../mcpClient.cjs');
 const db = require('../db.cjs');
+const llmAdapter = require('../services/llmAdapter.cjs');
 
 // Initialize Gemini client
 function getGeminiClient(apiKey) {
@@ -232,11 +233,16 @@ Knowledge Base MCP Reference:
 - \`get_author_post_counts\`: Returns the number of knowledge base articles posted by each author grouped by \`period\` (\`"monthly"\`, \`"quarterly"\`, \`"half-yearly"\`, \`"yearly"\`).
 
 Database Multi-Year Notice (MariaDB NPB):
-The database contains official multi-year records for 2024, 2025, and 2026 NPB seasons (Source: NPB Official npb.jp as of October 2026):
-- \`batting_stats\` table includes \`year\` (2024, 2025, 2026), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (e.g., 佐藤輝明: 2026年 セ・リーグ三冠王[打率.314/39本/105点]・セMVP、栗原陵矢: 2026年 パ本塁打王[40本]・パ打点王[118点]、レイエス: 2026年 パ首位打者[打率.313/32本/82点]、近藤健介: 2026年 打率.310/32本/108点、森下翔太: 2026年 打率.294/35本/84点、大山悠輔: 2026年 打率.281/20本/84点、中野拓夢: 2026年 打率.293/146安打).
-- \`pitching_stats\` table includes \`year\` (2024, 2025, 2026), games_started, wins, losses, saves, holds, era, whip, strikeouts, innings_pitched, war, and \`title_awards\` (e.g., 髙橋遥人: 2026年 セ最多勝[16勝/防御率1.87]、村上頌樹: 2026年 セ最優秀防御率[1.85/10勝]、才木浩人: 2026年 セ最多奪三振[175K/10勝]、平良海馬: 2026年 パ最優秀防御率[1.36]、北山亘基＆エスピノーザ: 2026年 パ最多勝タイ[13勝]、荘司康誠: 2026年 パ最多奪三振[171K]、R.マルティネス: 2026年 セ最多セーブ[42S]、杉山一樹＆マチャド: 2026年 パ最多セーブタイ[35S]).
-- \`team_standings\` table includes official standings for 2024, 2025, and 2026 (2026年: セ・リーグは阪神タイガース優勝[77勝 60敗 2分, 勝率 .562]、パ・リーグは福岡ソフトバンクホークス優勝[91勝 48敗 3分, 勝率 .655]).
-When answering questions regarding player growth, team changes, or specific seasons, query the appropriate year or compare 2024 vs 2025 vs 2026.
+The database contains official multi-year records for 2024, 2025, and 2026 NPB seasons (Source: NPB Official npb.jp as of October 2026 Season Conclusion):
+- 2026 Japan Series Context:
+  - Pacific League Champion: 福岡ソフトバンクホークス (91勝 48敗 3分, 勝率 .655) - CS Finalで西武を破り日本シリーズ進出！
+  - Central League Champion: 阪神タイガース (77勝 60敗 2分, 勝率 .562) がペナント優勝したが、クライマックスシリーズ(CS)ファイナルステージで3位の横浜DeNAベイスターズに敗退（DeNAが下克上で日本シリーズ進出！）。
+  - 2026 日本シリーズ対決: 福岡ソフトバンクホークス vs 横浜DeNAベイスターズ（2024年にDeNAが4勝2敗で日本一になった因縁のリマッチ！）。
+- \`batting_stats\` table includes \`year\` (2024, 2025, 2026), batting metrics, RISP stats, OPS, wOBA, and \`title_awards\` (e.g., 佐藤輝明: 2026年 セ・リーグ三冠王[打率.314/39本/105点]・セMVP、近藤健介: 2026年 パ最高出塁率[.435/打率.318/25本/92点]、栗原陵矢: 2026年 パ本塁打王[40本]・パ打点王[118点]、レイエス: 2026年 パ首位打者[打率.313/32本/82点]、牧秀悟: 2026年 打率.294/26本/86点[DeNA CS突破主将]、オースティン: 2026年 打率.312/24本/72点/OPS.955、森下翔太: 2026年 打率.294/35本/84点、周東佑京: 48盗塁[パ盗塁王]、近本光司: 32盗塁[セ盗塁王])。
+- \`pitching_stats\` table includes \`year\` (2024, 2025, 2026), games_started, wins, losses, saves, holds, era, whip, strikeouts, innings_pitched, war, and \`title_awards\` (e.g., 髙橋遥人: 2026年 セ最多勝[16勝/防御率1.87]、平良海馬: 2026年 パ最優秀防御率[1.36]、モイネロ: 2026年 パ防御率1.66/13勝4敗、有原航平: 2026年 パ最多勝[14勝]、東克樹: 2026年 セ14勝/防御率2.22[DeNA大エース]、ジャクソン: 11勝/145K、ケイ: 10勝/CS第3戦勝利、村上頌樹: セ最優秀防御率[1.85]、才木浩人: セ最多奪三振[175K]、北山亘基＆エスピノーザ: パ最多勝タイ[13勝]、荘司康誠: パ最多奪三振[171K]、R.マルティネス: セ最多セーブ[42S]、杉山一樹＆マチャド: パ最多セーブタイ[35S]、森原康平: 32S[DeNA守護神・CS胴上げ投手])。
+- \`team_standings\` table includes official standings for 2024, 2025, and 2026 (2026年: セ・リーグは阪神タイガース優勝[77勝 60敗 2分, 勝率 .562]、パ・リーグは福岡ソフトバンクホークス優勝[91勝 48敗 3分, 勝率 .655])。
+- \`games\` table contains direct matchups including 2024 Japan Series (DeNA 4-2 Softbank), 2026 Interleague (Softbank 2-1 DeNA), 2026 CS Final Series (DeNA beats Hanshin 3-1 + 1 adv; Softbank beats Seibu), and 2026 Japan Series upcoming games.
+When answering questions regarding player growth, team changes, Softbank vs DeNA analysis, or specific seasons, query the appropriate tables (including \`games\` for head-to-head records) or compare 2024 vs 2025 vs 2026.
 
 Database Schema Reference (MariaDB NPB):
 - Table \`players\`: \`player_id\` (PRIMARY KEY, INT), \`team_id\` (VARCHAR), \`name\` (VARCHAR), \`position\` (VARCHAR), \`bats_throws\` (VARCHAR)
@@ -249,6 +255,8 @@ Database Schema Reference (MariaDB NPB):
   Join syntax: \`JOIN players ON batting_stats.player_id = players.player_id\`
 - Table \`pitching_stats\`: \`id\` (PK, INT), \`player_id\` (INT), \`year\` (2024, 2025, 2026), \`games\`, \`games_started\`, \`wins\`, \`losses\`, \`saves\`, \`holds\`, \`innings_pitched\`, \`hits_allowed\`, \`runs_allowed\`, \`earned_runs\`, \`home_runs_allowed\`, \`walks\`, \`strikeouts\`, \`era\`, \`whip\`, \`fip\`, \`war\`, \`waa\`, \`title_awards\`
   Join syntax: \`JOIN players ON pitching_stats.player_id = players.player_id\`
+- Table \`games\`: \`id\` (PK, INT), \`game_date\` (DATE), \`season_year\` (INT), \`game_type\` (VARCHAR: 'Regular', 'Interleague', 'CS_Final', 'JapanSeries'), \`home_team\` (VARCHAR), \`away_team\` (VARCHAR), \`home_score\` (INT), \`away_score\` (INT), \`stadium\` (VARCHAR), \`winning_pitcher\` (VARCHAR), \`losing_pitcher\` (VARCHAR), \`save_pitcher\` (VARCHAR), \`notes\` (VARCHAR)
+  Use this table to analyze head-to-head records (対戦成績), CS results, and Japan Series matchups.
 
 Digital Agency Procedures Reference:
 - Tool \`query_records\` / \`summarize_records\`: dataset_name is "procedures"
@@ -297,15 +305,29 @@ Interactive GenUI & Data Analytics Generation Guidelines:
 /**
  * MCP ワークフロー実行コア関数（同期・非同期共通）
  */
-async function executeMcpWorkflow({ user, message, previous_interaction_id, environment_id, req, onProgress, checkCancelled, pipelineDomain }) {
-    const apiKey = await db.getSetting('GEMINI_API_KEY');
-    if (!apiKey && !process.env.GEMINI_API_KEY) {
-        throw new Error('Gemini API Key is not configured');
+async function executeMcpWorkflow({ user, message, previous_interaction_id, environment_id, req, onProgress, checkCancelled, pipelineDomain, model }) {
+    const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
+    const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+    const aiProvider = (await db.getSetting('AI_PROVIDER')) || (claudeApiKey && !apiKey ? 'claude' : 'gemini');
+
+    if (!apiKey && !claudeApiKey) {
+        throw new Error('Gemini API Key または Claude API Key が設定されていません。System Settings で設定してください。');
     }
 
-    const client = getGeminiClient(apiKey);
     const globalGeminiModel = await db.getSetting('GEMINI_MODEL') || 'gemini-3.6-flash';
-    const modelName = await db.getSetting('GEMINI_MCP_CHAT_MODEL') || globalGeminiModel;
+    const globalClaudeModel = await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+    const configuredMcpModel = await db.getSetting('GEMINI_MCP_CHAT_MODEL');
+
+    let modelName = model;
+    if (!modelName) {
+        if (configuredMcpModel && llmAdapter.isClaudeModel(configuredMcpModel)) {
+            modelName = configuredMcpModel;
+        } else if (aiProvider === 'claude') {
+            modelName = await db.getSetting('CLAUDE_MCP_CHAT_MODEL') || globalClaudeModel;
+        } else {
+            modelName = configuredMcpModel || globalGeminiModel;
+        }
+    }
 
     // Get MCP Tools filtered by user's permissions (ZTA-compliant PDP check)
     let mcpTools = await getAllMcpToolsForGemini(user?.allowed_widgets || [], user);
@@ -408,6 +430,30 @@ ${toolDescriptions}`;
 
     if (onProgress) onProgress('AIモデルへプロンプトを送信中...', 0);
 
+    const maxTurnsSetting = parseInt(await db.getSetting('MCP_CHAT_MAX_TURNS'), 10);
+    let maxTurns = (!isNaN(maxTurnsSetting) && maxTurnsSetting > 0) ? maxTurnsSetting : 15;
+
+    const useClaude = (llmAdapter.isClaudeModel(modelName) && !!claudeApiKey) || (!apiKey && !!claudeApiKey);
+    if (useClaude) {
+        const targetClaudeModel = llmAdapter.isClaudeModel(modelName) ? modelName : globalClaudeModel;
+        console.log(`[mcpChat] Executing MCP workflow via Anthropic Claude (${targetClaudeModel})...`);
+        return await llmAdapter.runClaudeMcpWorkflow({
+            apiKey: claudeApiKey,
+            model: targetClaudeModel,
+            user,
+            message,
+            previous_interaction_id,
+            mcpTools,
+            callMcpTool,
+            systemInstruction,
+            maxTurns,
+            onProgress,
+            checkCancelled,
+            req
+        });
+    }
+
+    const client = getGeminiClient(apiKey);
     const MAX_OUTPUT_TOKENS = 65536;
 
     let currentInteractionId = previous_interaction_id;
@@ -435,8 +481,6 @@ ${toolDescriptions}`;
     currentInteractionId = interaction.id;
     currentEnvironmentId = interaction.environment_id;
 
-    const maxTurnsSetting = parseInt(await db.getSetting('MCP_CHAT_MAX_TURNS'), 10);
-    let maxTurns = (!isNaN(maxTurnsSetting) && maxTurnsSetting > 0) ? maxTurnsSetting : 15;
     let turnCount = 0;
     let finalResponseText = "";
     let artifacts = [];
@@ -639,8 +683,8 @@ ${toolDescriptions}`;
 /**
  * バックグラウンドで非同期タスクを実行し、DB を更新する関数
  */
-async function processTaskInBackground(taskId, { user, message, previous_interaction_id, environment_id, req, pipelineDomain }) {
-    console.log(`[MCP Tasks] Starting background execution for task: ${taskId} (Domain: ${pipelineDomain || 'auto'})`);
+async function processTaskInBackground(taskId, { user, message, previous_interaction_id, environment_id, req, pipelineDomain, model }) {
+    console.log(`[MCP Tasks] Starting background execution for task: ${taskId} (Domain: ${pipelineDomain || 'auto'}, Model: ${model || 'default'})`);
 
     const checkCancelled = async () => {
         return new Promise((resolve) => {
@@ -672,7 +716,8 @@ async function processTaskInBackground(taskId, { user, message, previous_interac
             req,
             onProgress: updateProgress,
             checkCancelled,
-            pipelineDomain
+            pipelineDomain,
+            model
         });
 
         // 完了状態に更新
@@ -737,7 +782,7 @@ router.get('/', (req, res, next) => {
  */
 const createTaskHandler = async (req, res) => {
     try {
-        const { message, previous_interaction_id, environment_id, pipelineDomain } = req.body;
+        const { message, previous_interaction_id, environment_id, pipelineDomain, model } = req.body;
 
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
@@ -769,7 +814,8 @@ const createTaskHandler = async (req, res) => {
                     previous_interaction_id,
                     environment_id,
                     req,
-                    pipelineDomain
+                    pipelineDomain,
+                    model
                 });
             }
         );
@@ -860,7 +906,7 @@ router.post('/', async (req, res) => {
     }
 
     try {
-        const { message, previous_interaction_id, environment_id } = req.body;
+        const { message, previous_interaction_id, environment_id, model, pipelineDomain } = req.body;
         
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
@@ -871,6 +917,8 @@ router.post('/', async (req, res) => {
             message,
             previous_interaction_id,
             environment_id,
+            model,
+            pipelineDomain,
             req
         });
 
