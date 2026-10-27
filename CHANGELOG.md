@@ -17,6 +17,9 @@
   - 「ワークフロー選択」「保存先Pod」「過去ナレッジ結合（RAG）」を 1 行のスリムなツールバーに統合し、「過去ナレッジ結合」を折りたたみ式（アコーディオン）に変更することで、実行ログ・結果のスクロール表示領域を従来の約 2.5 倍以上に拡大。
 - **Deep Research チェックポイント保存・再開（Resume）の強化 (`src/apps/DeepResearch.jsx`, `server/routes/deepResearch.cjs`)**:
   - Task 1 完了時のトークン消費量（`usageMetadata`）を SQLite チェックポイント（`deep_research_workflows`）へ正確に引き継ぎ、エラー発生時の途中再開（Resume）および完了サマリーのモデル名表示を Claude / Gemini 両対応に強化。
+- **Personal RAG の Gemini / Claude 個別同期ボタン分離と耐障害フォールバック (`src/apps/SystemSettings/tabs/PersonalRagTab.jsx`, `src/apps/SystemSettings.jsx`, `server/index.cjs`)**:
+  - Personal RAG 設定画面の Google Drive 同期アクションを「Gemini のみ同期」「Claude のみ同期」「両方を一括同期 (Sync All)」に分離し、利用するモデルに応じた柔軟な同期操作に対応。
+  - Gemini File Search API へのアップロードがクレジット枯渇（HTTP 402）等で失敗した場合でも、Claude 用のローカルドキュメントキャッシュ（`data/rag_cache`）への保存・同期は継続して完了するフォールバック処理を実装。
 
 #### 🛡️ Network & API Stability Fixes (通信・API安定化)
 - **VPN / Docker Bridge MTU 制限環境における Anthropic API 通信の安定化 (`server/services/llmAdapter.cjs`, `server/index.cjs`, `docker-compose.yml`)**:
