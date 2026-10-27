@@ -60,8 +60,11 @@ const SystemSettings = ({ user }) => {
     const [isGeminiConfigured, setIsGeminiConfigured] = useState(false);
     const [isClaudeConfigured, setIsClaudeConfigured] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [syncTarget, setSyncTarget] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [lastRagSyncTime, setLastRagSyncTime] = useState(null);
+    const [lastRagSyncTimeGemini, setLastRagSyncTimeGemini] = useState(null);
+    const [lastRagSyncTimeClaude, setLastRagSyncTimeClaude] = useState(null);
     const [nanoBananaPrompt, setNanoBananaPrompt] = useState(''); // New state for Nano Banana 2 prompt
     const [deepResearchPrompt, setDeepResearchPrompt] = useState('');
     const [htmlSvgPrompt, setHtmlSvgPrompt] = useState('');
@@ -183,6 +186,12 @@ const SystemSettings = ({ user }) => {
                 }
                 if (data.lastRagSyncTime) {
                     setLastRagSyncTime(data.lastRagSyncTime);
+                }
+                if (data.lastRagSyncTimeGemini) {
+                    setLastRagSyncTimeGemini(data.lastRagSyncTimeGemini);
+                }
+                if (data.lastRagSyncTimeClaude) {
+                    setLastRagSyncTimeClaude(data.lastRagSyncTimeClaude);
                 }
                 if (data.geminiResearchFolderId) {
                     setResearchFolderId(data.geminiResearchFolderId);
@@ -626,19 +635,23 @@ const SystemSettings = ({ user }) => {
         }
     };
 
-    const handleSyncRag = async () => {
+    const handleSyncRag = async (target = 'all') => {
         setIsSyncing(true);
+        setSyncTarget(target);
         setRagSyncErrors([]);
         try {
             // Trigger sync
             const res = await fetch('/api/rag/sync', {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target })
             });
             const data = await res.json();
 
             if (!res.ok) {
                 alert('Sync Failed to Start: ' + (data.error || 'Unknown error'));
                 setIsSyncing(false);
+                setSyncTarget(null);
                 return;
             }
 
@@ -651,35 +664,41 @@ const SystemSettings = ({ user }) => {
                     if (statusData.state === 'completed') {
                         clearInterval(pollInterval);
                         setIsSyncing(false);
+                        setSyncTarget(null);
                         const newSyncTime = new Date().toISOString();
+                        if (target === 'gemini' || target === 'all') setLastRagSyncTimeGemini(newSyncTime);
+                        if (target === 'claude' || target === 'all') setLastRagSyncTimeClaude(newSyncTime);
                         setLastRagSyncTime(newSyncTime);
                         if (statusData.errors && statusData.errors.length > 0) {
                             setRagSyncErrors(statusData.errors);
                         }
-                        window.dispatchEvent(new CustomEvent('rag-synced', { detail: { lastRagSyncTime: newSyncTime } }));
+                        window.dispatchEvent(new CustomEvent('rag-synced', { detail: { lastRagSyncTime: newSyncTime, target } }));
+                        const targetLabel = target === 'gemini' ? 'Geminiへの同期' : target === 'claude' ? 'Claudeへの同期' : '全モデル同期';
                         const alertMsg = statusData.syncedCount !== undefined 
-                            ? (statusData.syncedCount > 0 ? `同期が完了しました (${statusData.syncedCount} 件のファイルを Gemini に同期)` : '同期完了 (※ フォルダ内に対象ファイルが 0 件でした)')
+                            ? (statusData.syncedCount > 0 ? `${targetLabel}が完了しました (${statusData.syncedCount} 件のファイル)` : `${targetLabel}完了 (※ フォルダ内に対象ファイルが 0 件でした)`)
                             : (statusData.currentFile || 'Sync Complete!');
                         alert(alertMsg);
                     } else if (statusData.state === 'error') {
                         clearInterval(pollInterval);
                         setIsSyncing(false);
+                        setSyncTarget(null);
                         alert('Sync Failed: ' + statusData.error);
                     } else if (statusData.state === 'syncing') {
-                        // Optional: Update a progress state if we had one
-                        // For now, just keep isSyncing true
+                        // Keep syncing
                     }
                 } catch (err) {
                     console.error("Polling Error", err);
                     clearInterval(pollInterval);
                     setIsSyncing(false);
+                    setSyncTarget(null);
                 }
             }, 2000); // Poll every 2 seconds
 
         } catch (err) {
             console.error("Sync Trigger Error", err);
-            alert('Sync Failed to Start.');
+            alert('Failed to trigger sync: ' + err.message);
             setIsSyncing(false);
+            setSyncTarget(null);
         }
     };
 
@@ -1112,7 +1131,10 @@ const SystemSettings = ({ user }) => {
                         handleRemoveRagFolder={handleRemoveRagFolder}
                         handleSyncRag={handleSyncRag}
                         isSyncing={isSyncing}
+                        syncTarget={syncTarget}
                         lastRagSyncTime={lastRagSyncTime}
+                        lastRagSyncTimeGemini={lastRagSyncTimeGemini}
+                        lastRagSyncTimeClaude={lastRagSyncTimeClaude}
                         ragSyncErrors={ragSyncErrors}
                     />
                 )}

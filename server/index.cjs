@@ -268,6 +268,8 @@ app.get('/api/config', async (req, res) => {
             googleDriveRootId: googleDriveRootId || '',
             googleDriveRagFolders,
             lastRagSyncTime: lastRagSyncTime || null,
+            lastRagSyncTimeGemini: await db.getSetting('LAST_RAG_SYNC_TIME_GEMINI') || lastRagSyncTime || null,
+            lastRagSyncTimeClaude: await db.getSetting('LAST_RAG_SYNC_TIME_CLAUDE') || lastRagSyncTime || null,
             geminiResearchFolderId: geminiResearchFolderId || '',
             nanoBananaModel,
             geminiResearchModel,
@@ -3562,12 +3564,12 @@ async function listFolderFilesRecursively(drive, folderId, folderName, maxDepth 
 }
 
 // Background Sync Function
-async function performRagSync(drive, ragFolders, apiKey) {
-    ragSyncStatus = { state: 'syncing', progress: 0, total: 0, currentFile: 'Starting...', error: null, errors: [] };
-    console.log("Starting background RAG sync for multiple folders...");
+async function performRagSync(drive, ragFolders, apiKey, syncTarget = 'all') {
+    ragSyncStatus = { state: 'syncing', target: syncTarget, progress: 0, total: 0, currentFile: 'Starting...', error: null, errors: [] };
+    console.log(`Starting background RAG sync for multiple folders (target: ${syncTarget})...`);
 
     try {
-        const client = apiKey ? new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } }) : null;
+        const client = (syncTarget !== 'claude' && apiKey) ? new GoogleGenAI({ apiKey, httpOptions: { timeout: 300000 } }) : null;
         const ragCacheDir = path.resolve(__dirname, '../data/rag_cache');
         if (!fs.existsSync(ragCacheDir)) {
             fs.mkdirSync(ragCacheDir, { recursive: true });
@@ -3605,7 +3607,7 @@ async function performRagSync(drive, ragFolders, apiKey) {
             const currentFolderId = folderIdMap.get(file.id);
             ragSyncStatus.currentFile = `Syncing ${file.name} (${i + 1}/${uniqueDriveFiles.length})`;
             ragSyncStatus.progress = i + 1;
-            console.log(`Syncing file: ${file.name}`);
+            console.log(`Syncing file: ${file.name} [Target: ${syncTarget}]`);
 
             try {
                 // Download content
@@ -3639,22 +3641,36 @@ async function performRagSync(drive, ragFolders, apiKey) {
                 const localCachePath = path.join(ragCacheDir, `${safeId}.${extension || 'bin'}`);
                 fs.writeFileSync(localCachePath, content);
 
-                // Upload to Gemini File API if Gemini API Key is configured
-                let geminiUri = `local://${safeId}`;
-                if (client) {
+                // Fetch existing row to preserve existing URIs/caches
+                const existingRow = await new Promise((res) => {
+                    db.get("SELECT gemini_file_uri, local_cache_path FROM rag_files WHERE drive_file_id = ?", [file.id], (err, row) => res(row));
+                });
+
+                // Upload to Gemini File API if syncTarget is 'gemini' or 'all' and client is configured
+                let geminiUri = existingRow?.gemini_file_uri || `local://${safeId}`;
+                if (syncTarget !== 'claude' && client) {
                     const os = require('os');
                     const tempFilePath = path.join(os.tmpdir(), `gemini_upload_${safeId}.${extension}`);
-                    fs.writeFileSync(tempFilePath, content);
-
-                    const uploadResult = await client.files.upload({
-                        file: tempFilePath,
-                        config: {
-                            displayName: file.name,
-                            mimeType: mimeType
+                    try {
+                        fs.writeFileSync(tempFilePath, content);
+                        const uploadResult = await client.files.upload({
+                            file: tempFilePath,
+                            config: {
+                                displayName: file.name,
+                                mimeType: mimeType
+                            }
+                        });
+                        geminiUri = uploadResult.uri;
+                    } catch (geminiUploadErr) {
+                        console.warn(`[RAG Sync] Gemini File API upload failed for ${file.name} (fallback to local cache for Claude):`, geminiUploadErr.message);
+                        if (syncTarget === 'gemini') {
+                            throw geminiUploadErr;
                         }
-                    });
-                    geminiUri = uploadResult.uri;
-                    fs.unlinkSync(tempFilePath);
+                    } finally {
+                        if (fs.existsSync(tempFilePath)) {
+                            try { fs.unlinkSync(tempFilePath); } catch (_) {}
+                        }
+                    }
                 }
 
                 // Store in DB (including local_cache_path)
@@ -3677,8 +3693,15 @@ async function performRagSync(drive, ragFolders, apiKey) {
             }
         }
 
-        // Store last sync time
-        await db.setSetting('LAST_RAG_SYNC_TIME', new Date().toISOString());
+        // Store last sync time per target
+        const nowIso = new Date().toISOString();
+        if (syncTarget === 'gemini' || syncTarget === 'all') {
+            await db.setSetting('LAST_RAG_SYNC_TIME_GEMINI', nowIso);
+        }
+        if (syncTarget === 'claude' || syncTarget === 'all') {
+            await db.setSetting('LAST_RAG_SYNC_TIME_CLAUDE', nowIso);
+        }
+        await db.setSetting('LAST_RAG_SYNC_TIME', nowIso);
 
         // 3. Clean up obsolete files from DB (files that are no longer in the Drive folder)
         if (currentDriveFileIds.length > 0) {
@@ -3710,9 +3733,10 @@ async function performRagSync(drive, ragFolders, apiKey) {
             ragSyncStatus.error = `Folder access error: ${folderErrors.join(', ')}`;
         } else {
             ragSyncStatus.state = 'completed';
-            ragSyncStatus.currentFile = uniqueDriveFiles.length === 0 ? 'Sync Complete (0 files found)' : `Sync Complete (${syncedFiles.length} files synced)`;
+            const targetLabel = syncTarget === 'gemini' ? 'Gemini Sync' : syncTarget === 'claude' ? 'Claude Sync' : 'Sync';
+            ragSyncStatus.currentFile = uniqueDriveFiles.length === 0 ? `${targetLabel} Complete (0 files found)` : `${targetLabel} Complete (${syncedFiles.length} files synced)`;
         }
-        console.log("RAG sync completed. Total synced:", syncedFiles.length);
+        console.log(`RAG sync completed (target: ${syncTarget}). Total synced:`, syncedFiles.length);
 
     } catch (error) {
         console.error("RAG Sync Fatal Error:", error);
@@ -3728,6 +3752,7 @@ app.post('/api/rag/sync', requireAuth, async (req, res) => {
             return res.status(409).json({ error: 'Sync already in progress' });
         }
 
+        const syncTarget = req.body?.target || 'all'; // 'all' | 'gemini' | 'claude'
         const drive = await getDriveClient(req, res);
         if (!drive) return; // Response already sent
 
@@ -3744,14 +3769,21 @@ app.post('/api/rag/sync', requireAuth, async (req, res) => {
 
         const apiKey = await db.getSetting('GEMINI_API_KEY') || process.env.GEMINI_API_KEY;
         const claudeApiKey = await db.getSetting('CLAUDE_API_KEY') || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
-        if (!apiKey && !claudeApiKey) {
-            return res.status(500).json({ error: "GEMINI_API_KEY または CLAUDE_API_KEY が設定されていません。" });
+        
+        if (syncTarget === 'gemini' && !apiKey) {
+            return res.status(400).json({ error: "Gemini API Key が設定されていません。" });
+        }
+        if (syncTarget === 'claude' && !claudeApiKey) {
+            return res.status(400).json({ error: "Claude API Key が設定されていません。" });
+        }
+        if (syncTarget === 'all' && !apiKey && !claudeApiKey) {
+            return res.status(400).json({ error: "GEMINI_API_KEY または CLAUDE_API_KEY が設定されていません。" });
         }
 
         // Start background process
-        performRagSync(drive, ragFolders, apiKey);
+        performRagSync(drive, ragFolders, apiKey, syncTarget);
 
-        res.json({ success: true, message: 'Sync started in background' });
+        res.json({ success: true, message: `Sync started in background (target: ${syncTarget})`, target: syncTarget });
 
     } catch (error) {
         console.error("RAG Sync Trigger Error:", error);
