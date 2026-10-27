@@ -412,6 +412,11 @@ async function startDeepResearch(jobId, query, apiKey, customInstruction = null,
                         if (u.total_thought_tokens) finalReply += `| 自律思考 (Thought) | ${u.total_thought_tokens} |\n`;
                         if (u.total_output_tokens) finalReply += `| レポート出力 (Output) | ${u.total_output_tokens} |\n`;
                         if (u.total_tokens) finalReply += `| 総消費トークン (Total) | ${u.total_tokens} |\n`;
+                        researchJobs[jobId].usageMetadata = {
+                            promptTokenCount: (u.total_tool_use_tokens || 0) + (u.total_thought_tokens || 0),
+                            candidatesTokenCount: u.total_output_tokens || 0,
+                            totalTokenCount: u.total_tokens || 0
+                        };
                     }
                     
                     researchJobs[jobId].status = 'completed';
@@ -766,6 +771,7 @@ router.get('/status/:id', (req, res) => {
         interaction_id: id,
         status: job.status,
         result: job.result,
+        usageMetadata: job.usageMetadata || null,
         error: job.error
     });
 });

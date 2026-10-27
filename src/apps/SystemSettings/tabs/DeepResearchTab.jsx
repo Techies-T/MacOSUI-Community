@@ -89,21 +89,51 @@ const DeepResearchTab = ({
         }
     };
 
+    const CLAUDE_RESEARCH_HARNESS_PROMPT = `あなたは世界最高峰の戦略リサーチャー・アナリスト（Anthropic Claude Deep Research Agent）です。
+提出された過去ナレッジ（RAG資料）およびビルトインWeb検索ツール（web_search）を最大10回まで多角的に駆使して、一次情報・公式統計・最新の業界動向・反証データを徹底的に調査し、包括的でインサイトに富んだ長文の調査レポートを日本語のMarkdown形式で作成してください。
+
+【Claude リサーチ・ハーネス規約】
+1. 検索戦略の多角化: 単一の検索クエリに依存せず、日本語・英語のキーワードや異なる切り口（市場規模、技術動向、規制・政策、競合比較、課題・リスク）で複数回Web検索を実行し、ファクトの裏付けを取ること。
+2. 構造化レポート形式:
+   - 冒頭に必ず \`# 調査レポートのタイトル\` を記載する。
+   - 「エグゼクティブサマリー（重要結論3〜5点）」「背景・現状分析」「定量データ・比較分析（必ずMarkdownテーブルを含める）」「ケーススタディ・具体例」「今後の展望・戦略的提言」「参照情報源（URLリンク付き）」の章立てで論理的に構成する。
+3. 定量性・客観性の徹底: 抽象的な表現を避け、可能な限り具体的な数値・年代・出典元を明記すること。
+4. 【重要事項】あなたが生成したMarkdownレポートは、MacOSUIの自動パイプライン（ハーネス）によって自動的にHTML/SVGビジュアライゼーションへ変換され、Google Driveおよびナレッジベースへ自動保存されます。「ファイルを直接保存できません」等のメタ発言や謝罪は一切出力せず、純粋なMarkdownレポート本文のみを堂々と出力してください。`;
+
+    const CLAUDE_HTML_HARNESS_PROMPT = `あなたは卓越したデータビジュアライゼーション＆フロントエンドアーキテクト（Anthropic Claude Artifact / GenUI エンジン）です。
+以下のDeep Research調査レポートの内容と定量データを余すことなく分析し、経営層や意思決定者が一目でインサイトを把握できる**1つの完全で自己完結したインタラクティブHTML/SVGダッシュボードファイル**を作成してください。
+
+【Claude HTML/SVG 生成ハーネス規約】
+1. 技術スタック:
+   - Tailwind CSS (CDN: \`https://cdn.tailwindcss.com\`) を利用し、洗練されたモダンなUI（グラスモーフィズム、美しいカードレイアウト、適切な余白とタイポグラフィ）を構築すること。
+   - 定量データや比較表は、インラインSVGチャート（棒グラフ、折れ線グラフ、ドーナツチャート、レーダーチャート、アーキテクチャ図解、フローチャート等）または Chart.js (CDN) を用いて視覚的に描画すること。
+2. 画面構成要件:
+   - 最上部: テーマタイトル、調査サマリーバッジ、主要KPI・重要ファクトを示す3〜4枚のハイライトサマリーカード。
+   - 中盤: タブ切り替えまたはセクション分けによる詳細分析、インラインSVGによる視覚的図解・データグラフ、構造化された比較テーブル。
+   - 下部: 戦略的提言（アクションプラン）カードおよび参照ソース一覧。
+3. 出力フォーマット厳守:
+   - \`<!DOCTYPE html>\` から \`</html>\` までを含む純粋なHTMLコードのみを出力すること（前後の挨拶や解説文は一切不要）。
+   - 文字化けやレイアウト崩れを防ぎ、レスポンシブかつ印刷・大画面投影にも耐えうる高品質なデザインにすること。
+
+=== テーマ: {{title}} ===
+
+{{report}}`;
+
     const handleCreateNew = () => {
         if (!isManager) return;
         const useClaudeDefault = aiProvider === 'claude' || (!isGeminiConfigured && isClaudeConfigured);
         setEditingWorkflow({
             id: '',
-            name: '',
-            description: '',
+            name: useClaudeDefault ? 'Claude 統合リサーチ＆HTML/SVG生成' : '',
+            description: useClaudeDefault ? 'Anthropic Claudeの単一モデルでWeb検索調査（Task 1）からインタラクティブHTML/SVGダッシュボード生成（Task 2）までを一貫実行し、Google Driveへ自動保存します。' : '',
             research_model: useClaudeDefault ? 'claude-sonnet-4-6' : 'deep-research-pro-preview-12-2025',
-            research_prompt: 'あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。',
+            research_prompt: useClaudeDefault ? CLAUDE_RESEARCH_HARNESS_PROMPT : 'あなたは世界最高峰のリサーチャーです。提出された社内資料（RAGファイル）と、最新のWeb検索結果（Google Search）の両方を駆使して、包括的でインサイトに富んだ長文の調査レポートを作成してください。必要に応じて、検索した結果や考察を整理し、Markdownフォーマットで見やすく構造化すること。\n\n【重要事項】ユーザーから「ファイルに保存して」と頼まれても、あなたが直接ファイル操作やダウンロードリンクの生成をする必要はありません。あなたがチャットに出力したMarkdownのテキストは、システム側で自動的にGoogle Driveへファイルとして保存・エクスポートされる仕組みが備わっています。そのため、「ファイルとして保存できませんのでコピーしてください」などの謝罪や案案内は一切書かずに、ただ自信を持ってMarkdownレポートの本文のみを堂々と出力してください。',
             output_type: 'html',
             output_model: useClaudeDefault ? 'claude-sonnet-4-6' : 'gemini-3.1-flash-lite-preview',
-            output_prompt: '以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}',
+            output_prompt: useClaudeDefault ? CLAUDE_HTML_HARNESS_PROMPT : '以下のリサーチ記事内容と含まれるデータを分析し、**1つの完全なHTMLファイル**を作成してください。\nTailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML文字列のみを返してください。\n\n=== テーマ: {{title}} ===\n\n{{report}}',
             folder_id: '',
             pod_id: '',
-            reference_knowledge: 0,
+            reference_knowledge: useClaudeDefault ? 1 : 0,
             reference_pod_id: ''
         });
     };
@@ -256,10 +286,31 @@ const DeepResearchTab = ({
 
                             <h3 className="text-sm font-bold text-gray-800 border-b border-gray-100 pb-2 pt-2">1. Base Research Agent (リサーチ部)</h3>
                             <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">使用モデル (Gemini / Claude 選択可)</label>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="block text-xs font-semibold text-gray-700">使用モデル (Gemini / Claude 選択可)</label>
+                                    {editingWorkflow.research_model?.startsWith('claude-') && editingWorkflow.output_type !== 'infographic' && (
+                                        <span className="text-[10px] text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full font-semibold">
+                                            🟣 Claude 単一モデル連動対応
+                                        </span>
+                                    )}
+                                </div>
                                 <select
                                     value={editingWorkflow.research_model || ''}
-                                    onChange={(e) => setEditingWorkflow({ ...editingWorkflow, research_model: e.target.value })}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        const isClaude = val.startsWith('claude-');
+                                        const nextState = { ...editingWorkflow, research_model: val };
+                                        if (isClaude && editingWorkflow.output_type !== 'infographic') {
+                                            nextState.output_model = val;
+                                            if (!editingWorkflow.research_prompt || editingWorkflow.research_prompt.includes('Google Search')) {
+                                                nextState.research_prompt = CLAUDE_RESEARCH_HARNESS_PROMPT;
+                                            }
+                                            if (!editingWorkflow.output_prompt || editingWorkflow.output_prompt.length < 300) {
+                                                nextState.output_prompt = CLAUDE_HTML_HARNESS_PROMPT;
+                                            }
+                                        }
+                                        setEditingWorkflow(nextState);
+                                    }}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
                                 >
                                     <option value="">システムデフォルトを使用</option>
@@ -282,7 +333,16 @@ const DeepResearchTab = ({
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">システムプロンプト (指示書)</label>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="block text-xs font-semibold text-gray-700">システムプロンプト (リサーチ・ハーネス指示書)</label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingWorkflow({ ...editingWorkflow, research_prompt: CLAUDE_RESEARCH_HARNESS_PROMPT })}
+                                        className="text-[10px] text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-0.5 rounded font-semibold transition"
+                                    >
+                                        ✨ Claude推奨ハーネスを適用
+                                    </button>
+                                </div>
                                 <textarea
                                     value={editingWorkflow.research_prompt || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, research_prompt: e.target.value })}
@@ -354,11 +414,22 @@ const DeepResearchTab = ({
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-1">{"プロンプトテンプレート ({{report}} などのプレースホルダを含めてください)"}</label>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="block text-xs font-semibold text-gray-700">{"プロンプトテンプレート ({{report}} などのプレースホルダを含めてください)"}</label>
+                                    {editingWorkflow.output_type !== 'infographic' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditingWorkflow({ ...editingWorkflow, output_prompt: CLAUDE_HTML_HARNESS_PROMPT })}
+                                            className="text-[10px] text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-0.5 rounded font-semibold transition"
+                                        >
+                                            ✨ Claude推奨HTML/SVGハーネスを適用
+                                        </button>
+                                    )}
+                                </div>
                                 <textarea
                                     value={editingWorkflow.output_prompt || ''}
                                     onChange={(e) => setEditingWorkflow({ ...editingWorkflow, output_prompt: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-xs font-mono h-24 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-xs font-mono h-32 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
                             </div>
 

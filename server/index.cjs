@@ -1,6 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const tls = require('tls');
+// Node.js 24 (OpenSSL 3.5) + Docker bridge MTU compatibility:
+// Prevent oversized Post-Quantum X25519MLKEM768 TLS ClientHello fragmentation/reset on Cloudflare/Anthropic endpoints
+tls.DEFAULT_ECDH_CURVE = 'X25519:P-256:P-384';
 const { GoogleGenAI } = require("@google/genai");
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');

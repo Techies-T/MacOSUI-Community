@@ -1,5 +1,100 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const tls = require('tls');
+
+// Node.js 24 (OpenSSL 3.5) + Docker bridge MTU compatibility:
+// Prevent oversized Post-Quantum X25519MLKEM768 TLS ClientHello ECONNRESET on api.anthropic.com
+tls.DEFAULT_ECDH_CURVE = 'X25519:P-256:P-384';
+
+/**
+ * macOS VPN (utun MTU 1000) + Docker Desktop (eth0 MTU 65535) 対策用の安全な HTTPS リクエスト関数
+ * TLS ハンドシェイク完了後にリクエストボディを 800 バイト単位で分割送信し、TCP/TLS フラグメンテーションによる ECONNRESET を完全に回避する
+ */
+function anthropicHttpsRequest(urlPath, { method = 'GET', headers = {}, body = null, timeoutMs = 600000 } = {}) {
+    return new Promise((resolve, reject) => {
+        const bodyBuf = body ? (Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8')) : null;
+        const reqHeaders = {
+            ...headers,
+            'connection': 'close'
+        };
+        if (bodyBuf) {
+            reqHeaders['content-length'] = bodyBuf.length;
+        }
+
+        const req = https.request({
+            hostname: 'api.anthropic.com',
+            port: 443,
+            path: urlPath,
+            method,
+            agent: false,
+            ecdhCurve: 'X25519:P-256:P-384',
+            headers: reqHeaders,
+            timeout: timeoutMs
+        }, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => chunks.push(chunk));
+            res.on('end', () => {
+                const rawText = Buffer.concat(chunks).toString('utf8');
+                resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode,
+                    text: async () => rawText,
+                    json: async () => JSON.parse(rawText || '{}')
+                });
+            });
+        });
+
+        req.on('timeout', () => {
+            req.destroy(new Error('Anthropic API request timed out'));
+        });
+
+        req.on('error', (err) => {
+            reject(err);
+        });
+
+        if (!bodyBuf || bodyBuf.length === 0) {
+            req.end();
+            return;
+        }
+
+        let bodySent = false;
+        const sendChunkedBody = async () => {
+            if (bodySent) return;
+            bodySent = true;
+            try {
+                req.flushHeaders();
+                await new Promise(r => setTimeout(r, 10));
+                const CHUNK_SIZE = 800; // utun MTU 1000 未満に収まる安全な TLS レコードサイズ
+                for (let offset = 0; offset < bodyBuf.length; offset += CHUNK_SIZE) {
+                    if (req.destroyed) return;
+                    const slice = bodyBuf.subarray(offset, offset + CHUNK_SIZE);
+                    const canContinue = req.write(slice);
+                    if (!canContinue) {
+                        await new Promise(r => req.once('drain', r));
+                    }
+                    if (offset + CHUNK_SIZE < bodyBuf.length) {
+                        await new Promise(r => setTimeout(r, 8));
+                    }
+                }
+                if (!req.destroyed) {
+                    req.end();
+                }
+            } catch (writeErr) {
+                reject(writeErr);
+            }
+        };
+
+        req.on('socket', (socket) => {
+            socket.setNoDelay(true);
+            if (socket.encrypted && !socket.connecting) {
+                sendChunkedBody();
+            } else {
+                socket.once('secureConnect', sendChunkedBody);
+            }
+        });
+    });
+}
 
 let AnthropicSDK = null;
 try {
@@ -135,7 +230,7 @@ async function listClaudeModels(apiKey, db) {
     }
 
     try {
-        const response = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        const response = await anthropicHttpsRequest('/v1/models?limit=100', {
             method: 'GET',
             headers: {
                 'x-api-key': apiKey,
@@ -219,11 +314,26 @@ async function callAnthropicMessages(apiKey, payload, betaHeaders = []) {
         delete finalPayload.temperature;
     }
 
-    let res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(finalPayload)
-    });
+    const doFetch = async (bodyObj) => {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                return await anthropicHttpsRequest('/v1/messages', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(bodyObj)
+                });
+            } catch (netErr) {
+                if (attempt < 2) {
+                    console.warn(`[Anthropic API] Network transient error (${netErr.message}), retrying (attempt ${attempt + 1}/2)...`);
+                    await new Promise(r => setTimeout(r, 800));
+                } else {
+                    throw netErr;
+                }
+            }
+        }
+    };
+
+    let res = await doFetch(finalPayload);
 
     let data = await res.json().catch(() => ({}));
 
@@ -231,11 +341,17 @@ async function callAnthropicMessages(apiKey, payload, betaHeaders = []) {
     if (!res.ok && data?.error?.message && data.error.message.includes('temperature') && 'temperature' in finalPayload) {
         console.warn(`[Anthropic API] ${finalPayload.model}: ${data.error.message} - Retrying without temperature parameter...`);
         delete finalPayload.temperature;
-        res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(finalPayload)
-        });
+        res = await doFetch(finalPayload);
+        data = await res.json().catch(() => ({}));
+    }
+
+    // max_tokens がモデル上限を超過している場合の自動ダウングレードリカバリー (例: 16384 -> 8192 -> 4096)
+    if (!res.ok && data?.error?.message && data.error.message.includes('max_tokens') && finalPayload.max_tokens > 4096) {
+        const matchLimit = data.error.message.match(/maximum.*?(?:is|:)\s*(\d+)/i) || data.error.message.match(/<=\s*(\d+)/);
+        const fallbackMax = matchLimit ? parseInt(matchLimit[1], 10) : (finalPayload.max_tokens > 8192 ? 8192 : 4096);
+        console.warn(`[Anthropic API] ${finalPayload.model}: ${data.error.message} - Retrying with max_tokens=${fallbackMax}...`);
+        finalPayload.max_tokens = fallbackMax;
+        res = await doFetch(finalPayload);
         data = await res.json().catch(() => ({}));
     }
 
@@ -638,6 +754,11 @@ async function runClaudeDeepResearchJob({
         if (researchJobs && researchJobs[jobId]) {
             researchJobs[jobId].status = 'completed';
             researchJobs[jobId].result = finalReport;
+            researchJobs[jobId].usageMetadata = {
+                promptTokenCount: inTokens,
+                candidatesTokenCount: outTokens,
+                totalTokenCount: inTokens + outTokens
+            };
         }
 
         if (db) {

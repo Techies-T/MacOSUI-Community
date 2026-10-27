@@ -32,6 +32,7 @@ const DeepResearch = ({ onOpen }) => {
     // RAG Knowledge selection states
     const [availableArticles, setAvailableArticles] = useState([]);
     const [selectedArticleIds, setSelectedArticleIds] = useState([]);
+    const [isRagPanelExpanded, setIsRagPanelExpanded] = useState(false);
 
     const [pods, setPods] = useState([]);
     const [targetPodId, setTargetPodId] = useState('');
@@ -126,8 +127,11 @@ const DeepResearch = ({ onOpen }) => {
                             .then(wfData => {
                                 if (wfData && Array.isArray(wfData.workflows) && wfData.workflows.length > 0) {
                                     setWorkflows(wfData.workflows);
-                                    const defaultWf = wfData.workflows.find(w => w.id === loadedConfig?.defaultWorkflowId);
-                                    setSelectedWorkflow(defaultWf || wfData.workflows[0]);
+                                    const explicitDefault = wfData.workflows.find(w => w.id === loadedConfig?.defaultWorkflowId);
+                                    const claudeMatched = (loadedConfig?.aiProvider === 'claude' || (!loadedConfig?.isGeminiConfigured && loadedConfig?.isClaudeConfigured))
+                                        ? wfData.workflows.find(w => w.research_model?.startsWith('claude-') || w.name?.includes('Claude'))
+                                        : null;
+                                    setSelectedWorkflow(explicitDefault || claudeMatched || wfData.workflows[0]);
                                 } else {
                                     setWorkflows([]);
                                     setSelectedWorkflow(null);
@@ -277,7 +281,7 @@ const DeepResearch = ({ onOpen }) => {
             const req = await fetch('/api/gemini', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: prompt, history: [], config: { mode: 'chat' } })
+                body: JSON.stringify({ message: prompt, history: [], config: { mode: 'chat', model: targetWf?.research_model || undefined } })
             });
             const data = await req.json();
             if (!req.ok) throw new Error(data.error || "Failed to generate plan");
@@ -432,6 +436,9 @@ const DeepResearch = ({ onOpen }) => {
                             const data = await res.json();
                             if (data.status === 'completed') {
                                 reportText = data.result;
+                                if (data.usageMetadata) {
+                                    handleUsage(data.usageMetadata);
+                                }
                                 clearInterval(pollInterval);
                                 resolve();
                             } else if (data.status === 'failed') {
@@ -684,9 +691,9 @@ const DeepResearch = ({ onOpen }) => {
             // ==========================================
             let indexingSuccess = false;
 
-            const baseResearchModel = config?.geminiResearchModel || 'models/gemini-2.5-pro';
-            const infographicModel = config?.geminiInfographicModel || 'models/gemini-2.5-pro';
-            const htmlSvgModel = config?.geminiHtmlSvgModel || 'models/gemini-2.5-pro';
+            const baseResearchModel = activeWorkflow?.research_model || (config?.aiProvider === 'claude' ? config?.claudeResearchModel : config?.geminiResearchModel) || 'models/gemini-2.5-pro';
+            const infographicModel = activeWorkflow?.output_model || config?.geminiInfographicModel || 'models/gemini-2.5-pro';
+            const htmlSvgModel = activeWorkflow?.output_model || (config?.aiProvider === 'claude' ? config?.claudeHtmlSvgModel : config?.geminiHtmlSvgModel) || 'models/gemini-2.5-pro';
 
             const totalSeconds = Math.round((Date.now() - pipelineStartTime) / 1000);
             const minutes = Math.floor(totalSeconds / 60);
@@ -862,23 +869,33 @@ ${reportText.substring(0, 1500)}...`;
     return (
         <div className="flex flex-col h-full bg-white relative font-sans text-gray-800">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 bg-white/80 backdrop-blur-md border-b border-gray-100 z-10 sticky top-0">
-                <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-200">
-                        <span className="text-white text-lg">💡</span>
+            <div className="flex items-center justify-between px-5 py-2.5 bg-white/80 backdrop-blur-md border-b border-gray-100 z-10 sticky top-0">
+                <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm shadow-indigo-200">
+                        <span className="text-white text-sm">💡</span>
                     </div>
                     <div>
-                        <h2 className="text-sm font-bold text-gray-900 tracking-tight">Deep Research Automation</h2>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <p className="text-[10px] uppercase tracking-wider font-semibold text-emerald-600">Pipeline Ready</p>
+                        <h2 className="text-xs font-bold text-gray-900 tracking-tight">Deep Research Automation</h2>
+                        <div className="flex items-center gap-1 mt-0.5">
+                            <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <p className="text-[9px] uppercase tracking-wider font-semibold text-emerald-600">Pipeline Ready</p>
                         </div>
                     </div>
                 </div>
+                {selectedWorkflow && (
+                    <div className="hidden md:flex items-center gap-2 text-[11px] text-gray-500 bg-gray-50 px-2.5 py-1 rounded-full border border-gray-100 max-w-[420px]">
+                        <span className="font-semibold text-indigo-600 shrink-0">🤖 {selectedWorkflow.research_model || 'Default'}</span>
+                        {selectedWorkflow.description && (
+                            <span className="truncate border-l border-gray-200 pl-2" title={selectedWorkflow.description}>
+                                {selectedWorkflow.description}
+                            </span>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Chat Area */}
-            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 scrollbar-hide bg-gray-50/50">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5 scrollbar-hide bg-gray-50/50">
                 {incompleteWorkflow && stage === 'idle' && (
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 animate-fadeIn">
                         <div className="flex items-start">
@@ -964,79 +981,106 @@ ${reportText.substring(0, 1500)}...`;
             </div>
 
             {/* Input Area */}
-            <div className="px-6 py-5 bg-white border-t border-gray-100 relative">
-                {/* Workflow & Target Pod Selectors */}
-                <div className="flex flex-wrap items-center gap-3 mb-3">
-                    {Array.isArray(workflows) && workflows.length > 0 && (
-                        <div className="flex items-center gap-2 bg-indigo-50/40 p-2 rounded-xl border border-indigo-100/50 shadow-sm">
-                            <span className="text-xs font-semibold text-indigo-700 pl-1">実行ワークフロー:</span>
+            <div className="px-5 py-3 bg-white border-t border-gray-100 relative">
+                {/* Compact 1-Line Toolbar: Workflow Selector, Target Pod, and Collapsible RAG Toggle */}
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {Array.isArray(workflows) && workflows.length > 0 && (
+                            <div className="flex items-center gap-1.5 bg-indigo-50/50 px-2.5 py-1 rounded-lg border border-indigo-100/70">
+                                <span className="text-[11px] font-semibold text-indigo-700 whitespace-nowrap">ワークフロー:</span>
+                                <select
+                                    value={selectedWorkflow?.id || ''}
+                                    onChange={(e) => {
+                                        const matched = (workflows || []).find(w => w?.id === e.target.value);
+                                        if (matched) setSelectedWorkflow(matched);
+                                    }}
+                                    title={selectedWorkflow?.description || ''}
+                                    className="bg-white border border-indigo-200 text-xs font-bold text-gray-800 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer max-w-[260px] truncate"
+                                    disabled={isLoading}
+                                >
+                                    {(workflows || []).map(wf => wf && (
+                                        <option key={wf.id} value={wf.id}>{wf.name} ({wf.output_type === 'html' ? 'HTML/SVG' : '画像'})</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-1.5 bg-indigo-50/50 px-2.5 py-1 rounded-lg border border-indigo-100/70">
+                            <span className="text-[11px] font-semibold text-indigo-700 whitespace-nowrap">保存先Pod:</span>
                             <select
-                                value={selectedWorkflow?.id || ''}
-                                onChange={(e) => {
-                                    const matched = (workflows || []).find(w => w?.id === e.target.value);
-                                    if (matched) setSelectedWorkflow(matched);
-                                }}
-                                className="bg-white border border-indigo-200 text-xs font-bold text-gray-800 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                                value={targetPodId}
+                                onChange={(e) => setTargetPodId(e.target.value)}
+                                className="bg-white border border-indigo-200 text-xs font-bold text-gray-800 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer max-w-[160px] truncate"
                                 disabled={isLoading}
                             >
-                                {(workflows || []).map(wf => wf && (
-                                    <option key={wf.id} value={wf.id}>{wf.name} ({wf.output_type === 'html' ? 'HTML/SVG' : 'インフォグラフィック'})</option>
+                                <option value="">🌐 共通（パブリック）</option>
+                                {Array.isArray(pods) && pods.map(p => p && (
+                                    <option key={p.id} value={p.id}>📦 {p.name}</option>
                                 ))}
                             </select>
-                            {selectedWorkflow && (
-                                <span className="text-[10px] text-gray-500 truncate max-w-[200px] font-medium pl-2 hidden sm:inline border-l border-indigo-200" title={selectedWorkflow.description}>
-                                    {selectedWorkflow.description || '説明なし'}
-                                </span>
-                            )}
                         </div>
-                    )}
-
-                    <div className="flex items-center gap-2 bg-indigo-50/40 p-2 rounded-xl border border-indigo-100/50 shadow-sm">
-                        <span className="text-xs font-semibold text-indigo-700 pl-1">保存先Pod:</span>
-                        <select
-                            value={targetPodId}
-                            onChange={(e) => setTargetPodId(e.target.value)}
-                            className="bg-white border border-indigo-200 text-xs font-bold text-gray-800 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
-                            disabled={isLoading}
-                        >
-                            <option value="">🌐 共通（パブリック）</option>
-                            {Array.isArray(pods) && pods.map(p => p && (
-                                <option key={p.id} value={p.id}>📦 {p.name}</option>
-                            ))}
-                        </select>
                     </div>
+
+                    {/* Collapsible Knowledge RAG Toggle Pill */}
+                    {selectedWorkflow?.reference_knowledge === 1 && Array.isArray(availableArticles) && availableArticles.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => setIsRagPanelExpanded(prev => !prev)}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer select-none ${
+                                (selectedArticleIds || []).length > 0
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                    : isRagPanelExpanded
+                                        ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                        : 'bg-gray-50 hover:bg-indigo-50/60 text-gray-700 border-gray-200'
+                            }`}
+                        >
+                            <span>📚 過去ナレッジ結合</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                (selectedArticleIds || []).length > 0 ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                            }`}>
+                                {(selectedArticleIds || []).length}/3
+                            </span>
+                            <span className="text-[10px] ml-0.5">{isRagPanelExpanded ? '▲' : '▼'}</span>
+                        </button>
+                    )}
                 </div>
 
                 {/* Gemini-Only / Provider Configuration Warnings */}
                 {config && config.isGeminiConfigured === false && selectedWorkflow?.output_type === 'infographic' && (
-                    <div className="mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2 shadow-sm">
-                        <span className="text-base leading-none">⚠️</span>
-                        <div>
-                            <strong>Gemini API Key 未設定の警告:</strong> 選択中のワークフロー「{selectedWorkflow.name}」は出力形式が<strong>インフォグラフィック画像（NanoBanana）</strong>に設定されています。ラスター画像生成は <strong>Google Gemini 専用機能</strong>のため、実行には System Settings で Gemini API Key の設定が必要です（Claude のみで運用する場合は「HTML/SVG ダッシュボード」形式のワークフローを選択してください）。
+                    <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-2">
+                        <span>⚠️</span>
+                        <div className="truncate">
+                            <strong>Gemini API Key 未設定:</strong> インフォグラフィック画像生成は Gemini 専用機能です（Claude のみの場合は HTML/SVG ワークフローを選択してください）。
                         </div>
                     </div>
                 )}
                 {config && config.isClaudeConfigured === false && (selectedWorkflow?.research_model?.startsWith('claude-') || selectedWorkflow?.output_model?.startsWith('claude-') || (!selectedWorkflow?.research_model && config.aiProvider === 'claude')) && (
-                    <div className="mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2 shadow-sm">
-                        <span className="text-base leading-none">⚠️</span>
+                    <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-2">
+                        <span>⚠️</span>
                         <div>
-                            <strong>Claude API Key 未設定の警告:</strong> Claude モデルを使用する設定になっていますが、Claude API Key が未設定です。System Settings ＞ System タブから Claude API Key を設定してください。
+                            <strong>Claude API Key 未設定:</strong> System Settings ＞ System タブから Claude API Key を設定してください。
                         </div>
                     </div>
                 )}
 
-                {/* Knowledge RAG Selector */}
-                {selectedWorkflow?.reference_knowledge === 1 && Array.isArray(availableArticles) && availableArticles.length > 0 && (
-                    <div className="mb-4 bg-indigo-50/20 rounded-xl border border-indigo-100/40 p-3 shadow-sm">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
-                                📚 過去の関連ナレッジを結合 (任意・最大3件):
+                {/* Collapsible Knowledge RAG Selector Drawer */}
+                {selectedWorkflow?.reference_knowledge === 1 && Array.isArray(availableArticles) && availableArticles.length > 0 && isRagPanelExpanded && (
+                    <div className="mb-2.5 bg-indigo-50/30 rounded-lg border border-indigo-100 p-2.5 shadow-inner animate-fadeIn">
+                        <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-bold text-indigo-800">
+                                📚 リサーチに結合する過去ナレッジを選択 (最大3件):
                             </span>
-                            <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">
-                                {(selectedArticleIds || []).length} / 3 選択中
-                            </span>
+                            {(selectedArticleIds || []).length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedArticleIds([])}
+                                    className="text-[10px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                                >
+                                    選択解除
+                                </button>
+                            )}
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[150px] overflow-y-auto pr-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-[115px] overflow-y-auto pr-1">
                             {availableArticles.map(art => {
                                 if (!art) return null;
                                 const isChecked = (selectedArticleIds || []).includes(art.id);
@@ -1044,28 +1088,23 @@ ${reportText.substring(0, 1500)}...`;
                                 return (
                                     <label
                                         key={art.id}
-                                        className={`flex items-start gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-all duration-200 select-none
+                                        className={`flex items-center gap-2 px-2 py-1.5 rounded-md border text-[11px] cursor-pointer transition-all select-none
                                             ${isChecked 
-                                                ? 'bg-indigo-50/80 border-indigo-300 text-indigo-900 shadow-sm font-semibold' 
+                                                ? 'bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold shadow-2xs' 
                                                 : isDisabled 
                                                     ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed' 
-                                                    : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-200 hover:bg-gray-50/50'}`}
+                                                    : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-200'}`}
                                     >
                                         <input
                                             type="checkbox"
                                             checked={isChecked}
                                             disabled={isDisabled}
                                             onChange={() => handleToggleArticle(art.id)}
-                                            className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+                                            className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:cursor-not-allowed shrink-0"
                                         />
-                                        <div className="flex-1 min-w-0">
-                                            <div className="truncate font-semibold" title={art.title}>
-                                                {art.title}
-                                            </div>
-                                            <div className={`text-[10px] mt-0.5 ${isChecked ? 'text-indigo-500' : 'text-gray-400'}`}>
-                                                {art.created_at ? new Date(art.created_at).toLocaleDateString() : '不明'}
-                                            </div>
-                                        </div>
+                                        <span className="truncate flex-1" title={art.title}>
+                                            {art.title}
+                                        </span>
                                     </label>
                                 );
                             })}
@@ -1075,8 +1114,8 @@ ${reportText.substring(0, 1500)}...`;
 
                 <div className="relative">
                     {selectedDriveFile && (
-                        <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md text-xs font-semibold shadow-sm border border-indigo-200">
-                            <span className="truncate max-w-[150px]">{selectedDriveFile.name}</span>
+                        <div className="absolute top-2 left-3 z-10 flex items-center gap-1.5 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[11px] font-semibold shadow-2xs border border-indigo-200">
+                            <span className="truncate max-w-[180px]">{selectedDriveFile.name}</span>
                             <button onClick={() => setSelectedDriveFile(null)} className="hover:text-indigo-900 ml-1">✖</button>
                         </div>
                     )}
@@ -1085,43 +1124,43 @@ ${reportText.substring(0, 1500)}...`;
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         placeholder={hasAccess ? "リサーチするテーマを入力してください（例：日本の少子化対策の現状と課題）" : "実行権限がありません。"}
-                        className={`w-full pl-5 pr-12 py-4 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-gray-50/50 resize-none h-[110px] text-sm text-gray-800 transition-all font-medium shadow-inner ${!hasAccess ? 'opacity-60 cursor-not-allowed bg-gray-100' : 'placeholder-gray-400'} ${selectedDriveFile ? 'pt-10' : ''}`}
+                        className={`w-full pl-4 pr-11 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-gray-50/50 resize-none h-[68px] text-sm text-gray-800 transition-all font-medium shadow-inner ${!hasAccess ? 'opacity-60 cursor-not-allowed bg-gray-100' : 'placeholder-gray-400'} ${selectedDriveFile ? 'pt-7' : ''}`}
                         disabled={isLoading || !hasAccess}
                     />
                     {/* Attachment Button */}
                     <button
                         onClick={() => setIsDriveModalOpen(true)}
                         disabled={isLoading || !hasAccess}
-                        className="absolute bottom-3 right-3 p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                        className="absolute bottom-2 right-2.5 p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
                         title="Google Driveから添付"
                     >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                     </button>
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center gap-3 mt-3">
+                <div className="flex items-center gap-2.5 mt-2">
                     <button
                         onClick={() => requestPipeline(selectedWorkflow)}
                         disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess || !selectedWorkflow}
-                        className={`flex-[2] flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                        className={`flex-[2] flex items-center justify-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm group border cursor-pointer
                                 ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess || !selectedWorkflow
                                 ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
-                                : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white border-transparent hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white border-transparent hover:shadow-md'}`}
                     >
-                        <span className="text-lg group-hover:scale-110 transition-transform">🚀</span>
+                        <span className="text-sm group-hover:scale-110 transition-transform">🚀</span>
                         <span>選択したワークフローで実行</span>
                     </button>
 
                     <button
                         onClick={() => requestPipeline('direct_html')}
                         disabled={isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess}
-                        className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shadow-md group border cursor-pointer
+                        className={`flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-sm group border cursor-pointer
                                 ${isLoading || (!input.trim() && !selectedDriveFile) || !hasAccess
                                 ? 'bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed shadow-none'
-                                : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:shadow-md'}`}
+                                : 'bg-gradient-to-b from-blue-50 to-white text-blue-700 border-blue-200 hover:border-blue-300 hover:shadow-md'}`}
                     >
-                        <span className="text-lg group-hover:scale-110 transition-transform">📄</span>
+                        <span className="text-sm group-hover:scale-110 transition-transform">📄</span>
                         <span>既存レポートからアセット変換</span>
                     </button>
                 </div>

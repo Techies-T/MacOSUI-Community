@@ -3,6 +3,28 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v3.0.1] - 2026-10-27 (🧪 テスト版 / Pre-release Test Build)
+
+> ⚠️ **【テスト版 (Beta / Pre-release)】**: 本バージョン（`v3.0.1` / 表記 `3.0.1-beta`）は、Anthropic Claude Deep Research 統合ワークフローおよび UI・通信安定化の検証を目的とした**テスト版リリース**です。
+
+### 🧪 Claude Deep Research 専用ワークフロー & UI/ネットワーク安定化
+
+#### ✨ New Features & UI Improvements (新機能・UI改善)
+- **Claude 専用 Deep Research ワークフロー「Claude 統合リサーチ＆HTML/SVG生成」の標準搭載 (`server/db_sqlite.cjs`, `src/apps/SystemSettings/tabs/DeepResearchTab.jsx`)**:
+  - 単一の Claude モデル（`claude-opus-5-5` / `claude-sonnet-4-5` 等）で Task 0（調査計画）➔ Task 1（Web Search 最大10回による深掘り調査）➔ Task 2（Tailwind CSS + インラインSVGによるインタラクティブHTMLダッシュボード生成）を一貫実行する専用ワークフローを自動シード。
+  - Claude の強みを引き出す専用リサーチ・ハーネス（`CLAUDE_RESEARCH_HARNESS_PROMPT`）および HTML/SVG 生成ハーネス（`CLAUDE_HTML_HARNESS_PROMPT`）を実装し、ワークフロー編集画面にワンクリック適用ボタンを追加。
+- **Deep Research 画面のコンパクト・ツールバー化と表示領域の大幅拡大 (`src/apps/DeepResearch.jsx`)**:
+  - 「ワークフロー選択」「保存先Pod」「過去ナレッジ結合（RAG）」を 1 行のスリムなツールバーに統合し、「過去ナレッジ結合」を折りたたみ式（アコーディオン）に変更することで、実行ログ・結果のスクロール表示領域を従来の約 2.5 倍以上に拡大。
+- **Deep Research チェックポイント保存・再開（Resume）の強化 (`src/apps/DeepResearch.jsx`, `server/routes/deepResearch.cjs`)**:
+  - Task 1 完了時のトークン消費量（`usageMetadata`）を SQLite チェックポイント（`deep_research_workflows`）へ正確に引き継ぎ、エラー発生時の途中再開（Resume）および完了サマリーのモデル名表示を Claude / Gemini 両対応に強化。
+
+#### 🛡️ Network & API Stability Fixes (通信・API安定化)
+- **VPN / Docker Bridge MTU 制限環境における Anthropic API 通信の安定化 (`server/services/llmAdapter.cjs`, `server/index.cjs`, `docker-compose.yml`)**:
+  - Node.js 24 (OpenSSL 3.5) のポスト量子ハイブリッド鍵交換による TLS `ClientHello` 肥大化を防ぐため `tls.DEFAULT_ECDH_CURVE = 'X25519:P-256:P-384'` を設定。
+  - VPN トンネル（MTU 1000〜1380）環境でも大容量プロンプト送信時に `ECONNRESET` / `UND_ERR_SOCKET` が発生しないよう、TLS ハンドシェイク完了後にリクエストボディを 800 バイト単位で分割フラッシュ送信する専用トランスポート（`anthropicHttpsRequest`）および `max_tokens` 自動ダウングレード機構を実装。
+
+---
+
 ## [v3.0.0] - 2026-10-26
 
 ### 🟣 Multi-LLM Engine: Google Gemini & Anthropic Claude Dual-Support メジャーリリース

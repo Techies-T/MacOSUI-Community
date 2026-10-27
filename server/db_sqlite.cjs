@@ -985,6 +985,76 @@ Tailwind CSSのCDNを利用してモダンなデザインにし、純粋なHTML�
             console.log('DEBUG: Default Deep Research Workflows initialized with complete prompts.');
         }
 
+        // Auto-register / Migrate Claude Unified Deep Research Workflow (for both new and existing DBs)
+        const claudeWfCount = await new Promise((resolve) => {
+            db.get(
+                "SELECT COUNT(*) as count FROM deep_research_workflow_definitions WHERE name LIKE '%Claude%' OR research_model LIKE 'claude-%'",
+                [],
+                (err, row) => {
+                    if (err) resolve(-1);
+                    else resolve(row ? row.count : 0);
+                }
+            );
+        });
+
+        if (claudeWfCount === 0) {
+            console.log('DEBUG: Initializing Claude Unified Deep Research Workflow...');
+            const claudeDefaultModel = await db.getSetting('CLAUDE_RESEARCH_MODEL') || await db.getSetting('CLAUDE_MODEL') || 'claude-sonnet-4-6';
+            const folderId = await db.getSetting('geminiResearchFolderId') || '';
+
+            const claudeResearchPrompt = `あなたは世界最高峰の戦略リサーチャー・アナリスト（Anthropic Claude Deep Research Agent）です。
+提出された過去ナレッジ（RAG資料）およびビルトインWeb検索ツール（web_search）を最大10回まで多角的に駆使して、一次情報・公式統計・最新の業界動向・反証データを徹底的に調査し、包括的でインサイトに富んだ長文の調査レポートを日本語のMarkdown形式で作成してください。
+
+【Claude リサーチ・ハーネス規約】
+1. 検索戦略の多角化: 単一の検索クエリに依存せず、日本語・英語のキーワードや異なる切り口（市場規模、技術動向、規制・政策、競合比較、課題・リスク）で複数回Web検索を実行し、ファクトの裏付けを取ること。
+2. 構造化レポート形式:
+   - 冒頭に必ず \`# 調査レポートのタイトル\` を記載する。
+   - 「エグゼクティブサマリー（重要結論3〜5点）」「背景・現状分析」「定量データ・比較分析（必ずMarkdownテーブルを含める）」「ケーススタディ・具体例」「今後の展望・戦略的提言」「参照情報源（URLリンク付き）」の章立てで論理的に構成する。
+3. 定量性・客観性の徹底: 抽象的な表現を避け、可能な限り具体的な数値・年代・出典元を明記すること。
+4. 【重要事項】あなたが生成したMarkdownレポートは、MacOSUIの自動パイプライン（ハーネス）によって自動的にHTML/SVGビジュアライゼーションへ変換され、Google Driveおよびナレッジベースへ自動保存されます。「ファイルを直接保存できません」等のメタ発言や謝罪は一切出力せず、純粋なMarkdownレポート本文のみを堂々と出力してください。`;
+
+            const claudeHtmlPrompt = `あなたは卓越したデータビジュアライゼーション＆フロントエンドアーキテクト（Anthropic Claude Artifact / GenUI エンジン）です。
+以下のDeep Research調査レポートの内容と定量データを余すことなく分析し、経営層や意思決定者が一目でインサイトを把握できる**1つの完全で自己完結したインタラクティブHTML/SVGダッシュボードファイル**を作成してください。
+
+【Claude HTML/SVG 生成ハーネス規約】
+1. 技術スタック:
+   - Tailwind CSS (CDN: \`https://cdn.tailwindcss.com\`) を利用し、洗練されたモダンなUI（グラスモーフィズム、美しいカードレイアウト、適切な余白とタイポグラフィ）を構築すること。
+   - 定量データや比較表は、インラインSVGチャート（棒グラフ、折れ線グラフ、ドーナツチャート、レーダーチャート、アーキテクチャ図解、フローチャート等）または Chart.js (CDN) を用いて視覚的に描画すること。
+2. 画面構成要件:
+   - 最上部: テーマタイトル、調査サマリーバッジ、主要KPI・重要ファクトを示す3〜4枚のハイライトサマリーカード。
+   - 中盤: タブ切り替えまたはセクション分けによる詳細分析、インラインSVGによる視覚的図解・データグラフ、構造化された比較テーブル。
+   - 下部: 戦略的提言（アクションプラン）カードおよび参照ソース一覧。
+3. 出力フォーマット厳守:
+   - \`<!DOCTYPE html>\` から \`</html>\` までを含む純粋なHTMLコードのみを出力すること（前後の挨拶や解説文は一切不要）。
+   - 文字化けやレイアウト崩れを防ぎ、レスポンシブかつ印刷・大画面投影にも耐えうる高品質なデザインにすること。
+
+=== テーマ: {{title}} ===
+
+{{report}}`;
+
+            const crypto = require('crypto');
+            const claudeWfId = crypto.randomUUID();
+            db.run(
+                `INSERT INTO deep_research_workflow_definitions (id, name, description, research_model, research_prompt, output_type, output_model, output_prompt, folder_id, reference_knowledge) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    claudeWfId,
+                    'Claude 統合リサーチ＆HTML/SVG生成',
+                    'Anthropic Claudeの単一モデルでWeb検索調査（Task 1）からインタラクティブHTML/SVGダッシュボード生成（Task 2）までを一貫実行し、Google Driveへ自動保存します。',
+                    claudeDefaultModel,
+                    claudeResearchPrompt,
+                    'html',
+                    claudeDefaultModel,
+                    claudeHtmlPrompt,
+                    folderId,
+                    1
+                ],
+                (err) => {
+                    if (err) console.error('Failed to initialize Claude Deep Research workflow:', err);
+                    else console.log('DEBUG: Claude Unified Deep Research Workflow registered successfully.');
+                }
+            );
+        }
+
         // Auto-register Default Analytics Pods (Digital Agency & NPB)
         const defaultPods = [
             {
