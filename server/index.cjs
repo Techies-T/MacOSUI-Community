@@ -30,6 +30,17 @@ function getContextHashes(req) {
 // UI側のZTAセッションアイドルタイムアウト（30分: src/App.jsx の IDLE_TIMEOUT_MS と同期）
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
+function clearSessionCookie(req, res) {
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    res.clearCookie('token', {
+        httpOnly: true,
+        secure: isHttps,
+        sameSite: 'lax',
+        path: '/'
+    });
+    res.clearCookie('token');
+}
+
 function getDefaultOnlineStatusText(user) {
     if (!user) return 'Active';
     if (user.current_room === 'focus-zone') return 'Busy';
@@ -42,13 +53,12 @@ function isUserOffline(user, currentLoginUserId = null) {
     if (!user) return true;
     const statusLower = (user.status_text || '').toLowerCase();
     if (statusLower === 'offline') return true;
-    if (currentLoginUserId && Number(user.id) === Number(currentLoginUserId)) return false;
-    if (user.last_active_at) {
-        const lastActiveMs = new Date(user.last_active_at).getTime();
-        if (!isNaN(lastActiveMs) && (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
-            return true;
-        }
+    if (!user.last_active_at) return true;
+    const lastActiveMs = new Date(user.last_active_at).getTime();
+    if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+        return true;
     }
+    if (currentLoginUserId && Number(user.id) === Number(currentLoginUserId)) return false;
     return false;
 }
 
@@ -974,9 +984,18 @@ app.get('/api/auth/me', (req, res) => {
                 const expiredDecoded = jwt.decode(token);
                 if (expiredDecoded && expiredDecoded.id) {
                     db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [expiredDecoded.id]);
+                    auditDb.logEvent({
+                        userId: expiredDecoded.id,
+                        userEmail: expiredDecoded.email,
+                        eventType: 'session_timeout',
+                        action: 'ZTA JWT Token Expired (/api/auth/me)',
+                        status: 'blocked',
+                        req: req,
+                        details: { reason: 'jwt_expired' }
+                    });
                 }
             } catch (_) {}
-            res.clearCookie('token');
+            clearSessionCookie(req, res);
             return res.status(401).json({ error: 'Invalid or expired token', code: 'SESSION_EXPIRED' });
         }
 
@@ -1003,19 +1022,51 @@ app.get('/api/auth/me', (req, res) => {
                     userAgent: hashes.ua
                 }
             });
-            res.clearCookie('token');
+            clearSessionCookie(req, res);
             return res.status(401).json({ error: 'Session context mismatch. Security policy requires re-authentication.', code: 'SESSION_EXPIRED' });
         }
 
         db.get("SELECT * FROM users WHERE id = ?", [decoded.id], async (dbErr, user) => {
             if (!dbErr && user) {
-                const nowIso = new Date().toISOString();
-                const restoredStatus = (user.status_text || '').toLowerCase() === 'offline'
-                    ? getDefaultOnlineStatusText(user)
-                    : (user.status_text || 'Active');
-                user.last_active_at = nowIso;
-                user.status_text = restoredStatus;
-                db.run("UPDATE users SET last_active_at = ?, status_text = ? WHERE id = ?", [nowIso, restoredStatus, user.id]);
+                // ZTA セッション終了・アイドルタイムアウト厳格検証 (F5リフレッシュによる不正セッション復活を防止)
+                const isTerminated = (user.status_text || '').toLowerCase() === 'offline' || !user.last_active_at;
+                if (isTerminated) {
+                    clearSessionCookie(req, res);
+                    return res.status(401).json({
+                        error: 'Session has been terminated. Please sign in again.',
+                        code: 'SESSION_EXPIRED'
+                    });
+                }
+
+                const lastActiveMs = new Date(user.last_active_at).getTime();
+                if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+                    db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [user.id]);
+                    auditDb.logEvent({
+                        userId: user.id,
+                        userEmail: user.email,
+                        eventType: 'session_timeout',
+                        action: 'ZTA Server-Side Session Idle Timeout (/api/auth/me)',
+                        status: 'blocked',
+                        req: req,
+                        details: {
+                            reason: 'server_idle_timeout_exceeded',
+                            lastActiveAt: user.last_active_at,
+                            idleTimeoutMinutes: SESSION_IDLE_TIMEOUT_MS / 60000
+                        }
+                    });
+                    clearSessionCookie(req, res);
+                    return res.status(401).json({
+                        error: 'Session idle timeout exceeded. Please sign in again.',
+                        code: 'SESSION_EXPIRED'
+                    });
+                }
+
+                // ユーザーの実操作があった場合のみ last_active_at を更新する (自動ポーリングでの延命を防止)
+                if (req.query.active === '1') {
+                    const nowIso = new Date().toISOString();
+                    user.last_active_at = nowIso;
+                    db.run("UPDATE users SET last_active_at = ? WHERE id = ?", [nowIso, user.id]);
+                }
 
                 // Fetch fresh RBAC policies to act as a dynamic PEP
                 let rbacPolicies = {};
@@ -1081,36 +1132,52 @@ app.get('/api/auth/me', (req, res) => {
 
                 res.json({ user });
             } else {
-                res.clearCookie('token');
+                clearSessionCookie(req, res);
                 res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
             }
         });
     });
 });
 
-// Auth: Logout
+// Auth: Logout (Manual Logout & ZTA Session Idle Timeout)
 app.post('/api/auth/logout', (req, res) => {
     const token = req.cookies.token;
-    if (token) {
-        jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
-            const payload = (!err && decoded) ? decoded : jwt.decode(token);
-            if (payload && payload.id) {
-                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [payload.id]);
-            }
-            if (!err && decoded) {
-                auditDb.logEvent({
-                    userId: decoded.id,
-                    userEmail: decoded.email,
-                    eventType: 'logout',
-                    action: 'Logout',
-                    status: 'success',
-                    req: req
-                });
-            }
-        });
+    const body = req.body || {};
+    const isSessionTimeout = body.reason === 'session_timeout';
+
+    const finishLogout = () => {
+        clearSessionCookie(req, res);
+        res.json({ message: isSessionTimeout ? 'Session timed out' : 'Logged out' });
+    };
+
+    if (!token) {
+        return finishLogout();
     }
-    res.clearCookie('token');
-    res.json({ message: 'Logged out' });
+
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+        const payload = (!err && decoded) ? decoded : jwt.decode(token);
+        if (payload && payload.id) {
+            db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [payload.id], () => {
+                auditDb.logEvent({
+                    userId: payload.id,
+                    userEmail: payload.email,
+                    eventType: isSessionTimeout ? 'session_timeout' : 'logout',
+                    action: isSessionTimeout ? 'ZTA Session Idle Timeout (Auto Logout)' : 'Logout',
+                    status: 'success',
+                    req: req,
+                    details: isSessionTimeout ? {
+                        reason: 'client_idle_timeout',
+                        idleMinutes: body.idleMinutes || (SESSION_IDLE_TIMEOUT_MS / 60000),
+                        trigger: body.trigger || 'ui_idle_monitor',
+                        message: body.message || 'Session terminated due to inactivity under ZTA policy'
+                    } : null
+                });
+                finishLogout();
+            });
+        } else {
+            finishLogout();
+        }
+    });
 });
 
 // Auth: Token Exchange (RFC 8693) & Client Credentials for Agent-to-Agent (A2A) authentication
@@ -1342,6 +1409,9 @@ function requireAgentOrUserAuth(req, res, next) {
         const hashes = getContextHashes(req);
         const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
         if (!isContextValid) {
+            if (decoded && decoded.id) {
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
+            }
             auditDb.logEvent({
                 userId: decoded.id,
                 userEmail: decoded.email,
@@ -1358,13 +1428,40 @@ function requireAgentOrUserAuth(req, res, next) {
                     userAgent: hashes.ua
                 }
             });
-            res.clearCookie('token');
-            return res.status(403).json({ error: 'Session context mismatch. Security policy requires re-authentication.' });
+            clearSessionCookie(req, res);
+            return res.status(401).json({ error: 'Session context mismatch. Security policy requires re-authentication.', code: 'SESSION_EXPIRED' });
         }
 
-        // RBAC dynamic policy lookup for user
-        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (err, row) => {
-            if (err || !row) return res.status(401).json({ error: 'User not found in database' });
+        // RBAC dynamic policy lookup for user + ZTA session liveness check
+        db.get("SELECT role, native_language, email, status_text, last_active_at FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+            if (err || !row) {
+                clearSessionCookie(req, res);
+                return res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
+            }
+
+            if ((row.status_text || '').toLowerCase() === 'offline' || !row.last_active_at) {
+                clearSessionCookie(req, res);
+                return res.status(401).json({ error: 'Session terminated. Please sign in again.', code: 'SESSION_EXPIRED' });
+            }
+            const lastActiveMs = new Date(row.last_active_at).getTime();
+            if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
+                auditDb.logEvent({
+                    userId: decoded.id,
+                    userEmail: row.email || decoded.email,
+                    eventType: 'session_timeout',
+                    action: `ZTA Server-Side Session Idle Timeout (${req.method} ${req.originalUrl})`,
+                    status: 'blocked',
+                    req: req,
+                    details: {
+                        reason: 'server_idle_timeout_exceeded',
+                        lastActiveAt: row.last_active_at,
+                        idleTimeoutMinutes: SESSION_IDLE_TIMEOUT_MS / 60000
+                    }
+                });
+                clearSessionCookie(req, res);
+                return res.status(401).json({ error: 'Session idle timeout exceeded. Please sign in again.', code: 'SESSION_EXPIRED' });
+            }
             
             req.user = decoded;
             req.user.role = row.role;
@@ -1406,13 +1503,19 @@ function requireAgentOrUserAuth(req, res, next) {
     });
 }
 
-// Middleware to check user auth (ZTA Real-time PDP Enforcement with Dynamic Context Check)
+// Middleware to check user auth (ZTA Real-time PDP Enforcement with Dynamic Context Check & Session Liveness)
 function requireAuth(req, res, next) {
     const token = req.cookies.token;
     if (!token) return res.status(401).json({ error: 'Not authenticated', code: 'SESSION_EXPIRED' });
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
         if (err) {
-            res.clearCookie('token');
+            try {
+                const expiredDecoded = jwt.decode(token);
+                if (expiredDecoded && expiredDecoded.id) {
+                    db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [expiredDecoded.id]);
+                }
+            } catch (_) {}
+            clearSessionCookie(req, res);
             return res.status(401).json({ error: 'Invalid or expired token', code: 'SESSION_EXPIRED' });
         }
         
@@ -1420,6 +1523,9 @@ function requireAuth(req, res, next) {
         const hashes = getContextHashes(req);
         const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
         if (!isContextValid) {
+            if (decoded && decoded.id) {
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
+            }
             auditDb.logEvent({
                 userId: decoded.id,
                 userEmail: decoded.email,
@@ -1436,15 +1542,40 @@ function requireAuth(req, res, next) {
                     userAgent: hashes.ua
                 }
             });
-            res.clearCookie('token');
+            clearSessionCookie(req, res);
             return res.status(401).json({ error: 'Session context mismatch. Security policy requires re-authentication.', code: 'SESSION_EXPIRED' });
         }
 
-        // ZTA Real-time PDP check: Always fetch the latest roles and policies from the database
-        db.get("SELECT role, native_language FROM users WHERE id = ?", [decoded.id], async (err, row) => {
+        // ZTA Real-time PDP check + Session Liveness enforcement
+        db.get("SELECT role, native_language, email, status_text, last_active_at FROM users WHERE id = ?", [decoded.id], async (err, row) => {
             if (err || !row) {
-                res.clearCookie('token');
+                clearSessionCookie(req, res);
                 return res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
+            }
+
+            if ((row.status_text || '').toLowerCase() === 'offline' || !row.last_active_at) {
+                clearSessionCookie(req, res);
+                return res.status(401).json({ error: 'Session terminated. Please sign in again.', code: 'SESSION_EXPIRED' });
+            }
+
+            const lastActiveMs = new Date(row.last_active_at).getTime();
+            if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
+                auditDb.logEvent({
+                    userId: decoded.id,
+                    userEmail: row.email || decoded.email,
+                    eventType: 'session_timeout',
+                    action: `ZTA Server-Side Session Idle Timeout (${req.method} ${req.originalUrl})`,
+                    status: 'blocked',
+                    req: req,
+                    details: {
+                        reason: 'server_idle_timeout_exceeded',
+                        lastActiveAt: row.last_active_at,
+                        idleTimeoutMinutes: SESSION_IDLE_TIMEOUT_MS / 60000
+                    }
+                });
+                clearSessionCookie(req, res);
+                return res.status(401).json({ error: 'Session idle timeout exceeded. Please sign in again.', code: 'SESSION_EXPIRED' });
             }
             
             req.user = decoded;
@@ -1801,10 +1932,10 @@ app.put('/api/users/:id/language', requireAuth, (req, res) => {
 
 app.get('/api/virtual-office/users', requireAuth, (req, res) => {
     const loginUserId = req.user.id;
-    const nowIso = new Date().toISOString();
 
-    // Update caller's heartbeat timestamp
-    db.run("UPDATE users SET last_active_at = ? WHERE id = ?", [nowIso, loginUserId], () => {});
+    // NOTE: 3秒ごとのバックグラウンドポーリングで last_active_at を無条件更新すると、
+    // 無操作放置中でも永続的に Online が維持されてしまうため、ここでは更新しない。
+    // last_active_at は実操作ハートビート (/api/auth/me?active=1) および明示的なステータス更新時のみ更新する。
 
     const sql = `
         SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote, u.last_active_at,
@@ -1816,9 +1947,26 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         
         const enriched = rows.map(user => {
-            const isOffline = isUserOffline(user, loginUserId);
+            const isOffline = isUserOffline(user, null);
             if (isOffline && (user.status_text || '').toLowerCase() !== 'offline') {
-                db.run("UPDATE users SET status_text = 'Offline' WHERE id = ?", [user.id], () => {});
+                const hadLastActive = !!user.last_active_at;
+                const prevLastActive = user.last_active_at;
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [user.id], () => {});
+                if (hadLastActive) {
+                    auditDb.logEvent({
+                        userId: user.id,
+                        userEmail: user.email,
+                        eventType: 'session_timeout',
+                        action: 'ZTA Virtual Office Presence Idle Timeout',
+                        status: 'success',
+                        req: req,
+                        details: {
+                            reason: 'virtual_office_idle_timeout_detected',
+                            lastActiveAt: prevLastActive,
+                            idleTimeoutMinutes: SESSION_IDLE_TIMEOUT_MS / 60000
+                        }
+                    });
+                }
             }
 
             return {
@@ -2018,8 +2166,9 @@ ${newPrompt}`;
 app.post('/api/virtual-office/status', requireAuth, (req, res) => {
     const { current_room, status_text, is_remote, native_language, targetUserId } = req.body;
     const userId = targetUserId || req.user.id;
+    const isSelfAction = Number(userId) === Number(req.user.id);
     
-    db.get("SELECT current_room, status_text, is_remote, native_language FROM users WHERE id = ?", [userId], (err, user) => {
+    db.get("SELECT current_room, status_text, is_remote, native_language, last_active_at FROM users WHERE id = ?", [userId], (err, user) => {
         if (err) {
             console.error('Error fetching user status:', err);
             return res.status(500).json({ error: 'Database error' });
@@ -2030,7 +2179,9 @@ app.post('/api/virtual-office/status', requireAuth, (req, res) => {
         const nextStatus = status_text !== undefined ? status_text : (user.status_text || 'Active');
         const nextRemote = is_remote !== undefined ? is_remote : (user.is_remote ?? 0);
         const nextLang = native_language !== undefined ? native_language : (user.native_language || 'ja');
-        const nextLastActive = nextStatus.toLowerCase() === 'offline' ? null : new Date().toISOString();
+        const nextLastActive = nextStatus.toLowerCase() === 'offline'
+            ? null
+            : (isSelfAction ? new Date().toISOString() : user.last_active_at);
         
         db.run(
             "UPDATE users SET current_room = ?, status_text = ?, is_remote = ?, native_language = ?, last_active_at = ? WHERE id = ?",
@@ -2047,7 +2198,7 @@ app.post('/api/virtual-office/status', requireAuth, (req, res) => {
                         status_text: nextStatus,
                         is_remote: nextRemote,
                         native_language: nextLang,
-                        is_offline: nextStatus.toLowerCase() === 'offline'
+                        is_offline: nextStatus.toLowerCase() === 'offline' || !nextLastActive
                     }
                 });
             }
@@ -4328,7 +4479,7 @@ async function getDriveClient(req, res) {
                 }
                 if (!row || !row.access_token) {
                     console.error("No access token found for user:", decoded.googleId);
-                    res.status(401).json({ error: 'No access token found. Please login again.' });
+                    res.status(403).json({ error: 'No Google Drive access token found.', code: 'GOOGLE_TOKEN_MISSING' });
                     resolve(null);
                     return;
                 }
@@ -4506,7 +4657,7 @@ async function getCalendarClient(req, res, targetEmail = null) {
 
             db.get(query, [param], async (err, row) => {
                 if (err || !row || !row.access_token) {
-                    if (res) res.status(401).json({ error: 'No access token found' });
+                    if (res) res.status(403).json({ error: 'No Google Calendar access token found', code: 'GOOGLE_TOKEN_MISSING' });
                     resolve(null);
                     return;
                 }

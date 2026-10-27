@@ -103,8 +103,10 @@ ${detailsText || 'なし'}
         if (typeFilter !== 'all') {
             if (typeFilter === 'hijack') {
                 matchesType = log.event_type === 'session_hijacking_detected';
+            } else if (typeFilter === 'timeout') {
+                matchesType = log.event_type === 'session_timeout';
             } else if (typeFilter === 'login') {
-                matchesType = log.event_type.startsWith('login_');
+                matchesType = log.event_type.startsWith('login_') || log.event_type === 'logout';
             } else if (typeFilter === 'auth_fail') {
                 matchesType = log.event_type === 'authorization_failed';
             } else if (typeFilter === 'admin') {
@@ -208,7 +210,8 @@ ${detailsText || 'なし'}
                         >
                             <option value="all">すべて</option>
                             <option value="hijack">ハイジャック検知</option>
-                            <option value="login">ログイン</option>
+                            <option value="timeout">セッションタイムアウト (ZTA)</option>
+                            <option value="login">ログイン / ログアウト</option>
                             <option value="auth_fail">認可エラー (403)</option>
                             <option value="admin">管理者操作</option>
                         </select>
@@ -282,6 +285,7 @@ ${detailsText || 'なし'}
                                     filteredLogs.map((log) => {
                                         const isExpanded = expandedRow === log.id;
                                         const isHijack = log.event_type === 'session_hijacking_detected';
+                                        const isTimeout = log.event_type === 'session_timeout';
                                         
                                         return (
                                             <React.Fragment key={log.id}>
@@ -289,7 +293,7 @@ ${detailsText || 'なし'}
                                                     onClick={() => toggleRow(log.id)}
                                                     className="cursor-pointer transition-colors hover:bg-gray-50"
                                                     style={{ 
-                                                        backgroundColor: isHijack ? '#fff5f5' : (isExpanded ? '#f9fafb' : '#ffffff'),
+                                                        backgroundColor: isHijack ? '#fff5f5' : (isTimeout ? '#fffbeb' : (isExpanded ? '#f9fafb' : '#ffffff')),
                                                         borderBottom: '1px solid #f3f4f6'
                                                     }}
                                                 >
@@ -305,6 +309,11 @@ ${detailsText || 'なし'}
                                                             {isHijack && (
                                                                 <span className="text-xs text-red-600 font-bold border border-red-300 bg-red-50 px-1 rounded" style={{ color: '#dc2626', borderColor: '#fca5a5', backgroundColor: '#fef2f2' }}>
                                                                     ⚠️ 警告
+                                                                </span>
+                                                            )}
+                                                            {isTimeout && (
+                                                                <span className="text-xs text-amber-700 font-bold border border-amber-300 bg-amber-50 px-1 rounded" style={{ color: '#b45309', borderColor: '#fcd34d', backgroundColor: '#fffbeb' }}>
+                                                                    ⏱️ ZTA Timeout
                                                                 </span>
                                                             )}
                                                         </div>

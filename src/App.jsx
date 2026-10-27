@@ -17,21 +17,31 @@ const App = () => {
     const [authNotice, setAuthNotice] = useState('');
     const userRef = useRef(null);
     const lastActivityRef = useRef(0);
+    const hasRecentActivityRef = useRef(false);
     const isLoggingOutRef = useRef(false);
 
     useEffect(() => {
         userRef.current = user;
         if (user && !lastActivityRef.current) {
             lastActivityRef.current = Date.now();
+            hasRecentActivityRef.current = true;
         }
     }, [user]);
 
-    const forceLogoutWithNotice = useCallback(async (reasonMessage) => {
+    const forceLogoutWithNotice = useCallback(async (reasonMessage, logoutReason = 'logout', extraDetails = {}) => {
         if (isLoggingOutRef.current) return;
         isLoggingOutRef.current = true;
         try {
             const rawFetch = window.__eaOriginalFetch || window.fetch;
-            await rawFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+            await rawFetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    reason: logoutReason,
+                    message: reasonMessage || undefined,
+                    ...extraDetails
+                })
+            }).catch(() => {});
         } finally {
             setUser(null);
             userRef.current = null;
@@ -58,7 +68,15 @@ const App = () => {
 
                 if (isApiCall && !isExcluded && userRef.current) {
                     if (response.status === 401) {
-                        forceLogoutWithNotice('セッションがタイムアウトしたため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。');
+                        const cloned = response.clone();
+                        const errData = await cloned.json().catch(() => ({}));
+                        if (errData?.code !== 'GOOGLE_TOKEN_MISSING') {
+                            forceLogoutWithNotice(
+                                'セッションがタイムアウトしたため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
+                                'session_timeout',
+                                { trigger: 'api_401', endpoint: reqUrl }
+                            );
+                        }
                     } else if (response.status === 403) {
                         const cloned = response.clone();
                         const errData = await cloned.json().catch(() => ({}));
@@ -67,7 +85,11 @@ const App = () => {
                             errData?.code === 'SESSION_EXPIRED' ||
                             /Invalid( or expired)? token|Not authenticated|Session context mismatch|User not found/i.test(errMsg)
                         ) {
-                            forceLogoutWithNotice('セッションの有効期限切れ、またはネットワーク環境の変化を検知したためログアウトしました。再度ログインしてください。');
+                            forceLogoutWithNotice(
+                                'セッションの有効期限切れ、またはネットワーク環境の変化を検知したためログアウトしました。再度ログインしてください。',
+                                'session_timeout',
+                                { trigger: 'api_403_session_expired', endpoint: reqUrl }
+                            );
                         }
                     }
                 }
@@ -106,16 +128,21 @@ const App = () => {
         return null;
     }, []);
 
-    const checkSession = useCallback(async (silent = false) => {
+    const checkSession = useCallback(async (silent = false, isUserActive = false) => {
         try {
             const rawFetch = window.__eaOriginalFetch || window.fetch;
-            const response = await rawFetch('/api/auth/me');
+            const endpoint = isUserActive ? '/api/auth/me?active=1' : '/api/auth/me';
+            const response = await rawFetch(endpoint);
             if (response.ok) {
                 const data = await response.json();
                 setUser(data.user);
                 return true;
-            } else if (silent && userRef.current) {
-                await forceLogoutWithNotice('セッションの有効期限が切れました。再度ログインしてください。');
+            } else if (silent && userRef.current && (response.status === 401 || response.status === 403)) {
+                await forceLogoutWithNotice(
+                    'セッションの有効期限が切れました。再度ログインしてください。',
+                    'session_timeout',
+                    { trigger: 'periodic_session_check', status: response.status }
+                );
                 return false;
             }
         } catch (error) {
@@ -132,7 +159,7 @@ const App = () => {
         const init = async () => {
             const conf = await fetchConfig();
             if (conf?.isConfigured) {
-                const loggedIn = await checkSession(false);
+                const loggedIn = await checkSession(false, true);
                 if (loggedIn) {
                     await fetchConfig(1);
                 }
@@ -148,6 +175,7 @@ const App = () => {
         if (!user) return;
 
         lastActivityRef.current = Date.now();
+        hasRecentActivityRef.current = true;
 
         let lastThrottle = 0;
         const updateActivity = () => {
@@ -155,11 +183,17 @@ const App = () => {
             if (now - lastThrottle < 2000) return;
             lastThrottle = now;
             // スリープ復帰等で既にアイドル制限時間を超えていた場合は即座にログアウト
-            if (now - lastActivityRef.current >= IDLE_TIMEOUT_MS) {
-                forceLogoutWithNotice('一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。');
+            const idleTime = now - lastActivityRef.current;
+            if (idleTime >= IDLE_TIMEOUT_MS) {
+                forceLogoutWithNotice(
+                    '一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
+                    'session_timeout',
+                    { idleMinutes: Math.round(idleTime / 60000), trigger: 'activity_resume_after_idle' }
+                );
                 return;
             }
             lastActivityRef.current = now;
+            hasRecentActivityRef.current = true;
         };
 
         const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel', 'click'];
@@ -168,19 +202,29 @@ const App = () => {
         const intervalId = setInterval(() => {
             const idleTime = Date.now() - lastActivityRef.current;
             if (idleTime >= IDLE_TIMEOUT_MS) {
-                forceLogoutWithNotice('一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。');
+                forceLogoutWithNotice(
+                    '一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
+                    'session_timeout',
+                    { idleMinutes: Math.round(idleTime / 60000), trigger: 'idle_interval_timer' }
+                );
                 return;
             }
-            checkSession(true);
+            const wasActive = hasRecentActivityRef.current;
+            hasRecentActivityRef.current = false;
+            checkSession(true, wasActive);
         }, SESSION_CHECK_INTERVAL_MS);
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
                 const idleTime = Date.now() - lastActivityRef.current;
                 if (idleTime >= IDLE_TIMEOUT_MS) {
-                    forceLogoutWithNotice('一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。');
+                    forceLogoutWithNotice(
+                        '一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
+                        'session_timeout',
+                        { idleMinutes: Math.round(idleTime / 60000), trigger: 'visibility_resume_after_idle' }
+                    );
                 } else {
-                    checkSession(true);
+                    checkSession(true, true);
                 }
             }
         };
