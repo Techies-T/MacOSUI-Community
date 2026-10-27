@@ -120,6 +120,7 @@ async function initDb() {
     assistant_meeting_buffer INTEGER DEFAULT 30,
     assistant_prompt TEXT,
     native_language TEXT DEFAULT 'ja',
+    last_active_at TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`, () => r()));
 
@@ -142,6 +143,7 @@ async function initDb() {
     await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_break_end TEXT DEFAULT '13:00'", () => r()));
     await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN assistant_prompt TEXT", () => r()));
     await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN native_language TEXT DEFAULT 'ja'", () => r()));
+    await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN last_active_at TEXT", () => r()));
 
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS deep_research_history (
         id SERIAL PRIMARY KEY,

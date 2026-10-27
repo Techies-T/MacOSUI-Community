@@ -16,6 +16,7 @@ const STATUS_PRESETS = [
 
 const getStatusEmoji = (text = '', room = '') => {
     const t = (text || '').toLowerCase();
+    if (t === 'offline' || t.includes('オフライン')) return '⚫';
     if (t.includes('lunch') || t.includes('飯') || t.includes('食')) return '🍱';
     if (t.includes('break') || t.includes('休') || t.includes('tea') || t.includes('coffee')) return '☕';
     if (t.includes('away') || t.includes('離席') || t.includes('外')) return '🟡';
@@ -27,6 +28,7 @@ const getStatusEmoji = (text = '', room = '') => {
 
 const getStatusDotColor = (text = '', room = '') => {
     const t = (text || '').toLowerCase();
+    if (t === 'offline' || t.includes('オフライン')) return 'bg-gray-500';
     if (t.includes('lunch') || t.includes('break') || t.includes('away') || t.includes('離席') || t.includes('休')) return 'bg-amber-400';
     if (t.includes('focus') || room === 'focus-zone') return 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]';
     if (t.includes('meet') || (room && room.startsWith('meeting'))) return 'bg-indigo-500';
@@ -133,6 +135,11 @@ const VirtualOffice = ({ onOpen, user }) => {
             });
 
             setUsers(processedUsers);
+            setSelectedUser(prev => {
+                if (!prev) return null;
+                const updated = processedUsers.find(u => u.id === prev.id);
+                return updated || prev;
+            });
 
             // 自分の最新ステータスを myStatus に同期
             if (user) {
@@ -533,18 +540,23 @@ const VirtualOffice = ({ onOpen, user }) => {
                                         {roomUsers.length === 0 ? (
                                             <div className="text-[11px] text-gray-600 italic py-2">誰もいません</div>
                                         ) : (
-                                            roomUsers.map(u => (
+                                            roomUsers.map(u => {
+                                                const isOffline = !!(u.is_offline || (u.status_text || '').toLowerCase() === 'offline');
+                                                return (
                                                 <div 
                                                     key={u.id}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedUser(u);
                                                     }}
-                                                    className="group flex flex-col items-center space-y-1.5 cursor-pointer relative"
+                                                    className={`group flex flex-col items-center space-y-1.5 cursor-pointer relative ${
+                                                        isOffline ? 'opacity-45 grayscale-[60%] hover:opacity-80 transition-opacity' : ''
+                                                    }`}
                                                 >
                                                     {/* Avatar Wrap */}
                                                     <div className="relative">
                                                         <div className={`w-12 h-12 rounded-xl overflow-hidden bg-gray-900 border-2 transition-all group-hover:scale-105 ${
+                                                            isOffline ? 'border-gray-600/80' :
                                                             u.is_remote ? 'border-cyan-400/80 shadow-md shadow-cyan-400/10' :
                                                             roomId === 'focus-zone' ? 'border-amber-400/80' : 'border-gray-800'
                                                         }`}>
@@ -566,12 +578,12 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                         )}
 
                                                         {/* Status indicators */}
-                                                        {!!u.is_remote && (
+                                                        {!!u.is_remote && !isOffline && (
                                                             <div className="absolute -top-1 -right-1 bg-cyan-500 border border-[#0b0f19] rounded-full p-0.5 text-[8px]" title="Remote Login">
                                                                 🏡
                                                             </div>
                                                         )}
-                                                        {roomId === 'focus-zone' && (
+                                                        {roomId === 'focus-zone' && !isOffline && (
                                                             <div className="absolute -bottom-1 -right-1 bg-amber-500 border border-[#0b0f19] rounded-full p-0.5 text-[8px]" title="Do Not Disturb">
                                                                 🤫
                                                             </div>
@@ -579,8 +591,10 @@ const VirtualOffice = ({ onOpen, user }) => {
 
                                                         {/* Presence dot badge */}
                                                         <div 
-                                                            className={`absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0b0f19] flex items-center justify-center ${getStatusDotColor(u.status_text, u.current_room)}`}
-                                                            title={`Status: ${u.status_text || 'Active'}`}
+                                                            className={`absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0b0f19] flex items-center justify-center ${
+                                                                isOffline ? 'bg-gray-500' : getStatusDotColor(u.status_text, u.current_room)
+                                                            }`}
+                                                            title={`Status: ${isOffline ? 'Offline' : (u.status_text || 'Active')}`}
                                                         />
                                                     </div>
 
@@ -594,7 +608,14 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                                 {getLangInfo(u.native_language).flag}
                                                             </span>
                                                         </div>
-                                                        {u.status_text && u.status_text !== 'Active' && (
+                                                        {isOffline ? (
+                                                            <span 
+                                                                className="text-[8px] px-1.5 py-0.5 bg-gray-900/90 text-gray-400 rounded-full border border-gray-700/60 truncate max-w-full text-center mt-0.5 shadow-sm"
+                                                                title="Offline"
+                                                            >
+                                                                ⚫ Offline
+                                                            </span>
+                                                        ) : (u.status_text && u.status_text !== 'Active') && (
                                                             <span 
                                                                 className="text-[8px] px-1.5 py-0.5 bg-gray-900/90 text-gray-300 rounded-full border border-gray-700/60 truncate max-w-full text-center mt-0.5 shadow-sm"
                                                                 title={u.status_text}
@@ -604,7 +625,8 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                         )}
                                                     </div>
                                                 </div>
-                                            ))
+                                                );
+                                            })
                                         )}
                                     </div>
                                 </div>
@@ -631,10 +653,12 @@ const VirtualOffice = ({ onOpen, user }) => {
                             {/* Avatar & Name */}
                             <div className="flex flex-col items-center text-center space-y-3">
                                 <div className="relative">
-                                    <div className="w-24 h-24 rounded-2xl overflow-hidden bg-gray-900 border-2 border-gray-800 shadow-xl">
+                                    <div className={`w-24 h-24 rounded-2xl overflow-hidden bg-gray-900 border-2 border-gray-800 shadow-xl ${
+                                        (selectedUser.is_offline || (selectedUser.status_text || '').toLowerCase() === 'offline') ? 'opacity-50 grayscale-[60%]' : ''
+                                    }`}>
                                         <img src={selectedUser.avatar_url} alt={selectedUser.name} className="w-full h-full object-cover" />
                                     </div>
-                                    {!!selectedUser.is_remote && (
+                                    {!!selectedUser.is_remote && !(selectedUser.is_offline || (selectedUser.status_text || '').toLowerCase() === 'offline') && (
                                         <div className="absolute -top-1 -right-1 bg-cyan-500 border-2 border-[#111827] rounded-full p-1 text-xs" title="Remote Active">
                                             🏡
                                         </div>
@@ -671,7 +695,9 @@ const VirtualOffice = ({ onOpen, user }) => {
                                 <div>
                                     <span className="text-[9px] font-bold text-gray-500 block uppercase">Status Text</span>
                                     <span className="text-xs text-gray-400">
-                                        {selectedUser.status_text || 'Active'}
+                                        {(selectedUser.is_offline || (selectedUser.status_text || '').toLowerCase() === 'offline')
+                                            ? '⚫ Offline'
+                                            : (selectedUser.status_text || 'Active')}
                                     </span>
                                 </div>
                                 <div>
@@ -749,7 +775,14 @@ const VirtualOffice = ({ onOpen, user }) => {
 
                             {/* Actions */}
                             <div className="space-y-2 pt-2 border-t border-gray-800">
-                                {selectedUser.is_remote ? (
+                                {(selectedUser.is_offline || (selectedUser.status_text || '').toLowerCase() === 'offline') ? (
+                                    <button 
+                                        onClick={() => onOpen(`dm-chat-${selectedUser.id}`, 'dm-chat', `Chat with ${selectedUser.name}`, { targetUser: selectedUser })}
+                                        className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-xs font-semibold transition shadow-sm"
+                                    >
+                                        🤖 AIアシスタントに伝言・予定調整 (Offline)
+                                    </button>
+                                ) : selectedUser.is_remote ? (
                                     <button 
                                         onClick={() => onOpen(`dm-chat-${selectedUser.id}`, 'dm-chat', `Chat with ${selectedUser.name}`, { targetUser: selectedUser })}
                                         className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-xs font-semibold transition shadow-sm"

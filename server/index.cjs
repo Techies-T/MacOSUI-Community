@@ -27,6 +27,31 @@ function getContextHashes(req) {
     return { ipHash, uaHash, ip, ua };
 }
 
+// UI側のZTAセッションアイドルタイムアウト（30分: src/App.jsx の IDLE_TIMEOUT_MS と同期）
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
+function getDefaultOnlineStatusText(user) {
+    if (!user) return 'Active';
+    if (user.current_room === 'focus-zone') return 'Busy';
+    if (user.current_room === 'remote' || user.is_remote) return 'Home Office';
+    if (user.current_room && user.current_room.startsWith('meeting-room')) return 'In Meeting';
+    return 'Active';
+}
+
+function isUserOffline(user, currentLoginUserId = null) {
+    if (!user) return true;
+    const statusLower = (user.status_text || '').toLowerCase();
+    if (statusLower === 'offline') return true;
+    if (currentLoginUserId && Number(user.id) === Number(currentLoginUserId)) return false;
+    if (user.last_active_at) {
+        const lastActiveMs = new Date(user.last_active_at).getTime();
+        if (!isNaN(lastActiveMs) && (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // .env と development.env (Docker等でマウントされる名前) の両方をサポート
 const fs = require('fs');
 const path = require('path');
@@ -788,11 +813,12 @@ app.post('/api/auth/google', async (req, res) => {
                 const allowed_models = (isAdmin || hasWildcardModels) ? ['*'] : Array.from(allowed_models_set);
                 const allowed_pods = (isAdmin || allowed_pods_set.has('*')) ? ['*'] : Array.from(allowed_pods_set);
 
-                db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role, token_expiry) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+                const nowIso = new Date().toISOString();
+                db.run(`INSERT INTO users (google_id, email, name, avatar_url, access_token, refresh_token, role, token_expiry, last_active_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
                     ON CONFLICT(google_id) DO UPDATE SET 
-                    email=excluded.email, name=excluded.name, avatar_url = CASE WHEN users.avatar_url LIKE 'data:image%' THEN users.avatar_url ELSE excluded.avatar_url END, access_token=excluded.access_token, token_expiry=excluded.token_expiry` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
-                    [googleId, email, name, avatarUrl, accessToken, refreshToken || null, role, expiryDate],
+                    email=excluded.email, name=excluded.name, avatar_url = CASE WHEN users.avatar_url LIKE 'data:image%' THEN users.avatar_url ELSE excluded.avatar_url END, access_token=excluded.access_token, token_expiry=excluded.token_expiry, last_active_at=excluded.last_active_at, status_text = CASE WHEN LOWER(COALESCE(users.status_text, '')) = 'offline' THEN 'Active' ELSE COALESCE(users.status_text, 'Active') END` + (refreshToken ? `, refresh_token=excluded.refresh_token` : ``),
+                    [googleId, email, name, avatarUrl, accessToken, refreshToken || null, role, expiryDate, nowIso],
                     function (err) {
                         if (err) {
                             console.error("DB Upsert Error:", err);
@@ -944,6 +970,12 @@ app.get('/api/auth/me', (req, res) => {
 
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
         if (err) {
+            try {
+                const expiredDecoded = jwt.decode(token);
+                if (expiredDecoded && expiredDecoded.id) {
+                    db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [expiredDecoded.id]);
+                }
+            } catch (_) {}
             res.clearCookie('token');
             return res.status(401).json({ error: 'Invalid or expired token', code: 'SESSION_EXPIRED' });
         }
@@ -952,6 +984,9 @@ app.get('/api/auth/me', (req, res) => {
         const hashes = getContextHashes(req);
         const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
         if (!isContextValid) {
+            if (decoded && decoded.id) {
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
+            }
             auditDb.logEvent({
                 userId: decoded.id,
                 userEmail: decoded.email,
@@ -974,6 +1009,14 @@ app.get('/api/auth/me', (req, res) => {
 
         db.get("SELECT * FROM users WHERE id = ?", [decoded.id], async (dbErr, user) => {
             if (!dbErr && user) {
+                const nowIso = new Date().toISOString();
+                const restoredStatus = (user.status_text || '').toLowerCase() === 'offline'
+                    ? getDefaultOnlineStatusText(user)
+                    : (user.status_text || 'Active');
+                user.last_active_at = nowIso;
+                user.status_text = restoredStatus;
+                db.run("UPDATE users SET last_active_at = ?, status_text = ? WHERE id = ?", [nowIso, restoredStatus, user.id]);
+
                 // Fetch fresh RBAC policies to act as a dynamic PEP
                 let rbacPolicies = {};
                 try {
@@ -1050,6 +1093,10 @@ app.post('/api/auth/logout', (req, res) => {
     const token = req.cookies.token;
     if (token) {
         jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+            const payload = (!err && decoded) ? decoded : jwt.decode(token);
+            if (payload && payload.id) {
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [payload.id]);
+            }
             if (!err && decoded) {
                 auditDb.logEvent({
                     userId: decoded.id,
@@ -1754,8 +1801,13 @@ app.put('/api/users/:id/language', requireAuth, (req, res) => {
 
 app.get('/api/virtual-office/users', requireAuth, (req, res) => {
     const loginUserId = req.user.id;
+    const nowIso = new Date().toISOString();
+
+    // Update caller's heartbeat timestamp
+    db.run("UPDATE users SET last_active_at = ? WHERE id = ?", [nowIso, loginUserId], () => {});
+
     const sql = `
-        SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote,
+        SELECT u.id, u.email, u.name, u.avatar_url, u.role, u.current_room, u.status_text, u.is_remote, u.last_active_at,
                u.assistant_work_start, u.assistant_work_end, u.assistant_break_start, u.assistant_break_end, u.assistant_meeting_buffer, u.assistant_prompt, u.native_language,
                (SELECT COUNT(*) FROM dm_messages m WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0) as unread_count
         FROM users u
@@ -1764,11 +1816,17 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         
         const enriched = rows.map(user => {
+            const isOffline = isUserOffline(user, loginUserId);
+            if (isOffline && (user.status_text || '').toLowerCase() !== 'offline') {
+                db.run("UPDATE users SET status_text = 'Offline' WHERE id = ?", [user.id], () => {});
+            }
+
             return {
                 ...user,
+                is_offline: isOffline,
                 is_remote: user.is_remote ?? 0,
                 current_room: user.current_room || 'open-space',
-                status_text: user.status_text || 'Active',
+                status_text: isOffline ? 'Offline' : (user.status_text || 'Active'),
                 unread_count: user.unread_count || 0,
                 native_language: user.native_language || 'ja',
                 assistant_work_start: user.assistant_work_start || '09:00',
@@ -1958,8 +2016,8 @@ ${newPrompt}`;
 });
 
 app.post('/api/virtual-office/status', requireAuth, (req, res) => {
-    const { current_room, status_text, is_remote, native_language } = req.body;
-    const userId = req.user.id;
+    const { current_room, status_text, is_remote, native_language, targetUserId } = req.body;
+    const userId = targetUserId || req.user.id;
     
     db.get("SELECT current_room, status_text, is_remote, native_language FROM users WHERE id = ?", [userId], (err, user) => {
         if (err) {
@@ -1972,10 +2030,11 @@ app.post('/api/virtual-office/status', requireAuth, (req, res) => {
         const nextStatus = status_text !== undefined ? status_text : (user.status_text || 'Active');
         const nextRemote = is_remote !== undefined ? is_remote : (user.is_remote ?? 0);
         const nextLang = native_language !== undefined ? native_language : (user.native_language || 'ja');
+        const nextLastActive = nextStatus.toLowerCase() === 'offline' ? null : new Date().toISOString();
         
         db.run(
-            "UPDATE users SET current_room = ?, status_text = ?, is_remote = ?, native_language = ? WHERE id = ?",
-            [nextRoom, nextStatus, nextRemote, nextLang, userId],
+            "UPDATE users SET current_room = ?, status_text = ?, is_remote = ?, native_language = ?, last_active_at = ? WHERE id = ?",
+            [nextRoom, nextStatus, nextRemote, nextLang, nextLastActive, userId],
             function(updateErr) {
                 if (updateErr) {
                     console.error('Error updating user status:', updateErr);
@@ -1987,7 +2046,8 @@ app.post('/api/virtual-office/status', requireAuth, (req, res) => {
                         current_room: nextRoom,
                         status_text: nextStatus,
                         is_remote: nextRemote,
-                        native_language: nextLang
+                        native_language: nextLang,
+                        is_offline: nextStatus.toLowerCase() === 'offline'
                     }
                 });
             }
@@ -5054,6 +5114,7 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
                     // 3. 通常のステータスに応じた自動返信処理
                     let replyText = '';
                     let isAssistant = false;
+                    const isTargetOffline = isUserOffline(targetUser, loginUserId);
 
                     // 3-1. カレンダー空きスケジュールと移動時間の算出
                     let freeSlotsText = "なし";
@@ -5102,6 +5163,7 @@ app.post('/api/dm/messages', requireAuth, async (req, res) => {
 
                             const systemInstruction = `You are an executive AI Assistant for ${targetUser.name} (${targetUser.role || 'Boss'}).
 - Current Room: ${targetUser.current_room || 'open-space'}
+- Online Presence Status: ${isTargetOffline ? 'Offline (Currently logged out / session timed out)' : (targetUser.status_text || 'Active')}
 - Working Hours: ${targetUser.assistant_work_start || '09:00'} - ${targetUser.assistant_work_end || '17:30'}
 - Today's Available Common Free Slots:
 ${freeSlotsText}
@@ -5111,7 +5173,7 @@ ${freeSlotsText}
 Instructions:
 1. If the sender is asking for a meeting or chat, suggest the available free slots clearly.
 2. ${isDifferentLang ? `Generate a bilingual response. First, write the response in ${targetLangName} (${targetUser.name}'s language). Then, provide the translation in ${senderLangName} (the sender's language) so both parties can read it.` : `Respond politely and naturally in ${senderLangName}.`}
-3. If ${targetUser.name} is in 'focus-zone' or 'meeting-room', state that they are currently unavailable and take a message.
+3. If ${targetUser.name} is Offline, in 'focus-zone', or in 'meeting-room', state that they are currently unavailable and take a message.
 4. Output only the final assistant chat response without any meta commentary.`;
 
                             const ollamaRes = await fetch(`${host}/api/generate`, {
@@ -5152,7 +5214,7 @@ Instructions:
 
                                 let finalSystemInstruction = basePrompt
                                     .replace(/{name}/g, targetUser.name)
-                                    .replace(/{room}/g, targetUser.current_room || 'open-space')
+                                    .replace(/{room}/g, isTargetOffline ? 'offline' : (targetUser.current_room || 'open-space'))
                                     .replace(/{work_start}/g, targetUser.assistant_work_start || '09:00')
                                     .replace(/{work_end}/g, targetUser.assistant_work_end || '17:30')
                                     .replace(/{free_slots}/g, freeSlotsText !== 'なし' ? freeSlotsText : 'なし');
@@ -5161,6 +5223,7 @@ Instructions:
 【現在のリアルタイム・コンテキスト】
 - 主人の名前: ${targetUser.name}
 - 主人の現在の部屋状態: ${targetUser.current_room || 'open-space'}
+- 主人の現在のオンライン状態: ${isTargetOffline ? 'Offline (オフライン・ログアウト中)' : (targetUser.status_text || 'Active')}
 - 本日の双方の共通空き時間帯: 
 ${freeSlotsText}
 - 送信者 (${req.user.name}) の母国語: ${senderLangName}
@@ -5205,12 +5268,20 @@ ${freeSlotsText}
 
                     // 4. APIエラーまたはAPIキー未設定時のフォールバック（従来のハードコード分岐）
                     if (!replyText) {
+                        const userText = (text || '');
                         const isMeetingRequest = userText.includes('打ち合わせ') || 
                                                  userText.includes('会議') || 
                                                  userText.includes('ミーティング') || 
                                                  userText.includes('話');
 
-                        if (targetUser.current_room === 'focus-zone') {
+                        if (isTargetOffline) {
+                            isAssistant = true;
+                            if (isMeetingRequest && freeSlotsText !== 'なし') {
+                                replyText = `現在 ${targetUser.name} はオフライン（退席中）のため、代わりにアシスタントの私が日程を調整します。本日共通で空いている時間は以下になります。仮登録されますか？\n${freeSlotsText}\n➔ [💻 ミーティングを仮調整する]`;
+                            } else {
+                                replyText = `現在 ${targetUser.name} はオフラインのため、代わりにアシスタントの私がご用件を承ります。次回ログイン時に伝言をお届けしますね！🙇‍♂️`;
+                            }
+                        } else if (targetUser.current_room === 'focus-zone') {
                             replyText = `すみません、現在 ${targetUser.name} は「集中ゾーン」で別作業に没頭しているため、応答できません。代わりにアシスタントの私が後ほど伝言を伝えておきますね！🙇‍♂️`;
                             isAssistant = true;
                         } else if (targetUser.current_room === 'remote') {

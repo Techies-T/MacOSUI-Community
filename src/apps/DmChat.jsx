@@ -175,7 +175,9 @@ const DmChat = ({ targetUser, urgent }) => {
 
         // 履歴が空の場合のみ、アシスタントのウェルカムメッセージを表示
         if (formatted.length === 0) {
+            const isTargetOffline = !!(user.is_offline || (user.status_text || '').toLowerCase() === 'offline');
             const roomName = 
+                isTargetOffline ? 'オフライン（退席中）' :
                 user.current_room === 'focus-zone' ? '集中ゾーン' :
                 user.current_room === 'remote' ? 'リモートワーク中' : '会議室';
             
@@ -413,10 +415,13 @@ const DmChat = ({ targetUser, urgent }) => {
             <div className="flex items-center justify-between px-5 py-3 bg-[#111827]/85 border-b border-gray-800 backdrop-blur-md">
                 <div className="flex items-center space-x-3">
                     <div className="relative">
-                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-900 border border-gray-800">
+                        <div className={`w-10 h-10 rounded-xl overflow-hidden bg-gray-900 border border-gray-800 ${
+                            (user.is_offline || (user.status_text || '').toLowerCase() === 'offline') ? 'opacity-50 grayscale-[60%]' : ''
+                        }`}>
                             <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
                         </div>
                         <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#111827] ${
+                            (user.is_offline || (user.status_text || '').toLowerCase() === 'offline') ? 'bg-gray-500' :
                             user.current_room === 'focus-zone' ? 'bg-amber-400' :
                             user.current_room === 'remote' ? 'bg-cyan-400' : 'bg-emerald-400'
                         }`} />
@@ -430,9 +435,11 @@ const DmChat = ({ targetUser, urgent }) => {
                             </span>
                         </div>
                         <p className="text-[10px] text-gray-500">
-                            {user.is_remote ? '🏡 Remote Active' : '🏢 Office Active'}
+                            {(user.is_offline || (user.status_text || '').toLowerCase() === 'offline')
+                                ? '⚫ Offline'
+                                : (user.is_remote ? '🏡 Remote Active' : '🏢 Office Active')}
                             <span className="mx-1.5">•</span>
-                            Status: {user.status_text || 'Active'}
+                            Status: {(user.is_offline || (user.status_text || '').toLowerCase() === 'offline') ? 'Offline' : (user.status_text || 'Active')}
                         </p>
                     </div>
                 </div>

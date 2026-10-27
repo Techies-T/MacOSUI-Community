@@ -43,6 +43,7 @@ function initDb() {
     assistant_meeting_buffer INTEGER DEFAULT 30,
     assistant_prompt TEXT,
     native_language TEXT DEFAULT 'ja',
+    last_active_at TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
@@ -99,6 +100,9 @@ function initDb() {
         // Ignore error if column exists
     });
     db.run("ALTER TABLE users ADD COLUMN native_language TEXT DEFAULT 'ja'", (err) => {
+        // Ignore error if column exists
+    });
+    db.run("ALTER TABLE users ADD COLUMN last_active_at TEXT", (err) => {
         // Ignore error if column exists
     });
 
