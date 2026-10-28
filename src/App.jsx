@@ -24,7 +24,6 @@ const App = () => {
         userRef.current = user;
         if (user && !lastActivityRef.current) {
             lastActivityRef.current = Date.now();
-            hasRecentActivityRef.current = true;
         }
     }, [user]);
 
@@ -135,7 +134,20 @@ const App = () => {
             const response = await rawFetch(endpoint);
             if (response.ok) {
                 const data = await response.json();
-                setUser(data.user);
+                setUser(prev => {
+                    if (!prev || !silent) return data.user;
+                    if (
+                        prev.id === data.user?.id &&
+                        prev.role === data.user?.role &&
+                        prev.status_text === data.user?.status_text &&
+                        prev.current_room === data.user?.current_room &&
+                        prev.avatar_url === data.user?.avatar_url &&
+                        prev.native_language === data.user?.native_language
+                    ) {
+                        return prev;
+                    }
+                    return data.user;
+                });
                 return true;
             } else if (silent && userRef.current && (response.status === 401 || response.status === 403)) {
                 await forceLogoutWithNotice(
@@ -170,15 +182,30 @@ const App = () => {
         init();
     }, [fetchConfig, checkSession]);
 
+    const userId = user?.id;
+
     // ZTA: 無操作タイムアウト監視 & タブ復帰時・定期セッション生存確認
     useEffect(() => {
-        if (!user) return;
+        if (!userId) return;
 
         lastActivityRef.current = Date.now();
-        hasRecentActivityRef.current = true;
+        hasRecentActivityRef.current = false;
+        const lastMousePos = { x: null, y: null };
 
         let lastThrottle = 0;
-        const updateActivity = () => {
+        const updateActivity = (evt) => {
+            if (evt?.type === 'mousemove') {
+                if (lastMousePos.x === null && lastMousePos.y === null) {
+                    lastMousePos.x = evt.clientX;
+                    lastMousePos.y = evt.clientY;
+                    return;
+                }
+                if (Math.abs(evt.clientX - lastMousePos.x) < 3 && Math.abs(evt.clientY - lastMousePos.y) < 3) {
+                    return; // DOM再描画（バッジ表示・3秒ポーリング）や微小ジッターによる疑似mousemoveを無視
+                }
+                lastMousePos.x = evt.clientX;
+                lastMousePos.y = evt.clientY;
+            }
             const now = Date.now();
             if (now - lastThrottle < 2000) return;
             lastThrottle = now;
@@ -224,7 +251,7 @@ const App = () => {
                         { idleMinutes: Math.round(idleTime / 60000), trigger: 'visibility_resume_after_idle' }
                     );
                 } else {
-                    checkSession(true, true);
+                    checkSession(true, false);
                 }
             }
         };
@@ -235,7 +262,7 @@ const App = () => {
             clearInterval(intervalId);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [user, checkSession, forceLogoutWithNotice]);
+    }, [userId, checkSession, forceLogoutWithNotice]);
 
     const handleActivate = async () => {
         setLoadingConfig(true);
