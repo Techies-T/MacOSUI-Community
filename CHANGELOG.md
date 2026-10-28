@@ -3,6 +3,31 @@
 本プロジェクトのすべての主要な変更履歴は本ファイルに記録されます。
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.0.0/) に準拠し、バージョン番号は [セマンティック バージョニング](https://semver.org/lang/ja/) に従います。
 
+## [v3.0.2] - 2026-10-28
+
+### 🛡️ ZTA セッションタイムアウト制御 & バーチャルオフィス Offline 自動遷移の厳格化
+
+#### 🔒 Security & ZTA Session Lifecycle (ZTAセッション管理・再ログイン強制)
+- **タイムアウト・ログアウト後のブラウザリフレッシュ（F5）による不正セッション復活の完全防止 (`server/index.cjs`)**:
+  - `GET /api/auth/me`、`requireAuth`、および `requireAuthOrA2A` において、Cookie 内の JWT 署名が有効期間内（7日間）であっても、DB 上のユーザーステータスが `status_text === 'Offline'` または `last_active_at === NULL`、あるいは最終操作から30分（`SESSION_IDLE_TIMEOUT_MS`）を超過している場合は即座にセッション失効（`401 SESSION_EXPIRED`）として拒否し、サーバー側でセッション Cookie（`macos_ui_token`）を確実に破棄（`clearSessionCookie`）する仕組みを実装。
+  - これにより、一度タイムアウトまたはログアウトした後にブラウザを F5 リフレッシュしてもデスクトップには復帰せず、必ず Passkey または Google OAuth による再認証を要求する ZTA（Zero Trust Architecture）基準を徹底。
+- **ZTA セッションタイムアウト監査ログの自動記録とフィルタ追加 (`server/index.cjs`, `src/apps/SystemSettings/tabs/SecurityLogsTab.jsx`)**:
+  - クライアント/サーバー双方でのアイドルタイムアウト検知時およびバーチャルオフィスのプレゼンスタイムアウト遷移時に、`security_logs` テーブルへ `event_type: 'session_timeout'` を自動記録。
+  - System Settings の「セキュリティ監査ログ」タブに **「セッションタイムアウト (ZTA)」** フィルタと `⏱️ ZTA Timeout` バッジを追加。
+
+#### 🏢 Virtual Office Presence & Idle Detection (バーチャルオフィス Offline 判定改修)
+- **未ログイン・無操作放置ユーザーの確実な `⚫ Offline（半透明表示）` 遷移 (`server/index.cjs`, `src/apps/VirtualOffice.jsx`)**:
+  - `isUserOffline()` において `last_active_at` が `NULL` の場合も確実に `Offline`（`true`）と判定するよう修正。
+  - バーチャルオフィスの3秒ごとの受動ポーリング（`GET /api/virtual-office/users`）による `last_active_at` の無条件更新を廃止し、ユーザーの実際の入力操作を伴うハートビート（`GET /api/auth/me?active=1`）または本人による明示的なステータス変更時のみ `last_active_at` を更新するよう分離。
+  - 他ユーザーからの DM 送信や AI アシスタントの自動応答（`POST /api/dm/messages`）では受信者本人の `last_active_at` を更新しない設計を維持し、本人が不在のまま他者からチャットが送られ続けても30分で確実に `Offline` へ遷移。
+- **フロントエンド無操作タイマーのリセットループ修正 & 疑似 `mousemove` 排除 (`src/App.jsx`)**:
+  - 60秒ごとの定期セッション確認（`checkSession`）で `user` オブジェクト参照が更新されるたびに `useEffect` が再実行され、無操作タイマー（`lastActivityRef`）が毎分リセットされてしまう問題を修正（依存配列をプリミティブ値 `user?.id` に変更し、`silent` チェック時は同一属性のオブジェクト参照を維持）。
+  - バーチャルオフィスの3秒ポーリングや未読通知バッジ表示に伴う DOM 再描画時にブラウザが同一座標で発火させる疑似 `mousemove` イベントを無視するため、マウス座標が実際に 3px 以上移動した場合のみ実操作と判定するよう改善。
+- **外部 OAuth トークン未連携エラーとセッション失効エラーの分離 (`server/index.cjs`, `src/App.jsx`)**:
+  - Google Drive / Calendar API 連携において対象ユーザーの OAuth トークンが未登録の場合に `401` ではなく `403 ({ code: 'GOOGLE_TOKEN_MISSING' })` を返却し、他ユーザーのスケジュール参照時やサーバー再起動時の一時的な `502` エラー等で自身の MacOSUI セッションが誤って強制ログアウトされないよう改善。
+
+---
+
 ## [v3.0.1] - 2026-10-27 (🧪 テスト版 / Pre-release Test Build)
 
 > ⚠️ **【テスト版 (Beta / Pre-release)】**: 本バージョン（`v3.0.1` / 表記 `3.0.1-beta`）は、Anthropic Claude Deep Research 統合ワークフローおよび UI・通信安定化の検証を目的とした**テスト版リリース**です。
