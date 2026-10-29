@@ -407,7 +407,7 @@ const SessionLockModal = ({
 
                     {/* Unlock Action Buttons */}
                     <div className="space-y-2.5">
-                        {hasPasskeys && (
+                        {hasPasskeys && passkeySupported && (
                             <button
                                 type="button"
                                 disabled={loading}
@@ -424,7 +424,7 @@ const SessionLockModal = ({
                             disabled={loading}
                             onClick={() => googleReauth()}
                             className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition flex items-center justify-center gap-2 cursor-pointer ${
-                                hasPasskeys
+                                hasPasskeys && passkeySupported
                                     ? 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
                                     : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30'
                             } disabled:opacity-50`}
