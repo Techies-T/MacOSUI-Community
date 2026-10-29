@@ -1270,6 +1270,24 @@ app.post('/api/auth/logout', (req, res) => {
     jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
         const payload = (!err && decoded) ? decoded : jwt.decode(token);
         if (payload && payload.id) {
+            // もし別ブラウザの古い未リロードタブから旧式の30分自動ログアウト(lockCycles未指定)が送信された場合、
+            // 規定回数(maxLockCount)に達していなければ last_active_at を消去せずソフトロックとして保護する
+            if (isSessionTimeout && !body.lockCycles) {
+                db.get("SELECT id, email, last_active_at FROM users WHERE id = ?", [payload.id], async (uErr, uRow) => {
+                    const maxLockCount = await getSessionLockMaxCount();
+                    const hardLogoutMs = maxLockCount * SESSION_IDLE_TIMEOUT_MS;
+                    const lastMs = uRow?.last_active_at ? new Date(uRow.last_active_at).getTime() : 0;
+                    if (uRow && lastMs && (Date.now() - lastMs < hardLogoutMs)) {
+                        clearSessionCookie(req, res);
+                        return res.json({ message: 'Legacy tab session cleared without terminating active account state' });
+                    }
+                    db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [payload.id], () => {
+                        finishLogout();
+                    });
+                });
+                return;
+            }
+
             db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [payload.id], () => {
                 auditDb.logEvent({
                     userId: payload.id,
