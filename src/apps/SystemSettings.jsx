@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import GeneralTab from './SystemSettings/tabs/GeneralTab';
 import SkillsTab from './SystemSettings/tabs/SkillsTab';
 import SystemTab from './SystemSettings/tabs/SystemTab';
 import PersonalRagTab from './SystemSettings/tabs/PersonalRagTab';
@@ -84,6 +85,7 @@ const SystemSettings = ({ user }) => {
     const [localAiHost, setLocalAiHost] = useState('http://localhost:11434');
     const [localAiModel, setLocalAiModel] = useState('gemma4:26b-mlx');
     const [localAiTemperature, setLocalAiTemperature] = useState('0.7');
+    const [sessionLockMaxCount, setSessionLockMaxCount] = useState(6);
 
     // Live Concierge States
     const [geminiLiveAvailableModels, setGeminiLiveAvailableModels] = useState([]);
@@ -291,6 +293,9 @@ const SystemSettings = ({ user }) => {
                 if (data.defaultMcpChatSystemInstruction !== undefined) {
                     setDefaultMcpChatSystemInstruction(data.defaultMcpChatSystemInstruction);
                 }
+                if (data.sessionLockMaxCount !== undefined) {
+                    setSessionLockMaxCount(Number(data.sessionLockMaxCount) || 6);
+                }
             })
             .catch(err => console.error("Failed to fetch config", err));
     }, []);
@@ -394,6 +399,7 @@ const SystemSettings = ({ user }) => {
                 payload.localAiTemperature = localAiTemperature;
                 payload.mcpChatSystemInstruction = mcpChatSystemInstruction;
                 payload.mcpChatMaxTurns = mcpChatMaxTurns;
+                payload.sessionLockMaxCount = Math.max(1, Math.min(48, Number(sessionLockMaxCount) || 6));
             }
 
             if (canSeeBase) {
@@ -1052,16 +1058,7 @@ const SystemSettings = ({ user }) => {
                 )}
 
                 {activeTab === 'General' && (
-                    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-                        <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-                            <span>About</span>
-                            <span className="text-gray-500 font-medium">Employee Agent v{pkg.version}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-                            <span>Software Update</span>
-                            <span className="text-gray-500 flex items-center gap-1">Up to date <span className="text-green-500">●</span></span>
-                        </div>
-                    </div>
+                    <GeneralTab />
                 )}
 
                 
@@ -1102,6 +1099,8 @@ const SystemSettings = ({ user }) => {
                         setLocalAiModel={setLocalAiModel}
                         localAiTemperature={localAiTemperature}
                         setLocalAiTemperature={setLocalAiTemperature}
+                        sessionLockMaxCount={sessionLockMaxCount}
+                        setSessionLockMaxCount={setSessionLockMaxCount}
                     />
                 )}
 

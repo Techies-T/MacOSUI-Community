@@ -29,6 +29,72 @@ function getContextHashes(req) {
 
 // UI側のZTAセッションアイドルタイムアウト（30分: src/App.jsx の IDLE_TIMEOUT_MS と同期）
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_SESSION_LOCK_MAX_COUNT = 6;
+
+async function getSessionLockMaxCount() {
+    try {
+        const raw = await db.getSetting('SESSION_LOCK_MAX_COUNT');
+        const parsed = parseInt(raw, 10);
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 48) {
+            return parsed;
+        }
+    } catch (_) {}
+    return DEFAULT_SESSION_LOCK_MAX_COUNT;
+}
+
+// WebAuthn (Passkey) チャレンジの一時保存ストア (5分間有効)
+const webauthnChallenges = new Map();
+
+function saveWebauthnChallenge(userId, type, challenge) {
+    const now = Date.now();
+    for (const [k, v] of webauthnChallenges.entries()) {
+        if (v.expiresAt < now) webauthnChallenges.delete(k);
+    }
+    const key = `${userId}:${type}`;
+    webauthnChallenges.set(key, {
+        challenge,
+        userId: Number(userId),
+        type,
+        expiresAt: now + 5 * 60 * 1000
+    });
+}
+
+function consumeWebauthnChallenge(userId, type) {
+    const key = `${userId}:${type}`;
+    const entry = webauthnChallenges.get(key);
+    webauthnChallenges.delete(key);
+    if (!entry || entry.expiresAt < Date.now()) return null;
+    return entry.challenge;
+}
+
+function getRpId(req) {
+    const rawHost = (req.headers['x-forwarded-host'] || req.headers.host || req.hostname || 'localhost').split(',')[0].trim();
+    return rawHost.replace(/:\d+$/, '');
+}
+
+function getExpectedOrigins(req) {
+    const rawHost = (req.headers['x-forwarded-host'] || req.headers.host || 'localhost').split(',')[0].trim();
+    const rpId = getRpId(req);
+    const origins = new Set([
+        `https://${rawHost}`,
+        `http://${rawHost}`,
+        `https://${rpId}`,
+        `http://${rpId}`,
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:5173',
+        'http://127.0.0.1:3000'
+    ]);
+    if (req.headers.origin) {
+        try {
+            const url = new URL(req.headers.origin);
+            if (url.hostname === rpId) {
+                origins.add(url.origin);
+            }
+        } catch (_) {}
+    }
+    return origins;
+}
 
 function clearSessionCookie(req, res) {
     const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -186,6 +252,8 @@ app.get('/api/config', async (req, res) => {
             }
         }
 
+        const sessionLockMaxCount = await getSessionLockMaxCount();
+
         // Unauthenticated or timed-out requests only receive public bootstrap status
         if (!isAuthenticatedSession) {
             return res.json({
@@ -194,7 +262,8 @@ app.get('/api/config', async (req, res) => {
                 isConfigured,
                 isGeminiConfigured: !!geminiKey,
                 isClaudeConfigured: !!claudeKey,
-                aiProvider
+                aiProvider,
+                sessionLockMaxCount
             });
         }
 
@@ -338,7 +407,8 @@ app.get('/api/config', async (req, res) => {
             geminiLiveDefaultModel,
             mcpChatSystemInstruction,
             mcpChatMaxTurns,
-            defaultMcpChatSystemInstruction
+            defaultMcpChatSystemInstruction,
+            sessionLockMaxCount
         });
     } catch (error) {
         console.error("Config Error:", error);
@@ -363,7 +433,7 @@ async function requireAuthIfConfigured(req, res, next) {
 }
 
 app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
-    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, claudeApiKey, claudeModel, aiProvider, claudeResearchModel, claudeHtmlSvgModel, claudeMcpChatModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature, geminiLiveAvailableModels, geminiLiveDefaultModel, mcpChatSystemInstruction, mcpChatMaxTurns } = req.body;
+    const { googleClientId, googleClientSecret, geminiApiKey, geminiModel, claudeApiKey, claudeModel, aiProvider, claudeResearchModel, claudeHtmlSvgModel, claudeMcpChatModel, googleDriveRootId, googleDriveRagFolders, geminiResearchFolderId, nanoBananaModel, geminiResearchModel, geminiHtmlSvgModel, nanoBananaPrompt, deepResearchPrompt, htmlSvgPrompt, mcpServerEndpoint, mcpTokenUrl, mcpClientId, mcpClientSecret, rbacPolicies, mcpQuickPrompts, geminiMcpChatModel, defaultWorkflowId, defaultAssistantPrompt, companyWorkPolicy, antigravityAgentModel, antigravityAgentInstructions, antigravityAgentSafetyPolicy, antigravityAgentExternalPolicyEnabled, antigravityAgentMcpServers, localAiEnabled, localAiHost, localAiModel, localAiTemperature, geminiLiveAvailableModels, geminiLiveDefaultModel, mcpChatSystemInstruction, mcpChatMaxTurns, sessionLockMaxCount } = req.body;
 
     try {
         const isConfigured = !!(await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID);
@@ -449,6 +519,10 @@ app.post('/api/config', requireAuthIfConfigured, async (req, res) => {
             }
             if (geminiLiveDefaultModel !== undefined) {
                 await db.setSetting('GEMINI_LIVE_DEFAULT_MODEL', geminiLiveDefaultModel);
+            }
+            if (sessionLockMaxCount !== undefined) {
+                const parsedMax = Math.max(1, Math.min(48, parseInt(sessionLockMaxCount, 10) || DEFAULT_SESSION_LOCK_MAX_COUNT));
+                await db.setSetting('SESSION_LOCK_MAX_COUNT', parsedMax.toString());
             }
         }
 
@@ -1028,9 +1102,11 @@ app.get('/api/auth/me', (req, res) => {
 
         db.get("SELECT * FROM users WHERE id = ?", [decoded.id], async (dbErr, user) => {
             if (!dbErr && user) {
-                // ZTA セッション終了・アイドルタイムアウト厳格検証 (F5リフレッシュによる不正セッション復活を防止)
-                const isTerminated = (user.status_text || '').toLowerCase() === 'offline' || !user.last_active_at;
-                if (isTerminated) {
+                const maxLockCount = await getSessionLockMaxCount();
+                const hardLogoutTimeoutMs = maxLockCount * SESSION_IDLE_TIMEOUT_MS;
+
+                // ZTA セッション完全終了判定 (明示的ログアウト済 or 強制ログアウト済)
+                if (!user.last_active_at) {
                     clearSessionCookie(req, res);
                     return res.status(401).json({
                         error: 'Session has been terminated. Please sign in again.',
@@ -1039,30 +1115,61 @@ app.get('/api/auth/me', (req, res) => {
                 }
 
                 const lastActiveMs = new Date(user.last_active_at).getTime();
-                if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+                const idleMs = Date.now() - lastActiveMs;
+
+                // 30分 × maxLockCount 回（デフォルト6回＝3時間）を超過した場合は完全強制ログアウト
+                if (isNaN(lastActiveMs) || idleMs >= hardLogoutTimeoutMs) {
                     db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [user.id]);
                     auditDb.logEvent({
                         userId: user.id,
                         userEmail: user.email,
                         eventType: 'session_timeout',
-                        action: 'ZTA Server-Side Session Idle Timeout (/api/auth/me)',
+                        action: `ZTA Forced Logout (${maxLockCount} Idle Cycles Exceeded - /api/auth/me)`,
                         status: 'blocked',
                         req: req,
                         details: {
-                            reason: 'server_idle_timeout_exceeded',
+                            reason: 'max_lock_cycles_exceeded',
                             lastActiveAt: user.last_active_at,
-                            idleTimeoutMinutes: SESSION_IDLE_TIMEOUT_MS / 60000
+                            idleMinutes: Math.round(idleMs / 60000),
+                            maxLockCount,
+                            idleTimeoutMinutesPerCycle: SESSION_IDLE_TIMEOUT_MS / 60000
                         }
                     });
                     clearSessionCookie(req, res);
                     return res.status(401).json({
-                        error: 'Session idle timeout exceeded. Please sign in again.',
+                        error: 'Session idle timeout exceeded maximum lock cycles. Please sign in again.',
                         code: 'SESSION_EXPIRED'
                     });
                 }
 
-                // ユーザーの実操作があった場合のみ last_active_at を更新する (自動ポーリングでの延命を防止)
-                if (req.query.active === '1') {
+                // 30分以上（かつ最大回数未満）無操作、または既にソフトロック(Offline)状態の場合はソフトロック状態を維持
+                const isSoftLocked = idleMs >= SESSION_IDLE_TIMEOUT_MS || (user.status_text || '').toLowerCase() === 'offline';
+                const lockCount = isSoftLocked
+                    ? Math.min(maxLockCount, Math.max(1, Math.floor(idleMs / SESSION_IDLE_TIMEOUT_MS) || 1))
+                    : 0;
+
+                if (isSoftLocked) {
+                    if ((user.status_text || '').toLowerCase() !== 'offline') {
+                        user.status_text = 'Offline';
+                        db.run("UPDATE users SET status_text = 'Offline' WHERE id = ?", [user.id]);
+                        auditDb.logEvent({
+                            userId: user.id,
+                            userEmail: user.email,
+                            eventType: 'session_timeout',
+                            action: `ZTA Session Soft Lock (Cycle ${lockCount}/${maxLockCount} - /api/auth/me)`,
+                            status: 'success',
+                            req: req,
+                            details: {
+                                reason: 'server_soft_lock',
+                                lockCount,
+                                maxLockCount,
+                                lastActiveAt: user.last_active_at,
+                                idleMinutes: Math.round(idleMs / 60000)
+                            }
+                        });
+                    }
+                } else if (req.query.active === '1') {
+                    // ソフトロック中でない通常時のみ、ユーザーの実操作があった場合に last_active_at を更新する
                     const nowIso = new Date().toISOString();
                     user.last_active_at = nowIso;
                     db.run("UPDATE users SET last_active_at = ? WHERE id = ?", [nowIso, user.id]);
@@ -1130,7 +1237,13 @@ app.get('/api/auth/me', (req, res) => {
                     maxAge: 7 * 24 * 60 * 60 * 1000
                 });
 
-                res.json({ user });
+                res.json({
+                    user,
+                    sessionLocked: isSoftLocked,
+                    lockCount,
+                    maxLockCount,
+                    lastActiveAt: user.last_active_at
+                });
             } else {
                 clearSessionCookie(req, res);
                 res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
@@ -1168,6 +1281,7 @@ app.post('/api/auth/logout', (req, res) => {
                     details: isSessionTimeout ? {
                         reason: 'client_idle_timeout',
                         idleMinutes: body.idleMinutes || (SESSION_IDLE_TIMEOUT_MS / 60000),
+                        lockCycles: body.lockCycles || null,
                         trigger: body.trigger || 'ui_idle_monitor',
                         message: body.message || 'Session terminated due to inactivity under ZTA policy'
                     } : null
@@ -1176,6 +1290,546 @@ app.post('/api/auth/logout', (req, res) => {
             });
         } else {
             finishLogout();
+        }
+    });
+});
+
+// Middleware that validates JWT & ZTA context and allows Soft-Locked sessions (for Lock/Unlock/Passkey endpoints)
+function requireAuthAllowLocked(req, res, next) {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: 'Not authenticated', code: 'SESSION_EXPIRED' });
+    jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
+        if (err) {
+            clearSessionCookie(req, res);
+            return res.status(401).json({ error: 'Invalid or expired token', code: 'SESSION_EXPIRED' });
+        }
+        const hashes = getContextHashes(req);
+        const isContextValid = !decoded.ip_hash || (decoded.ip_hash === hashes.ipHash && decoded.ua_hash === hashes.uaHash);
+        if (!isContextValid) {
+            clearSessionCookie(req, res);
+            return res.status(401).json({ error: 'Session context mismatch', code: 'SESSION_EXPIRED' });
+        }
+        db.get("SELECT * FROM users WHERE id = ?", [decoded.id], async (dbErr, row) => {
+            if (dbErr || !row || !row.last_active_at) {
+                clearSessionCookie(req, res);
+                return res.status(401).json({ error: 'Session expired. Please sign in again.', code: 'SESSION_EXPIRED' });
+            }
+            const maxLockCount = await getSessionLockMaxCount();
+            const hardLogoutTimeoutMs = maxLockCount * SESSION_IDLE_TIMEOUT_MS;
+            const lastActiveMs = new Date(row.last_active_at).getTime();
+            if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs >= hardLogoutTimeoutMs)) {
+                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
+                clearSessionCookie(req, res);
+                return res.status(401).json({ error: 'Maximum session lock duration exceeded. Please sign in again.', code: 'SESSION_EXPIRED' });
+            }
+            req.user = decoded;
+            req.userRow = row;
+            req.maxLockCount = maxLockCount;
+            next();
+        });
+    });
+}
+
+// Auth: Soft Lock Session (30-min idle cycle notification without destroying UI session)
+app.post('/api/auth/session-lock', requireAuthAllowLocked, (req, res) => {
+    const userRow = req.userRow;
+    const maxLockCount = req.maxLockCount;
+    const body = req.body || {};
+    const lastActiveMs = new Date(userRow.last_active_at).getTime();
+    const idleMs = Math.max(0, Date.now() - lastActiveMs);
+    const computedCycle = Math.max(1, Number(body.lockCycle) || Math.floor(idleMs / SESSION_IDLE_TIMEOUT_MS) || 1);
+
+    if (computedCycle >= maxLockCount) {
+        db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [userRow.id], () => {
+            auditDb.logEvent({
+                userId: userRow.id,
+                userEmail: userRow.email,
+                eventType: 'session_timeout',
+                action: `ZTA Forced Logout (${computedCycle}/${maxLockCount} Idle Cycles Reached)`,
+                status: 'success',
+                req: req,
+                details: {
+                    reason: 'max_lock_cycles_exceeded',
+                    lockCycle: computedCycle,
+                    maxLockCount,
+                    idleMinutes: Math.round(idleMs / 60000)
+                }
+            });
+            clearSessionCookie(req, res);
+            return res.status(401).json({
+                error: 'Maximum idle lock cycles reached. Forced logout.',
+                code: 'SESSION_EXPIRED',
+                lockCount: computedCycle,
+                maxLockCount
+            });
+        });
+        return;
+    }
+
+    // Keep last_active_at intact so total idle time continues to accumulate across 30m cycles,
+    // and transition Virtual Office presence to Offline.
+    db.run("UPDATE users SET status_text = 'Offline' WHERE id = ?", [userRow.id], () => {
+        auditDb.logEvent({
+            userId: userRow.id,
+            userEmail: userRow.email,
+            eventType: 'session_timeout',
+            action: `ZTA Session Soft Lock (Cycle ${computedCycle}/${maxLockCount})`,
+            status: 'success',
+            req: req,
+            details: {
+                reason: 'session_soft_lock',
+                lockCycle: computedCycle,
+                maxLockCount,
+                idleMinutes: body.idleMinutes || (computedCycle * (SESSION_IDLE_TIMEOUT_MS / 60000)),
+                lastActiveAt: userRow.last_active_at
+            }
+        });
+        db.all("SELECT id, device_name, created_at, last_used_at FROM user_passkeys WHERE user_id = ?", [userRow.id], (pkErr, pks) => {
+            res.json({
+                locked: true,
+                lockCount: computedCycle,
+                maxLockCount,
+                lastActiveAt: userRow.last_active_at,
+                hasPasskeys: Array.isArray(pks) && pks.length > 0
+            });
+        });
+    });
+});
+
+// Helper to build unlocked user payload with RBAC permissions
+async function buildUnlockedUserPayload(userRow) {
+    let rbacPolicies;
+    try {
+        rbacPolicies = JSON.parse(await db.getSetting('RBAC_POLICIES') || '{}');
+    } catch (e) {
+        rbacPolicies = {};
+    }
+    const roles = (userRow.role || 'user').split(',').map(r => r.trim());
+    const allowed_widgets_set = new Set();
+    const allowed_actions_set = new Set();
+    let hasWildcardModels = false;
+    const allowed_models_set = new Set();
+    roles.forEach(r => {
+        const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
+        (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
+        (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+        (policy.allowed_models || []).forEach(m => {
+            if (m === '*') hasWildcardModels = true;
+            allowed_models_set.add(m);
+        });
+    });
+    ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+    return {
+        ...userRow,
+        allowed_widgets: allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set),
+        allowed_actions: allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set),
+        allowed_models: hasWildcardModels ? ['*'] : Array.from(allowed_models_set)
+    };
+}
+
+// Auth: Unlock Soft-Locked Session via in-UI Google Re-authentication
+app.post('/api/auth/unlock-google', requireAuthAllowLocked, async (req, res) => {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ error: 'Authorization code is required' });
+
+    try {
+        const clientId = await db.getSetting('GOOGLE_CLIENT_ID');
+        const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET');
+        const redirectUri = 'postmessage';
+        if (!clientId || !clientSecret) {
+            return res.status(500).json({ error: 'Server OAuth configuration missing' });
+        }
+
+        const oAuth2Client = new OAuth2Client(clientId, clientSecret, redirectUri);
+        const { tokens } = await oAuth2Client.getToken(code);
+        const ticket = await oAuth2Client.verifyIdToken({
+            idToken: tokens.id_token,
+            audience: clientId
+        });
+        const payload = ticket.getPayload();
+        const { sub: googleId, email } = payload;
+
+        const userRow = req.userRow;
+        const isSameUser = (userRow.google_id && userRow.google_id === googleId) ||
+            (userRow.email && email && userRow.email.toLowerCase() === email.toLowerCase());
+
+        if (!isSameUser) {
+            auditDb.logEvent({
+                userId: userRow.id,
+                userEmail: userRow.email,
+                eventType: 'login_failed',
+                action: 'ZTA Session Unlock Failed (Account Mismatch)',
+                status: 'blocked',
+                req: req,
+                details: { expectedEmail: userRow.email, attemptedEmail: email }
+            });
+            return res.status(403).json({
+                error: `現在ロック中のアカウント（${userRow.email}）と同じGoogleアカウントで認証してください。`
+            });
+        }
+
+        const nowIso = new Date().toISOString();
+        const onlineStatus = getDefaultOnlineStatusText(userRow);
+        db.run("UPDATE users SET status_text = ?, last_active_at = ? WHERE id = ?", [onlineStatus, nowIso, userRow.id], async () => {
+            const hashes = getContextHashes(req);
+            const sessionToken = jwt.sign(
+                { id: userRow.id, googleId: userRow.google_id, email: userRow.email, role: userRow.role, ip_hash: hashes.ipHash, ua_hash: hashes.uaHash },
+                process.env.JWT_SECRET || 'secret',
+                { expiresIn: '7d' }
+            );
+            res.cookie('token', sessionToken, getSessionCookieOptions(req, 7 * 24 * 60 * 60 * 1000));
+
+            auditDb.logEvent({
+                userId: userRow.id,
+                userEmail: userRow.email,
+                eventType: 'login_success',
+                action: 'ZTA Session Unlocked (Google Re-authentication)',
+                status: 'success',
+                req: req,
+                details: { method: 'google_oauth_in_ui' }
+            });
+
+            const updatedUser = await buildUnlockedUserPayload({
+                ...userRow,
+                status_text: onlineStatus,
+                last_active_at: nowIso
+            });
+            res.json({ success: true, user: updatedUser });
+        });
+    } catch (error) {
+        console.error('[ZTA Unlock Google Error]:', error);
+        res.status(401).json({ error: 'Google再認証に失敗しました。もう一度お試しください。' });
+    }
+});
+
+// ==========================================
+// Auth: WebAuthn Passkey Endpoints (ZTA Re-authentication & Registration)
+// ==========================================
+
+// List registered passkeys for current user
+app.get('/api/auth/passkey/list', requireAuthAllowLocked, (req, res) => {
+    db.all(
+        "SELECT id, credential_id, device_name, transports, created_at, last_used_at FROM user_passkeys WHERE user_id = ? ORDER BY created_at DESC",
+        [req.userRow.id],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ passkeys: rows || [] });
+        }
+    );
+});
+
+// Delete a passkey
+app.delete('/api/auth/passkey/:id', requireAuth, (req, res) => {
+    const passkeyId = req.params.id;
+    db.run("DELETE FROM user_passkeys WHERE id = ? AND user_id = ?", [passkeyId, req.user.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true });
+    });
+});
+
+// Generate WebAuthn registration options (PublicKeyCredentialCreationOptions)
+app.post('/api/auth/passkey/register/options', requireAuthAllowLocked, (req, res) => {
+    const userRow = req.userRow;
+    const rpId = getRpId(req);
+    const challenge = crypto.randomBytes(32).toString('base64url');
+    saveWebauthnChallenge(userRow.id, challenge, 'create');
+
+    db.all("SELECT credential_id, transports FROM user_passkeys WHERE user_id = ?", [userRow.id], (err, existingRows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const excludeCredentials = (existingRows || []).map(row => {
+            let transports = ['internal', 'hybrid'];
+            try {
+                if (row.transports) transports = JSON.parse(row.transports);
+            } catch (_) {}
+            return {
+                id: row.credential_id,
+                type: 'public-key',
+                transports
+            };
+        });
+
+        const userIdBase64Url = Buffer.from(String(userRow.id), 'utf8').toString('base64url');
+        res.json({
+            rp: {
+                name: 'Multi Agent System (ZTA)',
+                id: rpId
+            },
+            user: {
+                id: userIdBase64Url,
+                name: userRow.email || `user-${userRow.id}`,
+                displayName: userRow.display_name || userRow.name || userRow.email || `User ${userRow.id}`
+            },
+            challenge,
+            pubKeyCredParams: [
+                { type: 'public-key', alg: -7 },   // ES256
+                { type: 'public-key', alg: -257 }  // RS256
+            ],
+            timeout: 120000,
+            excludeCredentials,
+            authenticatorSelection: {
+                authenticatorAttachment: 'platform',
+                residentKey: 'preferred',
+                userVerification: 'required'
+            },
+            attestation: 'none'
+        });
+    });
+});
+
+// Verify WebAuthn registration response and store SPKI public key
+app.post('/api/auth/passkey/register/verify', requireAuthAllowLocked, async (req, res) => {
+    const userRow = req.userRow;
+    const { credential, publicKeySpki, publicKeyAlg, deviceName } = req.body || {};
+    if (!credential || !credential.id || !credential.response || !publicKeySpki) {
+        return res.status(400).json({ error: 'Invalid passkey registration payload' });
+    }
+
+    const expectedChallenge = consumeWebauthnChallenge(userRow.id, 'create');
+    if (!expectedChallenge) {
+        return res.status(400).json({ error: 'Registration challenge expired or not found. Please try again.' });
+    }
+
+    try {
+        const clientDataBuf = Buffer.from(credential.response.clientDataJSON, 'base64url');
+        const clientData = JSON.parse(clientDataBuf.toString('utf8'));
+
+        if (clientData.type !== 'webauthn.create') {
+            return res.status(400).json({ error: 'Invalid clientData.type' });
+        }
+        if (clientData.challenge !== expectedChallenge) {
+            return res.status(400).json({ error: 'Challenge mismatch' });
+        }
+        const expectedOrigins = getExpectedOrigins(req);
+        if (!expectedOrigins.includes(clientData.origin)) {
+            return res.status(400).json({ error: `Origin mismatch: ${clientData.origin}` });
+        }
+
+        // Verify RP ID hash and User Present (UP) flag in authenticatorData if provided
+        let signCount = 0;
+        if (credential.response.authenticatorData) {
+            const authDataBuf = Buffer.from(credential.response.authenticatorData, 'base64url');
+            if (authDataBuf.length < 37) {
+                return res.status(400).json({ error: 'Invalid authenticatorData length' });
+            }
+            const rpIdHash = authDataBuf.subarray(0, 32);
+            const expectedRpIdHash = crypto.createHash('sha256').update(getRpId(req)).digest();
+            if (!rpIdHash.equals(expectedRpIdHash)) {
+                return res.status(400).json({ error: 'RP ID hash mismatch' });
+            }
+            const flags = authDataBuf[32];
+            const userPresent = (flags & 0x01) !== 0;
+            if (!userPresent) {
+                return res.status(400).json({ error: 'User Present (UP) flag is required' });
+            }
+            signCount = authDataBuf.readUInt32BE(33);
+        }
+
+        // Validate that publicKeySpki is a valid SPKI key parseable by Node crypto
+        const spkiBuf = Buffer.from(publicKeySpki, 'base64url');
+        crypto.createPublicKey({ key: spkiBuf, format: 'der', type: 'spki' });
+
+        const transports = JSON.stringify(credential.response.transports || ['internal']);
+        const label = (deviceName || 'Mac / Platform Passkey').slice(0, 80);
+
+        db.run(
+            `INSERT INTO user_passkeys (user_id, credential_id, public_key, algorithm, sign_count, transports, device_name)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [userRow.id, credential.id, publicKeySpki, Number(publicKeyAlg) || -7, signCount, transports, label],
+            async function(dbErr) {
+                if (dbErr) {
+                    console.error('[Passkey Register DB Error]:', dbErr);
+                    return res.status(500).json({ error: 'Failed to store passkey credential' });
+                }
+
+                // If session was locked when registering, also unlock it immediately
+                const nowIso = new Date().toISOString();
+                const onlineStatus = getDefaultOnlineStatusText(userRow);
+                db.run("UPDATE users SET status_text = ?, last_active_at = ? WHERE id = ?", [onlineStatus, nowIso, userRow.id], async () => {
+                    auditDb.logEvent({
+                        userId: userRow.id,
+                        userEmail: userRow.email,
+                        eventType: 'passkey_registered',
+                        action: `ZTA Passkey Registered (${label})`,
+                        status: 'success',
+                        req: req,
+                        details: { credentialId: credential.id, deviceName: label }
+                    });
+                    const updatedUser = await buildUnlockedUserPayload({
+                        ...userRow,
+                        status_text: onlineStatus,
+                        last_active_at: nowIso
+                    });
+                    res.json({ success: true, user: updatedUser });
+                });
+            }
+        );
+    } catch (verifyErr) {
+        console.error('[Passkey Register Verify Error]:', verifyErr);
+        return res.status(400).json({ error: 'Passkey verification failed: ' + verifyErr.message });
+    }
+});
+
+// Generate WebAuthn assertion options for re-authentication (allowCredentials strictly scoped to signed-in user)
+app.post('/api/auth/passkey/reauth/options', requireAuthAllowLocked, (req, res) => {
+    const userRow = req.userRow;
+    const rpId = getRpId(req);
+
+    db.all("SELECT credential_id, transports FROM user_passkeys WHERE user_id = ?", [userRow.id], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({
+                error: 'このアカウントにはまだパスキーが登録されていません。',
+                code: 'NO_PASSKEYS_REGISTERED'
+            });
+        }
+
+        const challenge = crypto.randomBytes(32).toString('base64url');
+        saveWebauthnChallenge(userRow.id, challenge, 'get');
+
+        const allowCredentials = rows.map(row => {
+            let transports = ['internal', 'hybrid'];
+            try {
+                if (row.transports) transports = JSON.parse(row.transports);
+            } catch (_) {}
+            return {
+                type: 'public-key',
+                id: row.credential_id,
+                transports
+            };
+        });
+
+        res.json({
+            challenge,
+            rpId,
+            timeout: 120000,
+            userVerification: 'required',
+            allowCredentials
+        });
+    });
+});
+
+// Verify WebAuthn assertion and unlock Soft-Locked session
+app.post('/api/auth/passkey/reauth/verify', requireAuthAllowLocked, async (req, res) => {
+    const userRow = req.userRow;
+    const { credential } = req.body || {};
+    if (!credential || !credential.id || !credential.response) {
+        return res.status(400).json({ error: 'Invalid assertion payload' });
+    }
+
+    const expectedChallenge = consumeWebauthnChallenge(userRow.id, 'get');
+    if (!expectedChallenge) {
+        return res.status(400).json({ error: 'Authentication challenge expired. Please try again.' });
+    }
+
+    db.get("SELECT * FROM user_passkeys WHERE credential_id = ?", [credential.id], (err, storedCred) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!storedCred) {
+            return res.status(404).json({
+                error: '指定されたパスキーが見つかりません。',
+                code: 'CREDENTIAL_NOT_FOUND',
+                credentialId: credential.id
+            });
+        }
+
+        // Strict account ownership check (prevent cross-account assertion acceptance)
+        if (Number(storedCred.user_id) !== Number(userRow.id)) {
+            auditDb.logEvent({
+                userId: userRow.id,
+                userEmail: userRow.email,
+                eventType: 'login_failed',
+                action: 'ZTA Passkey Unlock Blocked (Account Ownership Mismatch)',
+                status: 'blocked',
+                req: req,
+                details: { credentialId: credential.id }
+            });
+            return res.status(403).json({ error: 'Account ownership mismatch for this passkey.' });
+        }
+
+        try {
+            const clientDataBuf = Buffer.from(credential.response.clientDataJSON, 'base64url');
+            const authDataBuf = Buffer.from(credential.response.authenticatorData, 'base64url');
+            const signatureBuf = Buffer.from(credential.response.signature, 'base64url');
+
+            const clientData = JSON.parse(clientDataBuf.toString('utf8'));
+            if (clientData.type !== 'webauthn.get') {
+                return res.status(400).json({ error: 'Invalid clientData.type' });
+            }
+            if (clientData.challenge !== expectedChallenge) {
+                return res.status(400).json({ error: 'Challenge mismatch' });
+            }
+            const expectedOrigins = getExpectedOrigins(req);
+            if (!expectedOrigins.includes(clientData.origin)) {
+                return res.status(400).json({ error: `Origin mismatch: ${clientData.origin}` });
+            }
+
+            if (authDataBuf.length < 37) {
+                return res.status(400).json({ error: 'Invalid authenticatorData' });
+            }
+            const rpIdHash = authDataBuf.subarray(0, 32);
+            const expectedRpIdHash = crypto.createHash('sha256').update(getRpId(req)).digest();
+            if (!rpIdHash.equals(expectedRpIdHash)) {
+                return res.status(400).json({ error: 'RP ID hash mismatch' });
+            }
+
+            const flags = authDataBuf[32];
+            const userPresent = (flags & 0x01) !== 0;
+            if (!userPresent) {
+                return res.status(400).json({ error: 'User Present (UP) flag not set' });
+            }
+
+            const newSignCount = authDataBuf.readUInt32BE(33);
+            if (newSignCount > 0 && storedCred.sign_count > 0 && newSignCount <= storedCred.sign_count) {
+                return res.status(400).json({ error: 'Passkey signature counter anomaly detected' });
+            }
+
+            // Verify cryptographic signature over authenticatorData || SHA256(clientDataJSON)
+            const clientDataHash = crypto.createHash('sha256').update(clientDataBuf).digest();
+            const signedData = Buffer.concat([authDataBuf, clientDataHash]);
+            const publicKeyObj = crypto.createPublicKey({
+                key: Buffer.from(storedCred.public_key, 'base64url'),
+                format: 'der',
+                type: 'spki'
+            });
+
+            const isSignatureValid = crypto.verify('sha256', signedData, publicKeyObj, signatureBuf);
+            if (!isSignatureValid) {
+                return res.status(401).json({ error: 'Passkey cryptographic signature verification failed' });
+            }
+
+            const nowIso = new Date().toISOString();
+            const onlineStatus = getDefaultOnlineStatusText(userRow);
+
+            db.run("UPDATE user_passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?", [newSignCount, nowIso, storedCred.id]);
+            db.run("UPDATE users SET status_text = ?, last_active_at = ? WHERE id = ?", [onlineStatus, nowIso, userRow.id], async () => {
+                const hashes = getContextHashes(req);
+                const sessionToken = jwt.sign(
+                    { id: userRow.id, googleId: userRow.google_id, email: userRow.email, role: userRow.role, ip_hash: hashes.ipHash, ua_hash: hashes.uaHash },
+                    process.env.JWT_SECRET || 'secret',
+                    { expiresIn: '7d' }
+                );
+                res.cookie('token', sessionToken, getSessionCookieOptions(req, 7 * 24 * 60 * 60 * 1000));
+
+                auditDb.logEvent({
+                    userId: userRow.id,
+                    userEmail: userRow.email,
+                    eventType: 'login_success',
+                    action: `ZTA Session Unlocked (Passkey: ${storedCred.device_name || 'Platform'})`,
+                    status: 'success',
+                    req: req,
+                    details: { method: 'webauthn_passkey', credentialId: storedCred.credential_id }
+                });
+
+                const updatedUser = await buildUnlockedUserPayload({
+                    ...userRow,
+                    status_text: onlineStatus,
+                    last_active_at: nowIso
+                });
+                res.json({ success: true, user: updatedUser });
+            });
+        } catch (verifyErr) {
+            console.error('[Passkey Reauth Verify Error]:', verifyErr);
+            return res.status(400).json({ error: 'Passkey assertion verification failed: ' + verifyErr.message });
         }
     });
 });
@@ -1439,28 +2093,49 @@ function requireAgentOrUserAuth(req, res, next) {
                 return res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
             }
 
-            if ((row.status_text || '').toLowerCase() === 'offline' || !row.last_active_at) {
+            if (!row.last_active_at) {
                 clearSessionCookie(req, res);
                 return res.status(401).json({ error: 'Session terminated. Please sign in again.', code: 'SESSION_EXPIRED' });
             }
+
+            const maxLockCount = await getSessionLockMaxCount();
+            const hardLogoutTimeoutMs = maxLockCount * SESSION_IDLE_TIMEOUT_MS;
             const lastActiveMs = new Date(row.last_active_at).getTime();
-            if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+            const idleMs = isNaN(lastActiveMs) ? Infinity : (Date.now() - lastActiveMs);
+
+            if (idleMs >= hardLogoutTimeoutMs) {
                 db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
                 auditDb.logEvent({
                     userId: decoded.id,
                     userEmail: row.email || decoded.email,
                     eventType: 'session_timeout',
-                    action: `ZTA Server-Side Session Idle Timeout (${req.method} ${req.originalUrl})`,
+                    action: `ZTA Server-Side Forced Logout (${req.method} ${req.originalUrl})`,
                     status: 'blocked',
                     req: req,
                     details: {
-                        reason: 'server_idle_timeout_exceeded',
+                        reason: 'max_lock_cycles_exceeded',
                         lastActiveAt: row.last_active_at,
-                        idleTimeoutMinutes: SESSION_IDLE_TIMEOUT_MS / 60000
+                        maxLockCount,
+                        idleTimeoutMinutes: Math.round(hardLogoutTimeoutMs / 60000)
                     }
                 });
                 clearSessionCookie(req, res);
                 return res.status(401).json({ error: 'Session idle timeout exceeded. Please sign in again.', code: 'SESSION_EXPIRED' });
+            }
+
+            const isSoftLocked = (row.status_text || '').toLowerCase() === 'offline' || (idleMs >= SESSION_IDLE_TIMEOUT_MS);
+            if (isSoftLocked) {
+                const lockCount = Math.max(1, Math.min(maxLockCount - 1, Math.floor(idleMs / SESSION_IDLE_TIMEOUT_MS) || 1));
+                if ((row.status_text || '').toLowerCase() !== 'offline') {
+                    db.run("UPDATE users SET status_text = 'Offline' WHERE id = ?", [decoded.id]);
+                }
+                return res.status(401).json({
+                    error: 'Session is locked due to inactivity. Please re-authenticate to continue.',
+                    code: 'SESSION_LOCKED',
+                    lockCount,
+                    maxLockCount,
+                    lastActiveAt: row.last_active_at
+                });
             }
             
             req.user = decoded;
@@ -1553,29 +2228,49 @@ function requireAuth(req, res, next) {
                 return res.status(401).json({ error: 'User not found in database', code: 'SESSION_EXPIRED' });
             }
 
-            if ((row.status_text || '').toLowerCase() === 'offline' || !row.last_active_at) {
+            if (!row.last_active_at) {
                 clearSessionCookie(req, res);
                 return res.status(401).json({ error: 'Session terminated. Please sign in again.', code: 'SESSION_EXPIRED' });
             }
 
+            const maxLockCount = await getSessionLockMaxCount();
+            const hardLogoutTimeoutMs = maxLockCount * SESSION_IDLE_TIMEOUT_MS;
             const lastActiveMs = new Date(row.last_active_at).getTime();
-            if (isNaN(lastActiveMs) || (Date.now() - lastActiveMs > SESSION_IDLE_TIMEOUT_MS)) {
+            const idleMs = isNaN(lastActiveMs) ? Infinity : (Date.now() - lastActiveMs);
+
+            if (idleMs >= hardLogoutTimeoutMs) {
                 db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [decoded.id]);
                 auditDb.logEvent({
                     userId: decoded.id,
                     userEmail: row.email || decoded.email,
                     eventType: 'session_timeout',
-                    action: `ZTA Server-Side Session Idle Timeout (${req.method} ${req.originalUrl})`,
+                    action: `ZTA Server-Side Forced Logout (${req.method} ${req.originalUrl})`,
                     status: 'blocked',
                     req: req,
                     details: {
-                        reason: 'server_idle_timeout_exceeded',
+                        reason: 'max_lock_cycles_exceeded',
                         lastActiveAt: row.last_active_at,
-                        idleTimeoutMinutes: SESSION_IDLE_TIMEOUT_MS / 60000
+                        maxLockCount,
+                        idleTimeoutMinutes: Math.round(hardLogoutTimeoutMs / 60000)
                     }
                 });
                 clearSessionCookie(req, res);
                 return res.status(401).json({ error: 'Session idle timeout exceeded. Please sign in again.', code: 'SESSION_EXPIRED' });
+            }
+
+            const isSoftLocked = (row.status_text || '').toLowerCase() === 'offline' || (idleMs >= SESSION_IDLE_TIMEOUT_MS);
+            if (isSoftLocked) {
+                const lockCount = Math.max(1, Math.min(maxLockCount - 1, Math.floor(idleMs / SESSION_IDLE_TIMEOUT_MS) || 1));
+                if ((row.status_text || '').toLowerCase() !== 'offline') {
+                    db.run("UPDATE users SET status_text = 'Offline' WHERE id = ?", [decoded.id]);
+                }
+                return res.status(401).json({
+                    error: 'Session is locked due to inactivity. Please re-authenticate to continue.',
+                    code: 'SESSION_LOCKED',
+                    lockCount,
+                    maxLockCount,
+                    lastActiveAt: row.last_active_at
+                });
             }
             
             req.user = decoded;

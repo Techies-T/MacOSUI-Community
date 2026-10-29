@@ -35,7 +35,9 @@ const SystemTab = ({
     localAiModel,
     setLocalAiModel,
     localAiTemperature,
-    setLocalAiTemperature
+    setLocalAiTemperature,
+    sessionLockMaxCount = 6,
+    setSessionLockMaxCount
 }) => {
     const filteredClaudeModels = (claudeModels || []).filter(model =>
         (model.displayName || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
@@ -285,6 +287,40 @@ const SystemTab = ({
                             </optgroup>
                         </select>
                         <p className="text-[10px] text-gray-400 mt-1">※ HTML/SVGレポート生成に使用するモデルを Gemini / Claude から選択できます（未選択時はアクティブプロバイダーの基本モデル）。</p>
+                    </div>
+
+                    {/* ZTA Session Lock & Forced Logout Policy */}
+                    <div className="pt-3 border-t border-gray-200">
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="block text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                                <span>🔒</span>
+                                <span>ZTA セッションロック最大反復回数 (30分無操作 × N回で強制ログアウト)</span>
+                            </label>
+                            <span className="text-[11px] font-mono text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                30分 × {sessionLockMaxCount || 6}回 = 計 {(Number(sessionLockMaxCount) || 6) * 30}分 ({((Number(sessionLockMaxCount) || 6) * 0.5).toFixed(1)}時間)
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="number"
+                                min="1"
+                                max="48"
+                                value={sessionLockMaxCount ?? 6}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value, 10);
+                                    if (setSessionLockMaxCount) {
+                                        setSessionLockMaxCount(isNaN(val) ? '' : Math.max(1, Math.min(48, val)));
+                                    }
+                                }}
+                                className="w-28 px-3 py-2 border border-gray-200 rounded bg-white text-sm font-mono focus:outline-none focus:border-blue-500"
+                            />
+                            <span className="text-xs text-gray-600">
+                                回（推奨デフォルト: <strong>6回 = 3時間</strong> / 昼休みや会議を跨いでもパスキー・Google再認証で復帰可能）
+                            </span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                            ※ 30分間無操作になると画面を閉じずにロック通知モーダルを表示（バーチャルオフィスは Offline 化）し、この回数分連続して30分タイムアウトが繰り返された時点で完全ログアウト（Cookie破棄）を実行します。
+                        </p>
                     </div>
 
                     <button

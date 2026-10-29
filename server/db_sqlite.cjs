@@ -106,6 +106,18 @@ function initDb() {
         // Ignore error if column exists
     });
 
+    db.run(`CREATE TABLE IF NOT EXISTS user_passkeys (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        public_key TEXT NOT NULL,
+        public_key_alg INTEGER DEFAULT -7,
+        counter INTEGER DEFAULT 0,
+        transports TEXT,
+        device_name TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_used_at DATETIME
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS deep_research_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,

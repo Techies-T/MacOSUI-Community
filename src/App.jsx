@@ -3,22 +3,30 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import Desktop from './components/Desktop';
 import LoginScreen from './components/LoginScreen';
 import SetupScreen from './components/SetupScreen';
+import SessionLockModal from './components/SessionLockModal';
 
 // ZTA 無操作タイムアウト閾値 (30分)
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 // 定期セッション検証間隔 (60秒)
 const SESSION_CHECK_INTERVAL_MS = 60 * 1000;
+// デフォルトの最大ロック回数 (30分 × 6回 = 3時間)
+const DEFAULT_MAX_LOCK_COUNT = 6;
 
 const App = () => {
     const [user, setUser] = useState(null);
-    const [config, setConfig] = useState({ isConfigured: false, clientId: '' });
+    const [config, setConfig] = useState({ isConfigured: false, clientId: '', sessionLockMaxCount: DEFAULT_MAX_LOCK_COUNT });
     const [loadingConfig, setLoadingConfig] = useState(true);
     const [loadingSession, setLoadingSession] = useState(true);
     const [authNotice, setAuthNotice] = useState('');
+    const [isSessionLocked, setIsSessionLocked] = useState(false);
+    const [lockCycleCount, setLockCycleCount] = useState(0);
     const userRef = useRef(null);
     const lastActivityRef = useRef(0);
     const hasRecentActivityRef = useRef(false);
     const isLoggingOutRef = useRef(false);
+    const isSessionLockedRef = useRef(false);
+    const lastNotifiedCycleRef = useRef(0);
+    const maxLockCountRef = useRef(DEFAULT_MAX_LOCK_COUNT);
 
     useEffect(() => {
         userRef.current = user;
@@ -26,6 +34,19 @@ const App = () => {
             lastActivityRef.current = Date.now();
         }
     }, [user]);
+
+    useEffect(() => {
+        isSessionLockedRef.current = isSessionLocked;
+    }, [isSessionLocked]);
+
+    useEffect(() => {
+        const parsed = parseInt(config?.sessionLockMaxCount, 10);
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 48) {
+            maxLockCountRef.current = parsed;
+        } else {
+            maxLockCountRef.current = DEFAULT_MAX_LOCK_COUNT;
+        }
+    }, [config?.sessionLockMaxCount]);
 
     const forceLogoutWithNotice = useCallback(async (reasonMessage, logoutReason = 'logout', extraDetails = {}) => {
         if (isLoggingOutRef.current) return;
@@ -42,6 +63,10 @@ const App = () => {
                 })
             }).catch(() => {});
         } finally {
+            setIsSessionLocked(false);
+            isSessionLockedRef.current = false;
+            setLockCycleCount(0);
+            lastNotifiedCycleRef.current = 0;
             setUser(null);
             userRef.current = null;
             if (reasonMessage) {
@@ -51,7 +76,30 @@ const App = () => {
         }
     }, []);
 
-    // グローバル fetch インターセプター: APIが 401 またはセッション失効 403 を返した場合に即座に強制ログアウト
+    const notifyServerSoftLock = useCallback(async (cycle, idleMinutes) => {
+        if (lastNotifiedCycleRef.current === cycle) return;
+        lastNotifiedCycleRef.current = cycle;
+        try {
+            const rawFetch = window.__eaOriginalFetch || window.fetch;
+            const res = await rawFetch('/api/auth/session-lock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lockCycle: cycle, idleMinutes })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 401 && data?.code === 'SESSION_EXPIRED') {
+                await forceLogoutWithNotice(
+                    `30分の無操作タイムアウトが規定回数（${data?.maxLockCount || maxLockCountRef.current}回）に達したため、セキュリティ保護により強制ログアウトしました。`,
+                    'session_timeout',
+                    { idleMinutes, lockCycles: cycle, trigger: 'max_lock_cycles_exceeded' }
+                );
+            }
+        } catch {
+            // ignore network error during soft lock notification
+        }
+    }, [forceLogoutWithNotice]);
+
+    // グローバル fetch インターセプター: APIが 401(SESSION_LOCKED / SESSION_EXPIRED) または 403 を返した場合のハンドリング
     useEffect(() => {
         if (!window.__eaOriginalFetch) {
             window.__eaOriginalFetch = window.fetch.bind(window);
@@ -63,15 +111,28 @@ const App = () => {
             try {
                 const reqUrl = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
                 const isApiCall = reqUrl.startsWith('/api/');
-                const isExcluded = reqUrl.startsWith('/api/auth/logout') || reqUrl.startsWith('/api/auth/google');
+                const isExcluded =
+                    reqUrl.startsWith('/api/auth/logout') ||
+                    reqUrl.startsWith('/api/auth/google') ||
+                    reqUrl.startsWith('/api/auth/unlock-google') ||
+                    reqUrl.startsWith('/api/auth/session-lock') ||
+                    reqUrl.startsWith('/api/auth/passkey/');
 
                 if (isApiCall && !isExcluded && userRef.current) {
                     if (response.status === 401) {
                         const cloned = response.clone();
                         const errData = await cloned.json().catch(() => ({}));
-                        if (errData?.code !== 'GOOGLE_TOKEN_MISSING') {
+                        if (errData?.code === 'SESSION_LOCKED') {
+                            const cycle = Number(errData.lockCount) || 1;
+                            if (errData.maxLockCount) {
+                                maxLockCountRef.current = Number(errData.maxLockCount);
+                            }
+                            isSessionLockedRef.current = true;
+                            setIsSessionLocked(true);
+                            setLockCycleCount(cycle);
+                        } else if (errData?.code !== 'GOOGLE_TOKEN_MISSING') {
                             forceLogoutWithNotice(
-                                'セッションがタイムアウトしたため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
+                                'セッションの有効期限（最大ロック回数）を超過したため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
                                 'session_timeout',
                                 { trigger: 'api_401', endpoint: reqUrl }
                             );
@@ -130,10 +191,26 @@ const App = () => {
     const checkSession = useCallback(async (silent = false, isUserActive = false) => {
         try {
             const rawFetch = window.__eaOriginalFetch || window.fetch;
-            const endpoint = isUserActive ? '/api/auth/me?active=1' : '/api/auth/me';
+            const endpoint = (isUserActive && !isSessionLockedRef.current) ? '/api/auth/me?active=1' : '/api/auth/me';
             const response = await rawFetch(endpoint);
             if (response.ok) {
                 const data = await response.json();
+                if (data.maxLockCount) {
+                    maxLockCountRef.current = Number(data.maxLockCount);
+                }
+                if (data.sessionLocked) {
+                    const cycle = Number(data.lockCount) || 1;
+                    isSessionLockedRef.current = true;
+                    setIsSessionLocked(true);
+                    setLockCycleCount(cycle);
+                    lastNotifiedCycleRef.current = cycle;
+                    if (data.lastActiveAt) {
+                        const serverLastMs = new Date(data.lastActiveAt).getTime();
+                        if (!isNaN(serverLastMs)) {
+                            lastActivityRef.current = serverLastMs;
+                        }
+                    }
+                }
                 setUser(prev => {
                     if (!prev || !silent) return data.user;
                     if (
@@ -171,7 +248,8 @@ const App = () => {
         const init = async () => {
             const conf = await fetchConfig();
             if (conf?.isConfigured) {
-                const loggedIn = await checkSession(false, true);
+                // 初回ロード時は active=1 を付けずにソフトロック状態やアイドル時間を正確に判定する
+                const loggedIn = await checkSession(false, false);
                 if (loggedIn) {
                     await fetchConfig(1);
                 }
@@ -184,16 +262,47 @@ const App = () => {
 
     const userId = user?.id;
 
-    // ZTA: 無操作タイムアウト監視 & タブ復帰時・定期セッション生存確認
+    // ZTA: 30分無操作ソフトロック（最大N回）& 強制ログアウト監視
     useEffect(() => {
         if (!userId) return;
 
-        lastActivityRef.current = Date.now();
+        if (!lastActivityRef.current) {
+            lastActivityRef.current = Date.now();
+        }
         hasRecentActivityRef.current = false;
         const lastMousePos = { x: null, y: null };
 
+        const evaluateIdleState = (now, triggerSource) => {
+            const idleTime = now - lastActivityRef.current;
+            if (idleTime < IDLE_TIMEOUT_MS) return false;
+
+            const maxCycles = maxLockCountRef.current || DEFAULT_MAX_LOCK_COUNT;
+            const cycles = Math.max(1, Math.floor(idleTime / IDLE_TIMEOUT_MS));
+            const idleMinutes = Math.round(idleTime / 60000);
+
+            if (cycles >= maxCycles) {
+                forceLogoutWithNotice(
+                    `30分の無操作タイムアウトが規定回数（${maxCycles}回 / 計${maxCycles * 30}分）に達したため、セキュリティ保護により強制ログアウトしました。`,
+                    'session_timeout',
+                    { idleMinutes, lockCycles: cycles, trigger: triggerSource }
+                );
+                return true;
+            }
+
+            // ソフトロックへ移行またはサイクル数の更新
+            isSessionLockedRef.current = true;
+            setIsSessionLocked(true);
+            setLockCycleCount(cycles);
+            setUser(prev => (prev ? { ...prev, status_text: 'Offline' } : prev));
+            notifyServerSoftLock(cycles, idleMinutes);
+            return true;
+        };
+
         let lastThrottle = 0;
         const updateActivity = (evt) => {
+            // ソフトロック中はマウス操作やキー入力でタイマーをリセットさせない（パスキーまたはGoogle再認証完了時のみ解除）
+            if (isSessionLockedRef.current) return;
+
             if (evt?.type === 'mousemove') {
                 if (lastMousePos.x === null && lastMousePos.y === null) {
                     lastMousePos.x = evt.clientX;
@@ -209,14 +318,9 @@ const App = () => {
             const now = Date.now();
             if (now - lastThrottle < 2000) return;
             lastThrottle = now;
-            // スリープ復帰等で既にアイドル制限時間を超えていた場合は即座にログアウト
-            const idleTime = now - lastActivityRef.current;
-            if (idleTime >= IDLE_TIMEOUT_MS) {
-                forceLogoutWithNotice(
-                    '一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
-                    'session_timeout',
-                    { idleMinutes: Math.round(idleTime / 60000), trigger: 'activity_resume_after_idle' }
-                );
+
+            // スリープ復帰等で既に30分以上経過していた場合はソフトロックまたは強制ログアウトを評価
+            if (evaluateIdleState(now, 'activity_resume_after_idle')) {
                 return;
             }
             lastActivityRef.current = now;
@@ -227,13 +331,8 @@ const App = () => {
         activityEvents.forEach(evt => window.addEventListener(evt, updateActivity, { passive: true }));
 
         const intervalId = setInterval(() => {
-            const idleTime = Date.now() - lastActivityRef.current;
-            if (idleTime >= IDLE_TIMEOUT_MS) {
-                forceLogoutWithNotice(
-                    '一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
-                    'session_timeout',
-                    { idleMinutes: Math.round(idleTime / 60000), trigger: 'idle_interval_timer' }
-                );
+            const now = Date.now();
+            if (evaluateIdleState(now, 'idle_interval_timer')) {
                 return;
             }
             const wasActive = hasRecentActivityRef.current;
@@ -243,14 +342,8 @@ const App = () => {
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
-                const idleTime = Date.now() - lastActivityRef.current;
-                if (idleTime >= IDLE_TIMEOUT_MS) {
-                    forceLogoutWithNotice(
-                        '一定時間操作がなかったため、セキュリティ保護により自動ログアウトしました。再度ログインしてください。',
-                        'session_timeout',
-                        { idleMinutes: Math.round(idleTime / 60000), trigger: 'visibility_resume_after_idle' }
-                    );
-                } else {
+                const now = Date.now();
+                if (!evaluateIdleState(now, 'visibility_resume_after_idle')) {
                     checkSession(true, false);
                 }
             }
@@ -262,7 +355,7 @@ const App = () => {
             clearInterval(intervalId);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [userId, checkSession, forceLogoutWithNotice]);
+    }, [userId, checkSession, forceLogoutWithNotice, notifyServerSoftLock]);
 
     const handleActivate = async () => {
         setLoadingConfig(true);
@@ -275,8 +368,24 @@ const App = () => {
     const handleLogin = async (userData) => {
         setAuthNotice('');
         lastActivityRef.current = Date.now();
+        isSessionLockedRef.current = false;
+        setIsSessionLocked(false);
+        setLockCycleCount(0);
+        lastNotifiedCycleRef.current = 0;
         setUser(userData);
         await fetchConfig(1);
+    };
+
+    const handleUnlockSession = (unlockedUser) => {
+        lastActivityRef.current = Date.now();
+        hasRecentActivityRef.current = true;
+        isSessionLockedRef.current = false;
+        setIsSessionLocked(false);
+        setLockCycleCount(0);
+        lastNotifiedCycleRef.current = 0;
+        if (unlockedUser) {
+            setUser(unlockedUser);
+        }
     };
 
     const handleLogout = async () => {
@@ -294,7 +403,17 @@ const App = () => {
     return (
         <GoogleOAuthProvider clientId={config.clientId}>
             {user ? (
-                <Desktop user={user} onLogout={handleLogout} config={config} />
+                <>
+                    <Desktop user={user} onLogout={handleLogout} config={config} />
+                    <SessionLockModal
+                        isOpen={isSessionLocked}
+                        user={user}
+                        lockCycleCount={lockCycleCount || 1}
+                        maxLockCount={Number(config?.sessionLockMaxCount) || DEFAULT_MAX_LOCK_COUNT}
+                        onUnlock={handleUnlockSession}
+                        onLogout={handleLogout}
+                    />
+                </>
             ) : (
                 <LoginScreen onLogin={handleLogin} authNotice={authNotice} onClearNotice={() => setAuthNotice('')} />
             )}
