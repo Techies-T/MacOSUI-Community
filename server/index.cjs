@@ -45,11 +45,14 @@ async function getSessionLockMaxCount() {
 // WebAuthn (Passkey) チャレンジの一時保存ストア (5分間有効)
 const webauthnChallenges = new Map();
 
-function saveWebauthnChallenge(userId, type, challenge) {
+function saveWebauthnChallenge(userId, challengeOrType, maybeType) {
     const now = Date.now();
     for (const [k, v] of webauthnChallenges.entries()) {
         if (v.expiresAt < now) webauthnChallenges.delete(k);
     }
+    const isKnownType = (val) => val === 'create' || val === 'get';
+    const type = isKnownType(maybeType) ? maybeType : challengeOrType;
+    const challenge = isKnownType(maybeType) ? challengeOrType : maybeType;
     const key = `${userId}:${type}`;
     webauthnChallenges.set(key, {
         challenge,
@@ -68,6 +71,18 @@ function consumeWebauthnChallenge(userId, type) {
 }
 
 function getRpId(req) {
+    if (req.headers.origin) {
+        try {
+            const originUrl = new URL(req.headers.origin);
+            if (originUrl.hostname) return originUrl.hostname;
+        } catch (_) {}
+    }
+    if (req.headers.referer) {
+        try {
+            const refUrl = new URL(req.headers.referer);
+            if (refUrl.hostname) return refUrl.hostname;
+        } catch (_) {}
+    }
     const rawHost = (req.headers['x-forwarded-host'] || req.headers.host || req.hostname || 'localhost').split(',')[0].trim();
     return rawHost.replace(/:\d+$/, '');
 }
@@ -93,14 +108,25 @@ function getExpectedOrigins(req) {
             }
         } catch (_) {}
     }
-    return origins;
+    return Array.from(origins);
+}
+
+function getSessionCookieOptions(req, maxAge = 7 * 24 * 60 * 60 * 1000) {
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https' || (req.headers.origin && req.headers.origin.startsWith('https://'));
+    return {
+        httpOnly: true,
+        secure: Boolean(isHttps),
+        sameSite: 'lax',
+        path: '/',
+        maxAge
+    };
 }
 
 function clearSessionCookie(req, res) {
-    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https' || (req.headers.origin && req.headers.origin.startsWith('https://'));
     res.clearCookie('token', {
         httpOnly: true,
-        secure: isHttps,
+        secure: Boolean(isHttps),
         sameSite: 'lax',
         path: '/'
     });
@@ -1425,23 +1451,27 @@ async function buildUnlockedUserPayload(userRow) {
     const roles = (userRow.role || 'user').split(',').map(r => r.trim());
     const allowed_widgets_set = new Set();
     const allowed_actions_set = new Set();
+    const allowed_pods_set = new Set();
     let hasWildcardModels = false;
     const allowed_models_set = new Set();
     roles.forEach(r => {
         const policy = rbacPolicies[r] || rbacPolicies['user'] || {};
         (policy.allowed_widgets || []).forEach(w => allowed_widgets_set.add(w));
         (policy.allowed_actions || []).forEach(a => allowed_actions_set.add(a));
+        (policy.allowed_pods || []).forEach(p => allowed_pods_set.add(p));
         (policy.allowed_models || []).forEach(m => {
             if (m === '*') hasWildcardModels = true;
             allowed_models_set.add(m);
         });
     });
-    ['app:settings', 'app:gemini', 'app:mcp-chat', 'app:calendar', 'app:notes', 'app:calculator'].forEach(w => allowed_widgets_set.add(w));
+    ['app:settings'].forEach(w => allowed_widgets_set.add(w));
+    const isAdmin = roles.includes('admin');
     return {
         ...userRow,
-        allowed_widgets: allowed_widgets_set.has('*') ? ['*'] : Array.from(allowed_widgets_set),
-        allowed_actions: allowed_actions_set.has('*') ? ['*'] : Array.from(allowed_actions_set),
-        allowed_models: hasWildcardModels ? ['*'] : Array.from(allowed_models_set)
+        allowed_widgets: (isAdmin || allowed_widgets_set.has('*')) ? ['*'] : Array.from(allowed_widgets_set),
+        allowed_actions: (isAdmin || allowed_actions_set.has('*')) ? ['*'] : Array.from(allowed_actions_set),
+        allowed_models: (isAdmin || hasWildcardModels) ? ['*'] : Array.from(allowed_models_set),
+        allowed_pods: (isAdmin || allowed_pods_set.has('*')) ? ['*'] : Array.from(allowed_pods_set)
     };
 }
 
@@ -1451,15 +1481,13 @@ app.post('/api/auth/unlock-google', requireAuthAllowLocked, async (req, res) => 
     if (!code) return res.status(400).json({ error: 'Authorization code is required' });
 
     try {
-        const clientId = await db.getSetting('GOOGLE_CLIENT_ID');
-        const clientSecret = await db.getSetting('GOOGLE_CLIENT_SECRET');
-        const redirectUri = 'postmessage';
-        if (!clientId || !clientSecret) {
+        const oAuth2Client = await getOAuthClient();
+        if (!oAuth2Client) {
             return res.status(500).json({ error: 'Server OAuth configuration missing' });
         }
 
-        const oAuth2Client = new OAuth2Client(clientId, clientSecret, redirectUri);
         const { tokens } = await oAuth2Client.getToken(code);
+        const clientId = await db.getSetting('GOOGLE_CLIENT_ID') || process.env.VITE_GOOGLE_CLIENT_ID;
         const ticket = await oAuth2Client.verifyIdToken({
             idToken: tokens.id_token,
             audience: clientId
@@ -1489,9 +1517,26 @@ app.post('/api/auth/unlock-google', requireAuthAllowLocked, async (req, res) => 
         const nowIso = new Date().toISOString();
         const onlineStatus = getDefaultOnlineStatusText(userRow);
         db.run("UPDATE users SET status_text = ?, last_active_at = ? WHERE id = ?", [onlineStatus, nowIso, userRow.id], async () => {
+            const updatedUser = await buildUnlockedUserPayload({
+                ...userRow,
+                status_text: onlineStatus,
+                last_active_at: nowIso
+            });
             const hashes = getContextHashes(req);
             const sessionToken = jwt.sign(
-                { id: userRow.id, googleId: userRow.google_id, email: userRow.email, role: userRow.role, ip_hash: hashes.ipHash, ua_hash: hashes.uaHash },
+                {
+                    id: userRow.id,
+                    googleId: userRow.google_id,
+                    email: userRow.email,
+                    name: userRow.name,
+                    role: userRow.role,
+                    allowed_widgets: updatedUser.allowed_widgets,
+                    allowed_actions: updatedUser.allowed_actions,
+                    allowed_models: updatedUser.allowed_models,
+                    allowed_pods: updatedUser.allowed_pods,
+                    ip_hash: hashes.ipHash,
+                    ua_hash: hashes.uaHash
+                },
                 process.env.JWT_SECRET || 'secret',
                 { expiresIn: '7d' }
             );
@@ -1507,11 +1552,6 @@ app.post('/api/auth/unlock-google', requireAuthAllowLocked, async (req, res) => 
                 details: { method: 'google_oauth_in_ui' }
             });
 
-            const updatedUser = await buildUnlockedUserPayload({
-                ...userRow,
-                status_text: onlineStatus,
-                last_active_at: nowIso
-            });
             res.json({ success: true, user: updatedUser });
         });
     } catch (error) {
@@ -1820,9 +1860,26 @@ app.post('/api/auth/passkey/reauth/verify', requireAuthAllowLocked, async (req, 
 
             db.run("UPDATE user_passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?", [newSignCount, nowIso, storedCred.id]);
             db.run("UPDATE users SET status_text = ?, last_active_at = ? WHERE id = ?", [onlineStatus, nowIso, userRow.id], async () => {
+                const updatedUser = await buildUnlockedUserPayload({
+                    ...userRow,
+                    status_text: onlineStatus,
+                    last_active_at: nowIso
+                });
                 const hashes = getContextHashes(req);
                 const sessionToken = jwt.sign(
-                    { id: userRow.id, googleId: userRow.google_id, email: userRow.email, role: userRow.role, ip_hash: hashes.ipHash, ua_hash: hashes.uaHash },
+                    {
+                        id: userRow.id,
+                        googleId: userRow.google_id,
+                        email: userRow.email,
+                        name: userRow.name,
+                        role: userRow.role,
+                        allowed_widgets: updatedUser.allowed_widgets,
+                        allowed_actions: updatedUser.allowed_actions,
+                        allowed_models: updatedUser.allowed_models,
+                        allowed_pods: updatedUser.allowed_pods,
+                        ip_hash: hashes.ipHash,
+                        ua_hash: hashes.uaHash
+                    },
                     process.env.JWT_SECRET || 'secret',
                     { expiresIn: '7d' }
                 );
@@ -1838,11 +1895,6 @@ app.post('/api/auth/passkey/reauth/verify', requireAuthAllowLocked, async (req, 
                     details: { method: 'webauthn_passkey', credentialId: storedCred.credential_id }
                 });
 
-                const updatedUser = await buildUnlockedUserPayload({
-                    ...userRow,
-                    status_text: onlineStatus,
-                    last_active_at: nowIso
-                });
                 res.json({ success: true, user: updatedUser });
             });
         } catch (verifyErr) {
