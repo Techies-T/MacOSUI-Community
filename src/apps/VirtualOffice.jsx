@@ -3,57 +3,11 @@ import React, { useState, useEffect } from 'react';
 // デフォルトのランダムアバター割り当て用シードリスト
 const DEFAULT_AVATAR_SEEDS = ['Oliver', 'Jake', 'Charlie', 'Luna', 'Bella', 'Milo', 'Coco', 'Cookie'];
 
-// クイックステータスプリセット定義
-const STATUS_PRESETS = [
-    { id: 'active', label: '在席中・相談歓迎', icon: '🟢', text: 'Active', room: 'open-space', color: 'bg-emerald-500' },
-    { id: 'focus', label: '集中作業中', icon: '🤫', text: 'Focus', room: 'focus-zone', color: 'bg-amber-500' },
-    { id: 'meeting', label: 'ミーティング中', icon: '💬', text: 'In Meeting', room: 'meeting-room-a', color: 'bg-indigo-500' },
-    { id: 'away', label: '一時離席中', icon: '🟡', text: 'Away', room: 'open-space', color: 'bg-yellow-500' },
-    { id: 'lunch', label: '食事・ランチ', icon: '🍱', text: 'Lunch', room: 'open-space', color: 'bg-orange-500' },
-    { id: 'break', label: '小休憩中', icon: '☕', text: 'Break', room: 'open-space', color: 'bg-amber-600' },
-    { id: 'remote', label: 'リモート勤務', icon: '🏡', text: 'Home Office', room: 'remote', color: 'bg-cyan-500' }
-];
-
-const getStatusEmoji = (text = '', room = '') => {
-    const t = (text || '').toLowerCase();
-    if (t === 'offline' || t.includes('オフライン')) return '⚫';
-    if (t.includes('lunch') || t.includes('飯') || t.includes('食')) return '🍱';
-    if (t.includes('break') || t.includes('休') || t.includes('tea') || t.includes('coffee')) return '☕';
-    if (t.includes('away') || t.includes('離席') || t.includes('外')) return '🟡';
-    if (t.includes('focus') || t.includes('集中') || room === 'focus-zone') return '🤫';
-    if (t.includes('meet') || t.includes('会議') || (room && room.startsWith('meeting'))) return '💬';
-    if (t.includes('home') || t.includes('remote') || room === 'remote') return '🏡';
-    return '🟢';
-};
-
-const getStatusDotColor = (text = '', room = '') => {
-    const t = (text || '').toLowerCase();
-    if (t === 'offline' || t.includes('オフライン')) return 'bg-gray-500';
-    if (t.includes('lunch') || t.includes('break') || t.includes('away') || t.includes('離席') || t.includes('休')) return 'bg-amber-400';
-    if (t.includes('focus') || room === 'focus-zone') return 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]';
-    if (t.includes('meet') || (room && room.startsWith('meeting'))) return 'bg-indigo-500';
-    if (room === 'remote' || t.includes('remote') || t.includes('home')) return 'bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)]';
-    return 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]';
-};
-
-const LANGUAGES = [
-    { code: 'ja', label: '日本語', flag: '🇯🇵' },
-    { code: 'en', label: 'English', flag: '🇺🇸' },
-    { code: 'es', label: 'Español', flag: '🇪🇸' }
-];
-
-const getLangInfo = (code) => {
-    return LANGUAGES.find(l => l.code === code) || LANGUAGES[0];
-};
-
 const VirtualOffice = ({ onOpen, user }) => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedUser, setSelectedUser] = useState(null);
     const [myStatus, setMyStatus] = useState({ room: 'open-space', text: 'Active' });
-    const [myLang, setMyLang] = useState('ja');
-    const [customStatusText, setCustomStatusText] = useState('Active');
-    const [isStatusPopoverOpen, setIsStatusPopoverOpen] = useState(false);
     const [generatingAvatarId, setGeneratingAvatarId] = useState(null);
     const [error, setError] = useState('');
     const [assistantPrompt, setAssistantPrompt] = useState('');
@@ -103,10 +57,15 @@ const VirtualOffice = ({ onOpen, user }) => {
             const res = await fetch('/api/virtual-office/users');
             if (!res.ok) {
                 let errMsg = 'Failed to load users';
+                let errCode = '';
                 try {
                     const data = await res.json();
                     errMsg = data.error || errMsg;
+                    errCode = data.code || '';
                 } catch (_) {}
+                if (res.status === 401 && errCode === 'SESSION_LOCKED') {
+                    return;
+                }
                 throw new Error(errMsg);
             }
             const data = await res.json();
@@ -149,9 +108,6 @@ const VirtualOffice = ({ onOpen, user }) => {
                         room: meInDb.current_room || 'open-space',
                         text: meInDb.status_text || 'Active'
                     });
-                    if (meInDb.native_language) {
-                        setMyLang(meInDb.native_language);
-                    }
                 }
             }
         } catch (err) {
@@ -211,25 +167,18 @@ const VirtualOffice = ({ onOpen, user }) => {
         }
     };
 
-    // 自分のステータス（位置・状態テキスト・母語）の更新
-    const handleUpdateMyStatus = async (room, text, lang) => {
-        const targetRoom = room || myStatus.room || 'open-space';
-        const targetText = text !== undefined ? text : (myStatus.text || 'Active');
-        const targetLang = lang !== undefined ? lang : myLang;
-
+    // 自分のステータス（位置・状態テキスト）の更新
+    const handleUpdateMyStatus = async (room, text) => {
         // 即座にUIに反映（楽観的更新）
-        setMyStatus({ room: targetRoom, text: targetText });
-        setMyLang(targetLang);
-        setCustomStatusText(targetText);
+        setMyStatus({ room, text });
         setUsers(prev => prev.map(u => {
             const isMe = u.id === user?.id;
             if (isMe) {
                 return {
                     ...u,
-                    current_room: targetRoom,
-                    status_text: targetText,
-                    native_language: targetLang,
-                    is_remote: targetRoom === 'remote' ? 1 : 0
+                    current_room: room,
+                    status_text: text,
+                    is_remote: room === 'remote' ? 1 : 0
                 };
             }
             return u;
@@ -240,10 +189,9 @@ const VirtualOffice = ({ onOpen, user }) => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    current_room: targetRoom,
-                    status_text: targetText,
-                    native_language: targetLang,
-                    is_remote: targetRoom === 'remote' ? 1 : 0
+                    current_room: room,
+                    status_text: text,
+                    is_remote: room === 'remote' ? 1 : 0
                 })
             });
             if (!res.ok) {
@@ -362,145 +310,20 @@ const VirtualOffice = ({ onOpen, user }) => {
                     </div>
                 </div>
 
-                {/* My Status Rich Trigger */}
-                <div className="relative">
-                    <button
-                        onClick={() => setIsStatusPopoverOpen(!isStatusPopoverOpen)}
-                        className="flex items-center space-x-2.5 bg-gray-900/90 hover:bg-gray-850 border border-gray-700/80 px-3 py-1.5 rounded-xl text-xs text-gray-200 transition shadow-sm hover:border-indigo-500/50 cursor-pointer"
+                {/* My Status Trigger */}
+                <div className="flex items-center space-x-3 bg-gray-900/60 p-2 rounded-xl border border-gray-800">
+                    <span className="text-xs font-semibold text-gray-400">My Status:</span>
+                    <select
+                        value={myStatus.room}
+                        onChange={(e) => handleUpdateMyStatus(e.target.value, e.target.value === 'focus-zone' ? 'Busy' : (e.target.value === 'remote' ? 'Home Office' : 'Active'))}
+                        className="bg-gray-800 border border-gray-700 text-xs rounded-lg px-2 py-1 text-gray-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     >
-                        <span className="text-sm">{getStatusEmoji(myStatus.text, myStatus.room)}</span>
-                        <div className="flex flex-col text-left">
-                            <span className="text-[9px] text-gray-400 font-medium">My Status</span>
-                            <span className="text-xs font-bold text-gray-100 flex items-center gap-1.5">
-                                <span className={`w-2 h-2 rounded-full ${getStatusDotColor(myStatus.text, myStatus.room)}`}></span>
-                                <span className="max-w-[110px] truncate">{myStatus.text || 'Active'}</span>
-                                <span className="text-[10px] text-gray-400 font-normal">({ROOMS[myStatus.room]?.name?.split(' ')[1] || myStatus.room})</span>
-                            </span>
-                        </div>
-                        <svg className={`w-3.5 h-3.5 text-gray-400 ml-0.5 transition-transform ${isStatusPopoverOpen ? 'rotate-180 text-indigo-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </button>
-
-                    {/* Status Popover Modal / Dropdown */}
-                    {isStatusPopoverOpen && (
-                        <>
-                            <div className="fixed inset-0 z-30" onClick={() => setIsStatusPopoverOpen(false)} />
-                            <div className="absolute right-0 mt-2 w-80 bg-[#131b2e] border border-gray-700/90 rounded-2xl shadow-2xl z-40 p-4 space-y-4 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
-                                {/* Header */}
-                                <div className="flex justify-between items-center pb-2 border-b border-gray-800">
-                                    <span className="text-xs font-bold text-gray-200 flex items-center gap-1.5">
-                                        <span>✨</span> ステータス・母語設定
-                                    </span>
-                                    <button onClick={() => setIsStatusPopoverOpen(false)} className="text-gray-400 hover:text-gray-200 text-xs cursor-pointer p-1">✕</button>
-                                </div>
-
-                                {/* Native Language Selector */}
-                                <div className="space-y-1.5 bg-gray-900/60 p-2.5 rounded-xl border border-gray-800/80">
-                                    <label className="text-[10px] font-bold text-indigo-400 block uppercase flex items-center gap-1">
-                                        <span>🌐</span> ネイティブ言語 (自動翻訳)
-                                    </label>
-                                    <div className="grid grid-cols-3 gap-1.5">
-                                        {LANGUAGES.map((l) => (
-                                            <button
-                                                key={l.code}
-                                                onClick={() => {
-                                                    handleUpdateMyStatus(myStatus.room, customStatusText, l.code);
-                                                }}
-                                                className={`py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition cursor-pointer border ${
-                                                    myLang === l.code
-                                                        ? 'bg-indigo-600 border-indigo-400 text-white shadow-md'
-                                                        : 'bg-gray-800/80 border-gray-700/60 text-gray-300 hover:bg-gray-700 hover:text-white'
-                                                }`}
-                                            >
-                                                <span>{l.flag}</span>
-                                                <span>{l.label}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Custom Status Input */}
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold text-gray-400 block uppercase">ステータスメッセージ</label>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={customStatusText}
-                                            onChange={(e) => setCustomStatusText(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    handleUpdateMyStatus(myStatus.room, customStatusText);
-                                                    setIsStatusPopoverOpen(false);
-                                                }
-                                            }}
-                                            placeholder="例: 15:00まで資料作成、相談OK..."
-                                            className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-100 placeholder-gray-500 focus:outline-none focus:border-indigo-500"
-                                        />
-                                        <button
-                                            onClick={() => {
-                                                handleUpdateMyStatus(myStatus.room, customStatusText);
-                                                setIsStatusPopoverOpen(false);
-                                            }}
-                                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-sm"
-                                        >
-                                            保存
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Quick Presets */}
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold text-gray-400 block uppercase">クイックプリセット</label>
-                                    <div className="grid grid-cols-1 gap-1 max-h-48 overflow-y-auto pr-1">
-                                        {STATUS_PRESETS.map((preset) => (
-                                            <button
-                                                key={preset.id}
-                                                onClick={() => {
-                                                    handleUpdateMyStatus(preset.room, preset.text);
-                                                    setCustomStatusText(preset.text);
-                                                    setIsStatusPopoverOpen(false);
-                                                }}
-                                                className="flex items-center justify-between p-2 rounded-xl hover:bg-gray-800/80 text-left transition group border border-transparent hover:border-gray-700/50 cursor-pointer"
-                                            >
-                                                <div className="flex items-center space-x-2.5">
-                                                    <span className="text-base">{preset.icon}</span>
-                                                    <div className="flex flex-col">
-                                                        <span className="text-xs font-semibold text-gray-200 group-hover:text-white">{preset.label}</span>
-                                                        <span className="text-[10px] text-gray-500">{preset.text} · {ROOMS[preset.room]?.name?.split(' ')[1]}</span>
-                                                    </div>
-                                                </div>
-                                                <span className={`w-2.5 h-2.5 rounded-full ${preset.color} opacity-75 group-hover:opacity-100`}></span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Location / Room Selection */}
-                                <div className="space-y-1.5 pt-2 border-t border-gray-800">
-                                    <label className="text-[10px] font-bold text-gray-400 block uppercase">所在エリアの移動</label>
-                                    <div className="grid grid-cols-2 gap-1.5">
-                                        {Object.entries(ROOMS).map(([roomId, roomInfo]) => (
-                                            <button
-                                                key={roomId}
-                                                onClick={() => {
-                                                    handleUpdateMyStatus(roomId, myStatus.text || 'Active');
-                                                    setIsStatusPopoverOpen(false);
-                                                }}
-                                                className={`p-2 rounded-xl text-left text-xs font-medium border transition cursor-pointer ${
-                                                    myStatus.room === roomId 
-                                                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200 font-bold' 
-                                                        : 'bg-gray-900/50 border-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                                                }`}
-                                            >
-                                                <div className="truncate">{roomInfo.name}</div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </>
-                    )}
+                        <option value="open-space">🌳 オープンスペース</option>
+                        <option value="meeting-room-a">💬 会議室 A</option>
+                        <option value="meeting-room-b">🎥 会議室 B</option>
+                        <option value="focus-zone">🤫 集中ゾーン</option>
+                        <option value="remote">🏡 自宅 (リモート)</option>
+                    </select>
                 </div>
             </div>
 
@@ -522,7 +345,7 @@ const VirtualOffice = ({ onOpen, user }) => {
                             return (
                                 <div 
                                     key={roomId}
-                                    onClick={() => handleUpdateMyStatus(roomId, roomId === 'focus-zone' ? 'Busy' : (roomId === 'remote' ? 'Home Office' : (myStatus.text || 'Active')))}
+                                    onClick={() => handleUpdateMyStatus(roomId, roomId === 'focus-zone' ? 'Busy' : (roomId === 'remote' ? 'Home Office' : 'Active'))}
                                     className={`p-5 rounded-2xl border ${roomInfo.color} cursor-pointer hover:border-indigo-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/5 relative overflow-hidden`}
                                 >
                                     <div className="flex justify-between items-start mb-4">
@@ -588,39 +411,23 @@ const VirtualOffice = ({ onOpen, user }) => {
                                                                 🤫
                                                             </div>
                                                         )}
-
-                                                        {/* Presence dot badge */}
                                                         <div 
-                                                            className={`absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0b0f19] flex items-center justify-center ${
-                                                                isOffline ? 'bg-gray-500' : getStatusDotColor(u.status_text, u.current_room)
+                                                            className={`absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0b0f19] ${
+                                                                isOffline ? 'bg-gray-500' :
+                                                                roomId === 'focus-zone' ? 'bg-amber-400' :
+                                                                u.is_remote ? 'bg-cyan-400' : 'bg-emerald-400'
                                                             }`}
                                                             title={`Status: ${isOffline ? 'Offline' : (u.status_text || 'Active')}`}
                                                         />
                                                     </div>
 
-                                                    {/* Name & Status Chip */}
-                                                    <div className="flex flex-col items-center max-w-[85px]">
-                                                        <div className="flex items-center justify-center gap-1 max-w-full">
-                                                            <span className="text-[10px] font-semibold text-gray-300 group-hover:text-white truncate">
-                                                                {u.name}
-                                                            </span>
-                                                            <span className="text-[9px] shrink-0" title={`母語: ${getLangInfo(u.native_language).label}`}>
-                                                                {getLangInfo(u.native_language).flag}
-                                                            </span>
-                                                        </div>
-                                                        {isOffline ? (
-                                                            <span 
-                                                                className="text-[8px] px-1.5 py-0.5 bg-gray-900/90 text-gray-400 rounded-full border border-gray-700/60 truncate max-w-full text-center mt-0.5 shadow-sm"
-                                                                title="Offline"
-                                                            >
+                                                    <div className="flex flex-col items-center max-w-[75px]">
+                                                        <span className="text-[10px] font-semibold text-gray-300 group-hover:text-white max-w-[65px] truncate">
+                                                            {u.name}
+                                                        </span>
+                                                        {isOffline && (
+                                                            <span className="text-[8px] px-1.5 py-0.5 bg-gray-900/90 text-gray-400 rounded-full border border-gray-700/60 truncate max-w-full text-center mt-0.5 shadow-sm">
                                                                 ⚫ Offline
-                                                            </span>
-                                                        ) : (u.status_text && u.status_text !== 'Active') && (
-                                                            <span 
-                                                                className="text-[8px] px-1.5 py-0.5 bg-gray-900/90 text-gray-300 rounded-full border border-gray-700/60 truncate max-w-full text-center mt-0.5 shadow-sm"
-                                                                title={u.status_text}
-                                                            >
-                                                                {getStatusEmoji(u.status_text, u.current_room)} {u.status_text}
                                                             </span>
                                                         )}
                                                     </div>
@@ -667,17 +474,11 @@ const VirtualOffice = ({ onOpen, user }) => {
                                 
                                 <div>
                                     <h3 className="font-extrabold text-base text-gray-100">{selectedUser.name}</h3>
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                        <span className="px-2.5 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-[10px] text-gray-400 capitalize inline-block">
-                                            {selectedUser.role || 'Member'}
-                                        </span>
-                                        <span className="px-2 py-0.5 rounded-full bg-indigo-950/60 border border-indigo-500/40 text-[10px] text-indigo-300 font-semibold inline-flex items-center gap-1">
-                                            <span>{getLangInfo(selectedUser.native_language).flag}</span>
-                                            <span>{getLangInfo(selectedUser.native_language).label}</span>
-                                        </span>
-                                    </div>
+                                    <span className="px-2.5 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-[10px] text-gray-400 capitalize inline-block mt-1">
+                                        {selectedUser.role || 'Member'}
+                                    </span>
                                     {selectedUser.unread_count > 0 && (
-                                         <span className="px-2 py-0.5 rounded-full bg-red-600/20 border border-red-500/50 text-[10px] text-red-400 font-bold inline-block mt-1 animate-pulse">
+                                         <span className="ml-1.5 px-2 py-0.5 rounded-full bg-red-600/20 border border-red-500/50 text-[10px] text-red-400 font-bold inline-block mt-1 animate-pulse">
                                              🔴 {selectedUser.unread_count}件の未読
                                          </span>
                                      )}
@@ -714,14 +515,6 @@ const VirtualOffice = ({ onOpen, user }) => {
                                         )}
                                     </span>
                                 </div>
-                                {selectedUser.id === user?.id && (
-                                    <button
-                                        onClick={() => setIsStatusPopoverOpen(true)}
-                                        className="w-full mt-2 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 hover:border-indigo-500/50 rounded-lg text-xs text-indigo-300 font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-                                    >
-                                        <span>✨</span> ステータスを変更する
-                                    </button>
-                                )}
                             </div>
 
                             {/* Assistant Rules Panel (Only for Me / Boss settings) */}
@@ -805,6 +598,59 @@ const VirtualOffice = ({ onOpen, user }) => {
                                     </button>
                                 )}
                             </div>
+
+                            {/* Debug Controls (Test other users' positions) */}
+                            {selectedUser.id !== user?.id && (
+                                <div className="bg-indigo-950/20 border border-dashed border-indigo-500/30 p-4 rounded-xl space-y-2 mt-4">
+                                    <span className="text-[9px] font-bold text-indigo-400 block uppercase">⚙️ テスト用デバッグツール</span>
+                                    <p className="text-[9px] text-gray-400 leading-relaxed font-normal">
+                                        このメンバーの配置を強制変更して、AIアシスタントの自動応答やボタンの出し分けをシミュレートできます。
+                                    </p>
+                                    <select
+                                        value={(selectedUser.is_offline || (selectedUser.status_text || '').toLowerCase() === 'offline') ? 'offline' : (selectedUser.current_room || 'open-space')}
+                                        onChange={async (e) => {
+                                            const val = e.target.value;
+                                            const isSettingOffline = val === 'offline';
+                                            const room = isSettingOffline ? (selectedUser.current_room || 'open-space') : val;
+                                            const isRemote = room === 'remote' ? 1 : 0;
+                                            const status = isSettingOffline ? 'Offline' : (room === 'focus-zone' ? 'Busy' : (room === 'remote' ? 'Home Office' : 'Active'));
+                                            
+                                            try {
+                                                const res = await fetch('/api/virtual-office/status', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({
+                                                        targetUserId: selectedUser.id,
+                                                        current_room: room,
+                                                        status_text: status,
+                                                        is_remote: isRemote
+                                                    })
+                                                });
+                                                if (res.ok) {
+                                                    setSelectedUser(prev => ({
+                                                        ...prev,
+                                                        current_room: room,
+                                                        status_text: status,
+                                                        is_remote: isRemote,
+                                                        is_offline: isSettingOffline
+                                                    }));
+                                                    loadUsers(false);
+                                                }
+                                            } catch (err) {
+                                                console.error(err);
+                                            }
+                                        }}
+                                        className="w-full bg-gray-900 border border-gray-700 text-[10px] rounded px-1.5 py-1 text-gray-300 focus:outline-none cursor-pointer"
+                                    >
+                                        <option value="open-space">🌳 オープンスペース (出社中)</option>
+                                        <option value="meeting-room-a">💬 会議室 A (ミーティング中)</option>
+                                        <option value="meeting-room-b">🎥 会議室 B (ミーティング中)</option>
+                                        <option value="focus-zone">🤫 集中ゾーン (話しかけ不可)</option>
+                                        <option value="remote">🏡 自宅 (リモートワーク中)</option>
+                                        <option value="offline">⚫ オフライン (セッション切れ/退席)</option>
+                                    </select>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="h-full flex flex-col justify-center items-center text-center space-y-3 text-gray-500">

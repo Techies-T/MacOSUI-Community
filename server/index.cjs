@@ -2638,15 +2638,24 @@ app.get('/api/virtual-office/users', requireAuth, (req, res) => {
                (SELECT COUNT(*) FROM dm_messages m WHERE m.sender_id = u.id AND m.receiver_id = ? AND m.is_read = 0) as unread_count
         FROM users u
     `;
-    db.all(sql, [loginUserId], (err, rows) => {
+    db.all(sql, [loginUserId], async (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
+        const maxLockCount = await getSessionLockMaxCount();
+        const hardLogoutThresholdMs = maxLockCount * SESSION_IDLE_TIMEOUT_MS;
         
         const enriched = rows.map(user => {
             const isOffline = isUserOffline(user, null);
             if (isOffline && (user.status_text || '').toLowerCase() !== 'offline') {
                 const hadLastActive = !!user.last_active_at;
                 const prevLastActive = user.last_active_at;
-                db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [user.id], () => {});
+                const lastActiveMs = user.last_active_at ? new Date(user.last_active_at).getTime() : NaN;
+                const idleMs = Number.isNaN(lastActiveMs) ? Infinity : (Date.now() - lastActiveMs);
+                if (idleMs >= hardLogoutThresholdMs) {
+                    db.run("UPDATE users SET status_text = 'Offline', last_active_at = NULL WHERE id = ?", [user.id], () => {});
+                } else {
+                    // ソフトロック期間中は status_text のみ Offline に更新し、last_active_at はサイクル計測のため保持する
+                    db.run("UPDATE users SET status_text = 'Offline' WHERE id = ?", [user.id], () => {});
+                }
                 if (hadLastActive) {
                     auditDb.logEvent({
                         userId: user.id,
