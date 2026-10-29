@@ -146,9 +146,12 @@ async function initDb() {
     await new Promise(r => pool.query("ALTER TABLE users ADD COLUMN last_active_at TEXT", () => r()));
 
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS user_passkeys (
-        id TEXT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL,
+        credential_id TEXT UNIQUE,
         public_key TEXT NOT NULL,
+        algorithm INTEGER DEFAULT -7,
+        sign_count INTEGER DEFAULT 0,
         public_key_alg INTEGER DEFAULT -7,
         counter INTEGER DEFAULT 0,
         transports TEXT,
@@ -156,6 +159,9 @@ async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_used_at TIMESTAMP
     )`, () => r()));
+    await new Promise(r => pool.query("ALTER TABLE user_passkeys ADD COLUMN credential_id TEXT", () => r()));
+    await new Promise(r => pool.query("ALTER TABLE user_passkeys ADD COLUMN algorithm INTEGER DEFAULT -7", () => r()));
+    await new Promise(r => pool.query("ALTER TABLE user_passkeys ADD COLUMN sign_count INTEGER DEFAULT 0", () => r()));
 
     await new Promise(r => pool.query(`CREATE TABLE IF NOT EXISTS deep_research_history (
         id SERIAL PRIMARY KEY,

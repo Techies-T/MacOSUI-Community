@@ -107,9 +107,12 @@ function initDb() {
     });
 
     db.run(`CREATE TABLE IF NOT EXISTS user_passkeys (
-        id TEXT PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
+        credential_id TEXT UNIQUE,
         public_key TEXT NOT NULL,
+        algorithm INTEGER DEFAULT -7,
+        sign_count INTEGER DEFAULT 0,
         public_key_alg INTEGER DEFAULT -7,
         counter INTEGER DEFAULT 0,
         transports TEXT,
@@ -117,6 +120,9 @@ function initDb() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_used_at DATETIME
     )`);
+    db.run("ALTER TABLE user_passkeys ADD COLUMN credential_id TEXT", () => {});
+    db.run("ALTER TABLE user_passkeys ADD COLUMN algorithm INTEGER DEFAULT -7", () => {});
+    db.run("ALTER TABLE user_passkeys ADD COLUMN sign_count INTEGER DEFAULT 0", () => {});
 
     db.run(`CREATE TABLE IF NOT EXISTS deep_research_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
